@@ -1174,7 +1174,7 @@ class BSession
         $namespace = BApp::service('config')->get('cookie/session_namespace');
         $_SESSION[$namespace] = $this->data;
         session_write_close();
-        self::dirty(false);
+        $this->dirty(false);
     }
 
     public function sessionId()

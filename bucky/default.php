@@ -16,14 +16,13 @@ class Bucky_Default_Controller extends BActionController
 {
     public function action_home()
     {
-        $html = BLayout::service()->html();
-        $body = $html->find('head', 0);
-        $body->innertext = '<script>alert("TEST");</script>';
+        BLayout::service()->html()->find('head', 0)->innertext = '<script>alert("TEST");</script>';
         BResponse::service()->output();
     }
 
     public function action_test()
     {
+        BLayout::service()->html()->find('body', 0)->innertext = 'TEST';
         BResponse::service()->output();
     }
 }

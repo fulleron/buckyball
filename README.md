@@ -21,3 +21,4 @@ Main goals:
 * Do not fight or stronghand with the developer, do not try to force, limit, etc.
 * Developer will find ways to work around or use undocumented API.
 * Conserve memory by not storing unnecessary data or configuration more than needed.
+* Minimize framework overhead (~10ms on slow server)

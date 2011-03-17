@@ -1,0 +1,17 @@
+{
+    "devmode": true,
+    "db": {
+        "dsn": "mysql:host=localhost;dbname=bucky",
+        "username": "root",
+        "password": "",
+        "logging": true
+    },
+    "cookie": {
+        "domain": "domain.com",
+        "path": "/bucky",
+        "timeout": 1080,
+        "name": "frontend",
+        "session_namespace": "bucky"
+    },
+    "modules": ["bucky_default"]
+}

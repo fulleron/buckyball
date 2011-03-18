@@ -405,7 +405,7 @@ class BConfig
     {
         $root = $this->_config;
         foreach (explode('/', $path) as $key) {
-            if (empty($root[$key])) {
+            if (!isset($root[$key])) {
                 return null;
             }
             $root = $root[$key];
@@ -434,7 +434,7 @@ class BDb
         include_once('lib/idiorm.php');
         include_once('lib/paris.php');
 
-        $config = BApp::service('config');
+        $config = BConfig::service();
         if (($dsn = $config->get('db/dsn'))) {
             ORM::configure($dsn);
             ORM::configure('username', $config->get('db/username'));
@@ -737,6 +737,7 @@ class BFrontController
                 break;
             }
         }
+
         BRequest::service()->initParams($params);
         if (!$routeNode || empty($routeNode['callback'])) {
             if ($this->_defaultRoutes) {
@@ -814,7 +815,7 @@ class BRequest
     {
         $post = file_get_contents('php://input');
         if ($post && $json) {
-            $post = BParser::fromJson($post, $asObject);
+            $post = BParser::service()->fromJson($post, $asObject);
         }
         return $post;
     }
@@ -825,9 +826,9 @@ class BRequest
         return $this;
     }
 
-    public function params()
+    public function params($key=null)
     {
-        return $this->_params;
+        return is_null($key) ? $this->_params : (isset($this->_params[$key]) ? $this->_params[$key] : null);
     }
 
     public function sanitize($data, $config, $trim=true)
@@ -958,7 +959,7 @@ class BResponse
         }
 
         echo $this->_content;
-        echo "<hr>".(BDebug::service()->delta());
+        //echo "<hr>".(BDebug::service()->delta());
         exit;
     }
 }

@@ -4,11 +4,13 @@ class Bucky_Default
 {
     static public function init()
     {
+        /*
         BFrontController::service()->route(array(
             array('GET /', array('Bucky_Default_Controller', 'home')),
             array('GET /test', array('Bucky_Default_Controller', 'test')),
             array('GET /test/', array('Bucky_Default_Controller', 'test')),
         ));
+        */
     }
 }
 

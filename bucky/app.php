@@ -165,7 +165,7 @@ class BApp
     *
     * @param string|array $folders Relative path(s) to manifests. May include wildcards.
     */
-    public static function load($folders)
+    public static function load($folders='.')
     {
         foreach ((array)$folders as $folder) {
             self::service('modules')->scan($folder);
@@ -465,11 +465,14 @@ class BModuleRegistry
 
     public function scan($source)
     {
-        $parser = BParser::service();
-        $manifests = glob($source.'/manifest.json');
+        if (substr($source, -5)!=='.json') {
+            $source .= '/manifest.json';
+        }
+        $manifests = glob($source);
         if (!$manifests) {
             return $this;
         }
+        $parser = BParser::service();
         foreach ($manifests as $file) {
             $json = file_get_contents($file);
             $manifest = $parser->fromJson($json);
@@ -789,6 +792,11 @@ class BRequest
     public function method()
     {
         return !empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+    }
+
+    public function webRoot()
+    {
+        return !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
     }
 
     public function rawPath()

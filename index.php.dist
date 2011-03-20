@@ -2,7 +2,7 @@
 error_reporting(E_ALL | E_STRICT);
 ini_set('display_errors', 1);
 
-require_once "bucky/app.php";
+require_once "bucky/framework.php";
 
 BApp::init();
 BApp::config('storage/private/config/local.json');

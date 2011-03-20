@@ -71,7 +71,45 @@ So, yada yada.
 * All the declarations and actions should be logged in dev mode, to be analyzed if needed.
 * All the errors should be logged and/or sent in staging or production modes.
 
-### Module Demo ###
+## Application Demo ##
+
+### index.php ###
+    <?php
+    // load framework file, doesn't have to be within application folder
+    require_once "bucky/framework.php";
+
+    // initialize framework services
+    BApp::init();
+
+    // load local configuration (db, enabled modules, etc)
+    BApp::config('storage/private/config/local.json');
+
+    // load
+    BApp::load('bucky/plugins/*,bucky');
+    // Same, order doesn't matter, modules will be loaded in order based on dependencies:
+    // BApp::load(array('bucky/plugins/*', 'bucky'));
+    // BApp::load('bucky/plugins/*'); BApp::load('bucky');
+
+    // Dispatch the application
+    BApp::run();
+
+### bucky/manifest.json ###
+
+    {
+        "modules": {
+            "bucky_default": {
+                "bootstrap": {"file":"default.php", "callback":"Bucky_Default::init"},
+                "version": "0.0.1",
+                "depends": {
+                    "modules": {
+                        "phpQuery": {"action":"error"}
+                    }
+                }
+            }
+        }
+    }
+
+### bucky/default.php (bootstrap file) ###
 
     <?php
 

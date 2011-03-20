@@ -83,6 +83,19 @@ So, yada yada.
 * All the declarations and actions should be logged in dev mode, to be analyzed if needed.
 * All the errors should be logged and/or sent in staging or production modes.
 
+## 3rd Party Libraries ##
+* Already implemented:
+  * [Idiorm & Paris](http://j4mie.github.com/idiormandparis/)
+  * [phpQuery](http://code.google.com/p/phpquery/)
+* Planned, currently successfully in use for a private project:
+  * [HeadJS](http://headjs.com/)
+  * [jQuery](http://jquery.com) / [jQuery UI](http://jqueryui.com)
+  * [jQuery AutoResize](http://plugins.jquery.com/plugin-tags/autoresize)
+  * [jQuery Growl](http://plugins.jquery.com/project/Growl)
+  * [LessCss (PHP or JS)](http://lesscss.org/)
+  * [AngularJS](http://angularjs.org)
+  * [Uploadify](http://www.uploadify.com/)
+
 ## Application Demo ##
 
 ### index.php ###

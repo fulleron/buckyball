@@ -2,12 +2,7 @@
     "modules": {
         "bucky_default": {
             "bootstrap": {"file":"default.php", "callback":"Bucky_Default::init"},
-            "version": "0.0.1",
-            "depends": {
-                "modules": {
-                    "phpQuery": {"action":"error"}
-                }
-            }
+            "version": "0.0.1"
         }
     }
 }

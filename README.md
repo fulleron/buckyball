@@ -75,6 +75,13 @@ So, yada yada.
 * All the declarations and actions should be logged in dev mode, to be analyzed if needed.
 * All the errors should be logged and/or sent in staging or production modes.
 
+## Performance ##
+* Server: Intel(R) Core (TM) 2 CPU E7400 @ 2.80GHz
+* Framework overhead:
+  * Without phpQuery plugin: 6ms, 1.310 MB peak, 1.048 MB after dispatch
+  * With phpQuery plugin, without pq usage: 18ms, 2.883 MB peak/after dispatch
+  * With phpQuery plugin, with pq minimal usage: 23ms, 2.883 MB peak/after dispatch
+
 ## Application Demo ##
 
 ### index.php ###

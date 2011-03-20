@@ -222,10 +222,14 @@ So, yada yada.
             $layout = BLayout::service();
 
             // Load a view as initial HTML document
-            $layout->doc(BLayout::service()->renderView('main.php', array(
+            $html = BLayout::service()->renderView('main.php', array(
                 'var'=>'VIEW LOCAL VAR TEST',
                 'param'=>BRequest::service()->params('param'),
-            )));
+            ));
+            $layout->doc($html);
+
+            // Or, without use of phpQuery:
+            // BResponse::service()->set($html);
 
             // Dispatch layout updates
             $layout->dispatch();

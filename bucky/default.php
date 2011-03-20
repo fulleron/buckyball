@@ -93,7 +93,6 @@ class Bucky_Default_Controller extends BActionController
 
     public function action_test()
     {
-        print_r(BRequest::service()->params());
         $layout = BLayout::service();
 
         // Load a view as initial HTML document

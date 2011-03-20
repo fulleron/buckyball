@@ -1,6 +1,6 @@
 <?php
 /**
-* bucky/framework.php
+* bucky/app.php
 *
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
 */
@@ -384,9 +384,9 @@ class BParser
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
             if ($r!=='' && $r[0]===':') {
-                $node =& $node['param'][$r];
+                $node =& $node['/:'][$r];
             } else {
-                $node =& $node['child'][$r==='' ? '__EMPTY__' : $r];
+                $node =& $node['/'][$r==='' ? '__EMPTY__' : $r];
             }
         }
         $observer = array('callback'=>$callback);
@@ -423,22 +423,23 @@ class BParser
         $routeNode = $tree[$method];
         $params = array();
         foreach ($requestArr as $i=>$r) {
-            if ($r==='' && !empty($routeNode['child']['__EMPTY__'])) {
-                $routeNode = $routeNode['child']['__EMPTY__'];
-                continue;
+            if ($r==='') $r = '__EMPTY__';
+            $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
+            if ($r==='__EMPTY__' && !empty($routeNode['/'][$r]) && is_null($nextR)) {
+                $routeNode = $routeNode['/'][$r];
+                break;
             }
-            if (!empty($routeNode['param'])) {
-                $nextR = !empty($requestArr[$i+1]) ? $requestArr[$i+1] : null;
-                foreach ($routeNode['param'] as $k=>$n) {
-                    if ($nextR && !empty($n['child'][$nextR]) || !$nextR && !empty($n['observers'])) {
+            if (!empty($routeNode['/:'])) {
+                foreach ($routeNode['/:'] as $k=>$n) {
+                    if (!is_null($nextR) && !empty($n['/'][$nextR]) || is_null($nextR) && !empty($n['observers'])) {
                         $params[substr($k, 1)] = $r;
                         $routeNode = $n;
-                        continue 2;                     
+                        continue 2;
                     }
                 }
             }
-            if (!empty($routeNode['child'][$r])) {
-                $routeNode = $routeNode['child'][$r];
+            if (!empty($routeNode['/'][$r])) {
+                $routeNode = $routeNode['/'][$r];
                 continue;
             }
             return null;

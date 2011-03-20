@@ -74,6 +74,7 @@ So, yada yada.
 ## Application Demo ##
 
 ### index.php ###
+
     <?php
     // load framework file, doesn't have to be within application folder
     require_once "bucky/framework.php";

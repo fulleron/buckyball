@@ -383,17 +383,7 @@ class BParser
         $node =& $tree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
-            if ($r==='') {
-                $r = '__EMPTY__';
-            }
-            if ($r[0]==':') {
-                $node['params'][] = substr($r, 1);
-            } else {
-                $node =& $node['next'][$r];
-            }
-        }
-        if (!empty($node['observers']) && !$multiple) {
-            throw new BException(BApp::t('Route is already assigned: %s', $route));
+            $node =& $node['next'][$r==='' ? '__EMPTY__' : $r];
         }
         $observer = array('callback'=>$callback);
         if (($module = BModuleRegistry::service()->currentModule())) {
@@ -402,7 +392,11 @@ class BParser
         if (!empty($args)) {
             $observer['args'] = $args;
         }
-        $node['observers'][] = $observer;
+        if ($multiple || empty($node['observers'])) {
+            $node['observers'][] = $observer;
+        } else {
+            $node['observers'][0] = array_merge_recursive($node['observers'][0], $observer);
+        }
         unset($node);
 
         return $this;
@@ -426,19 +420,30 @@ class BParser
         $params = array();
         $found = true;
         $paramId = 0;
-        foreach ($requestArr as $r) {
+        foreach ($requestArr as $i=>$r) {
             if ($r==='') {
                 $r = '__EMPTY__';
             }
-            if (!empty($routeNode['next'][$r])) {
-                $paramId = 0;
-                $routeNode = $routeNode['next'][$r];
-            } elseif (!empty($routeNode['params'][$paramId])) {
-                $params[$routeNode['params'][$paramId]] = $r;
-                $paramId++;
-            } else {
-                // Not found
+            if (empty($routeNode['next'])) {
                 return null;
+            }
+            if (!empty($routeNode['next'][$r])) {
+                $routeNode = $routeNode['next'][$r];
+            } else {
+                $match = false;
+                foreach ($routeNode['next'] as $k=>$n) {
+                    if ($k[0]==':') {
+                        if (!empty($n['next']) && empty($n['next'][$requestArr[$i+1]])) {
+                            continue;
+                        }
+                        $params[substr($k, 1)] = $r;
+                        $match = true;
+                        break;
+                    }
+                }
+                if (!$match) {
+                    return null;
+                }
             }
         }
         $routeNode['params_values'] = $params;
@@ -602,10 +607,12 @@ class BEventRegistry
         $result = array();
         if (!empty($this->_events[$eventName])) {
             foreach ($this->_events[$eventName]['observers'] as $observer) {
+
                 if (!empty($this->_events[$eventName]['args'])) {
-                    $args = array_merge($this->_events[$eventName]['args'], $observer['args']);
-                } else {
-                    $args = $observer['args'];
+                    $args = array_merge($this->_events[$eventName]['args'], $args);
+                }
+                if (!empty($observer['args'])) {
+                    $args = array_merge($observer['args'], $args);
                 }
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
                     $className = $observer['callback'][0];
@@ -892,7 +899,7 @@ class BFrontController
             }
         } else {
             $callback = $routeNode['observers'][0]['callback'];
-            $params = isset($routeNode['param_values']) ? $routeNode['param_values'] : array();
+            $params = isset($routeNode['params_values']) ? $routeNode['params_values'] : array();
         }
         $controllerName = $callback[0];
         $actionName = $callback[1];
@@ -1286,19 +1293,30 @@ class BLayout
         return $this;
     }
 
-    public function dispatch($route=null)
+    public function dispatch($route=null, $args=array())
     {
+        $result = array();
+        if (is_array($route)) {
+            foreach ($route as $r) {
+                $result = array_merge($result, $this->dispatch($r[0], isset($r[1]) ? $r[1] : array()));
+            }
+            return $result;
+        }
+        if (is_null($route)) {
+            $this->dispatch('GET *', $args);
+        }
         $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
         if (!$routeNode || empty($routeNode['observers'])) {
-            return null;
+            return $result;
         }
         $params = $routeNode['params_values'];
-        $result = array();
         foreach ($routeNode['observers'] as $observer) {
+            $params = $args;
+            if (!empty($routeNode['params_values'])) {
+                $params = array_merge($routeNode['params_values'], $params);
+            }
             if (!empty($observer['args'])) {
-                $params = array_merge($observer['args'], $routeNode['param_values']);
-            } else {
-                $params = isset($routeNode['param_values']) ? $routeNode['param_values'] : array();
+                $params = array_merge($observer['args'], $params);
             }
             if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
                 if (empty($this->_singletons[$observer['callback'][0]])) {

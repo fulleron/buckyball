@@ -22,6 +22,10 @@
 * Conserve memory by not storing unnecessary data or configuration more than needed.
 * Minimize framework overhead (~10ms on slow server)
 
+## Q&A ##
+* Q: Why yet another PHP framework?
+* A: Competition is good, it drives innovation and prevents stagnation. Also, I enjoy doing it.
+
 ## Installation ##
 
 This framework was just released and I'm not sure if it deserves even to be called alpha.

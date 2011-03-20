@@ -52,7 +52,7 @@ class BApp
         self::service('locale', 'BLocale');
         #self::service('unit', 'BUnit');
 
-        self::load(dirname(__FILE__));
+        #self::load(dirname(__FILE__));
     }
 
     /**
@@ -80,7 +80,8 @@ class BApp
     {
         if (BNULL===$class) {
             if (empty(self::$_services[$name])) {
-                throw new BException(self::t('Invalid service name: %s', $name));
+                return null; // for checks whether service exists
+                #throw new BException(self::t('Invalid service name: %s', $name));
             }
             if (is_string(self::$_services[$name])) {
                 $class = self::$_services[$name];
@@ -167,7 +168,11 @@ class BApp
     */
     public static function load($folders='.')
     {
-        foreach ((array)$folders as $folder) {
+#echo "<pre>"; print_r(debug_backtrace()); echo "</pre>";
+        if (is_string($folders)) {
+            $folders = explode(',', $folders);
+        }
+        foreach ($folders as $folder) {
             self::service('modules')->scan($folder);
         }
     }
@@ -268,7 +273,8 @@ class BParser
         return $asObject ? $obj : $this->objectToArray($obj);
     }
 
-    public function objectToArray($d) {
+    public function objectToArray($d)
+    {
         if (is_object($d)) {
             $d = get_object_vars($d);
         }
@@ -278,7 +284,8 @@ class BParser
         return $d;
     }
 
-    public function arrayToObject($d) {
+    public function arrayToObject($d)
+    {
         if (is_array($d)) {
             return (object) array_map(array($this, 'arrayToObject'), $d);
         }
@@ -299,7 +306,8 @@ class BParser
      * @param array $args array of [ 'arg_name' => 'arg value', ... ] replacements to be made
      * @return string|false result of sprintf call, or bool false on error
      */
-    public function sprintfn($format, $args = array()) {
+    public function sprintfn($format, $args = array())
+    {
         $args = (array)$args;
 
         // map of argument names to their corresponding sprintf numeric argument value
@@ -514,6 +522,105 @@ class BDb
     }
 }
 
+class BEventRegistry
+{
+    protected $_events = array();
+    protected $_singletons = array();
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BDb
+    */
+    static public function service()
+    {
+        return BApp::service('events');
+    }
+
+    /**
+    * Declare event with default arguments in bootstrap function
+    *
+    * @param string|array $eventName accepts multiple events in form of non-associative array
+    * @param array $args
+    */
+    public function event($eventName, $args=array())
+    {
+        if (is_array($eventName)) {
+            foreach ($eventName as $event) {
+                $this->event($event[0], !empty($event[1]) ? $event[1] : array());
+            }
+            return $this;
+        }
+        $this->_events[$eventName]['args'] = $args;
+        return $this;
+    }
+
+    /**
+    * Declare observers in bootstrap function
+    *
+    * @param string|array $eventName accepts multiple observers in form of non-associative array
+    * @param mixed $callback
+    * @param array $args
+    */
+    public function observe($eventName, $callback=null, $args=array())
+    {
+        if (is_array($eventName)) {
+            foreach ($eventName as $obs) {
+                $this->observe($obs[0], $obs[1], !empty($obs[2]) ? $obs[2] : array());
+            }
+            return $this;
+        }
+        $observer = array('callback'=>$callback, 'args'=>$args);
+        if (($module = BModuleRegistry::service()->currentModule())) {
+            $observer['module_name'] = $module['name'];
+        }
+        $this->_events[$eventName]['observers'][] = $observer;
+        return $this;
+    }
+
+    /**
+    * Alias for observe()
+    *
+    * @param string|array $eventName
+    * @param mixed $callback
+    * @param array $args
+    */
+    public function watch($eventName, $callback=null, $args=array())
+    {
+        return $this->observe($eventName, $callback, $args);
+    }
+
+    /**
+    * Dispatch event observers
+    *
+    * @param string $eventName
+    * @param array $args
+    * @return array Collection of results from observers
+    */
+    public function dispatch($eventName, $args=array())
+    {
+        $result = array();
+        if (!empty($this->_events[$eventName])) {
+            foreach ($this->_events[$eventName]['observers'] as $observer) {
+                if (!empty($this->_events[$eventName]['args'])) {
+                    $args = array_merge($this->_events[$eventName]['args'], $observer['args']);
+                } else {
+                    $args = $observer['args'];
+                }
+                if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
+                    $className = $observer['callback'][0];
+                    if (empty($this->_singletons[$className])) {
+                        $this->_singletons[$className] = new $className;
+                    }
+                    $observer['callback'][0] = $this->_singletons[$className];
+                }
+                $result[] = call_user_func($observer['callback'], $args);
+            }
+        }
+        return $result;
+    }
+}
+
 class BModuleRegistry
 {
     protected $_autoload = array();
@@ -549,6 +656,7 @@ class BModuleRegistry
             if (empty($manifest['modules'])) {
                 continue;
             }
+            $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$mod) {
                 if (!empty($this->_modules[$modName])) {
                     throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
@@ -558,7 +666,7 @@ class BModuleRegistry
                     continue;
                 }
                 $mod['name'] = $modName;
-                $mod['root_dir'] = dirname(realpath($file));
+                $mod['root_dir'] = $rootDir;
                 $this->_modules[$modName] = $mod;
             }
         }
@@ -1003,7 +1111,7 @@ class BResponse
         if ($this->_contentType=='application/json') {
             $this->_content = BParser::service()->toJson($this->_content);
         } elseif (is_null($this->_content)) {
-            $this->_content = BLayout::service()->render();
+            $this->_content = BLayout::service()->renderDoc();
         }
 
         echo $this->_content;
@@ -1080,27 +1188,11 @@ class BActionController
     }
 }
 
-include_once('lib/simple_html_dom.php');
-class Bucky_simple_html_dom extends simple_html_dom
-{
-    function loadAll($str, $lowercase=true)
-    {
-        $this->prepare($str, $lowercase);
-        while ($this->parse());
-        $this->root->_[HDOM_INFO_END] = $this->cursor;
-    }
-}
-
 class BLayout
 {
-    protected $_html;
     protected $_routeTree = array();
     protected $_singletons = array();
-
-    public function __construct()
-    {
-
-    }
+    protected $_views = array();
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -1112,35 +1204,72 @@ class BLayout
         return BApp::service('layout');
     }
 
-    public function html($html=null)
+    public function doc($html=null)
     {
-        if (!is_null($html) || is_null($this->_html)) {
-            if (is_null($html) && is_null($this->_html)) {
-                $html = '<!DOCTYPE html><html><head></head><body></body></html>';
-            } elseif (!is_null($html) && !is_null($this->_html)) {
-                $this->_html->clear();
-                unset($this->_html);
-            }
-            $this->_html = new Bucky_simple_html_dom;
-            $this->_html->loadAll($html);
+        if (($service = BApp::service('phpQuery'))) {
+            return $service->doc($html);
         }
-        return $this->_html;
+        return null;
     }
 
     public function file($filename)
     {
-        $this->html(file_get_contents($filename));
-        return $this->_html;
+        if (($service = BApp::service('phpQuery'))) {
+            return $service->file($filename);
+        }
+        return null;
     }
 
-    public function view()
+    public function find($selector)
     {
-
+        if (($service = BApp::service('phpQuery'))) {
+            return $service->find($selector);
+        }
+        return null;
     }
 
-    public function viewRenderer()
+    public function renderDoc()
     {
+        return (string)$this->doc();
+    }
 
+    public function allViews($folder)
+    {
+        $files = glob($folder);
+        if (!$files) {
+            return $this;
+        }
+        foreach ($files as $file) {
+
+        }
+        return $this;
+    }
+
+    public function view($viewname, $filename=null, $args=array())
+    {
+        if (is_array($viewname)) {
+            foreach ($viewname as $view) {
+                $this->view($view[0], $view[1], $view[2]);
+            }
+            return $this;
+        }
+        $this->_views[$viewname] = array('file'=>$filename, 'args'=>$args);
+        return $this;
+    }
+
+    public function renderView($_viewname, $_args=array())
+    {
+        $_filename = $_viewname;
+        if (!empty($this->_views[$_viewname]['file'])) {
+            $_filename = $this->_views[$_viewname]['file'];
+        }
+        if (!empty($this->_views[$_viewname]['args'])) {
+            $_args = array_merge($this->_views[$_viewname]['args'], $_args);
+        }
+        extract($_args, EXTR_SKIP);
+        ob_start();
+        include $_filename;
+        return ob_get_clean();
     }
 
     public function route($route, $callback=null, $args=null)
@@ -1161,9 +1290,10 @@ class BLayout
     {
         $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
         if (!$routeNode || empty($routeNode['observers'])) {
-            return $this;
+            return null;
         }
         $params = $routeNode['params_values'];
+        $result = array();
         foreach ($routeNode['observers'] as $observer) {
             if (!empty($observer['args'])) {
                 $params = array_merge($observer['args'], $routeNode['param_values']);
@@ -1178,13 +1308,9 @@ class BLayout
                 $observer['callback'][0] = $this->_singletons[$observer['callback'][0]];
             }
             BDebug::service()->log(array('event'=>'layout_dispatch', $routeNode));
-            call_user_func($observer['callback'], $params);
+            $result[] = call_user_func($observer['callback'], $params);
         }
-    }
-
-    public function render()
-    {
-        return (string)$this->_html;
+        return $result;
     }
 }
 

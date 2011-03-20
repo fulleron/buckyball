@@ -1,6 +1,6 @@
 <?php
 /**
-* bucky/app.php
+* bucky/framework.php
 *
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
 */

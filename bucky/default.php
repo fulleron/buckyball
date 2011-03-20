@@ -11,8 +11,8 @@ class Bucky_Default
         ));
 
         BLayout::service()->route(array(
-            array('GET /test', array('Bucky_Default', 'layout_test')),
-            array('GET /test/', array('Bucky_Default', 'layout_test')),
+            array('GET /test', array(__CLASS__, 'layout_test')),
+            array('GET /test/', array(__CLASS__, 'layout_test')),
         ));
 
         BLayout::service()->view(array(
@@ -20,7 +20,7 @@ class Bucky_Default
         ));
 
         BEventRegistry::service()->observe(array(
-            array('test_event', array('Bucky_Default', 'event_test')),
+            array('test_event', array(__CLASS__, 'event_test')),
         ));
     }
 

@@ -654,7 +654,7 @@ class BModuleRegistry
             $json = file_get_contents($file);
             $manifest = $parser->fromJson($json);
             if (empty($manifest['modules'])) {
-                continue;
+                throw new BException(BApp::t("Could not read manifest file: %s", $file));
             }
             $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$mod) {

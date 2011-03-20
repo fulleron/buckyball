@@ -143,7 +143,7 @@ class BApp
     {
         if (is_array($config)) {
             self::service('config')->add($config);
-        } elseif (is_string($config)) {
+        } elseif (is_string($config) && is_file($config)) {
             self::service('config')->addFile($config);
         } else {
             throw new BException("Invalid configuration argument");
@@ -365,6 +365,76 @@ class BParser
             // left-to-right loop earlier, recursively.
         }
         return $diff;
+    }
+
+    public function routeSave(&$tree, $route, $callback=null, $args=null, $multiple=false)
+    {
+        list($method, $route) = explode(' ', $route, 2);
+        $route = ltrim($route, '/');
+
+        $node =& $tree[$method];
+        $routeArr = explode('/', $route);
+        foreach ($routeArr as $r) {
+            if ($r==='') {
+                $r = '__EMPTY__';
+            }
+            if ($r[0]==':') {
+                $node['params'][] = substr($r, 1);
+            } else {
+                $node =& $node['next'][$r];
+            }
+        }
+        if (!empty($node['observers']) && !$multiple) {
+            throw new BException(BApp::t('Route is already assigned: %s', $route));
+        }
+        $observer = array('callback'=>$callback);
+        if (($module = BModuleRegistry::service()->currentModule())) {
+            $observer['module_name'] = $module['name'];
+        }
+        if (!empty($args)) {
+            $observer['args'] = $args;
+        }
+        $node['observers'][] = $observer;
+        unset($node);
+
+        return $this;
+    }
+
+    public function routeLoad(&$tree, $route=null)
+    {
+        if (is_null($route)) {
+            $route = BRequest::service()->rawPath();
+        }
+        if (strpos($route, ' ')===false) {
+            $method = BRequest::service()->method();
+        } else {
+            list($method, $route) = explode(' ', $route, 2);
+        }
+        if (empty($tree[$method])) {
+            return null;
+        }
+        $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
+        $routeNode = $tree[$method];
+        $params = array();
+        $found = true;
+        $paramId = 0;
+        foreach ($requestArr as $r) {
+            if ($r==='') {
+                $r = '__EMPTY__';
+            }
+            if (!empty($routeNode['next'][$r])) {
+                $paramId = 0;
+                $routeNode = $routeNode['next'][$r];
+            } elseif (!empty($routeNode['params'][$paramId])) {
+                $params[$routeNode['params'][$paramId]] = $r;
+                $paramId++;
+            } else {
+                // Not found
+                return null;
+            }
+        }
+        $routeNode['params_values'] = $params;
+        return $routeNode;
     }
 }
 
@@ -675,28 +745,10 @@ class BFrontController
             }
             return;
         }
+
+        BParser::service()->routeSave($this->_routeTree, $route, $callback, $args, false);
+
         $this->_routes[$route] = $callback;
-        list($method, $route) = explode(' ', $route, 2);
-        $route = ltrim($route, '/');
-
-        $node =& $this->_routeTree[$method];
-        $routeArr = explode('/', $route);
-        foreach ($routeArr as $r) {
-            if ($r==='') {
-                $r = '__EMPTY__';
-            }
-            if ($r[0]==':') {
-                $node['params'][] = substr($r, 1);
-            } else {
-                $node =& $node['next'][$r];
-            }
-        }
-        $node['callback'] = $callback;
-        if (!empty($args)) {
-            $node['args'] = $args;
-        }
-        unset($node);
-
         if (!is_null($name)) {
             $this->_urlTemplates[$name] = $route;
         }
@@ -714,49 +766,33 @@ class BFrontController
         return $this;
     }
 
+    public function currentRoute()
+    {
+
+    }
+
     public function dispatch($route=null)
     {
-        if (is_null($route)) {
-            $route = BRequest::service()->rawPath();
-        }
-        $method = BRequest::service()->method();
-        $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
-        $routeNode = $this->_routeTree[$method];
-        $params = array();
-        $found = true;
-        $i = 0;
-        foreach ($requestArr as $r) {
-            if ($r==='') {
-                $r = '__EMPTY__';
-            }
-            if (!empty($routeNode['next'][$r])) {
-                $paramId = 0;
-                $routeNode = $routeNode['next'][$r];
-            } elseif (!empty($routeNode['params'][$paramId])) {
-                $params[$routeNode['params'][$paramId]] = $r;
-                $paramId++;
-            } else {
-                $routeNode = null;
-                break;
-            }
-        }
+        $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
 
-        BRequest::service()->initParams($params);
-        if (!$routeNode || empty($routeNode['callback'])) {
+        if (!$routeNode || empty($routeNode['observers'])) {
+            $params = array();
             if ($this->_defaultRoutes) {
 //TODO
             } else {
-                $routeNode = array('callback'=>array('BActionController', 'noroute'));
+                $callback = array('BActionController', 'noroute');
             }
+        } else {
+            $callback = $routeNode['observers'][0]['callback'];
+            $params = isset($routeNode['param_values']) ? $routeNode['param_values'] : array();
         }
-        $controllerName = $routeNode['callback'][0];
-        $actionName = $routeNode['callback'][1];
+        $controllerName = $callback[0];
+        $actionName = $callback[1];
         $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
         $controller = null;
         do {
             if (!empty($controller)) {
                 list($actionName, $forwardControllerName, $params) = $controller->forward();
-                BRequest::service()->initParams($params);
                 if ($forwardControllerName) {
                     $controllerName = $forwardControllerName;
                 }
@@ -765,6 +801,7 @@ class BFrontController
                 $this->_controllerName = $controllerName;
                 $controller = new $controllerName();
             }
+            BRequest::service()->initParams($params);
             $controller->dispatch($actionName, $args);
         } while ($controller->forward());
     }
@@ -870,6 +907,9 @@ class BRequest
             $filter = explode('|', $filter);
         }
         foreach ($filter as $f) {
+            if (strpos($f, ':')) {
+                list($f, $p) = explode(':', $f, 2);
+            }
             switch ($f) {
                 case 'int': $v = (int)$v; break;
                 case 'float': $v = (float)$v; break;
@@ -883,7 +923,7 @@ class BRequest
                 case 'urle': $v = urlencode($v); break;
                 case 'urld': $v = urldecode($v); break;
                 case 'alnum': $v = preg_replace('#[^a-z0-9_]#i', '', $v); break;
-                case 'regex': case 'regexp': $v = preg_replace($config[$k][2], '', $v); break;
+                case 'regex': case 'regexp': $v = preg_replace($p, '', $v); break;
             }
         }
         return $v;
@@ -1054,6 +1094,8 @@ class Bucky_simple_html_dom extends simple_html_dom
 class BLayout
 {
     protected $_html;
+    protected $_routeTree = array();
+    protected $_singletons = array();
 
     public function __construct()
     {
@@ -1072,10 +1114,10 @@ class BLayout
 
     public function html($html=null)
     {
-        if (!is_null($html) || empty($this->_html)) {
-            if (is_null($html) && empty($this->_html)) {
+        if (!is_null($html) || is_null($this->_html)) {
+            if (is_null($html) && is_null($this->_html)) {
                 $html = '<!DOCTYPE html><html><head></head><body></body></html>';
-            } elseif (!is_null($html) && !empty($this->_html)) {
+            } elseif (!is_null($html) && !is_null($this->_html)) {
                 $this->_html->clear();
                 unset($this->_html);
             }
@@ -1099,6 +1141,45 @@ class BLayout
     public function viewRenderer()
     {
 
+    }
+
+    public function route($route, $callback=null, $args=null)
+    {
+        if (is_array($route)) {
+            foreach ($route as $a) {
+                $this->route($a[0], $a[1], isset($a[2])?$a[2]:null, isset($a[3])?$a[3]:null);
+            }
+            return;
+        }
+
+        BParser::service()->routeSave($this->_routeTree, $route, $callback, $args, true);
+
+        return $this;
+    }
+
+    public function dispatch($route=null)
+    {
+        $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
+        if (!$routeNode || empty($routeNode['observers'])) {
+            return $this;
+        }
+        $params = $routeNode['params_values'];
+        foreach ($routeNode['observers'] as $observer) {
+            if (!empty($observer['args'])) {
+                $params = array_merge($observer['args'], $routeNode['param_values']);
+            } else {
+                $params = isset($routeNode['param_values']) ? $routeNode['param_values'] : array();
+            }
+            if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
+                if (empty($this->_singletons[$observer['callback'][0]])) {
+                    $className = $observer['callback'][0];
+                    $this->_singletons[$observer['callback'][0]] = new $className($params);
+                }
+                $observer['callback'][0] = $this->_singletons[$observer['callback'][0]];
+            }
+            BDebug::service()->log(array('event'=>'layout_dispatch', $routeNode));
+            call_user_func($observer['callback'], $params);
+        }
     }
 
     public function render()
@@ -1135,10 +1216,8 @@ class BSession
         $config = BApp::service('config')->get('cookie');
         session_set_cookie_params($config['timeout'], $config['path'], $config['domain']);
         session_name($config['name']);
-        if (!empty($id)) {
+        if (!empty($id) || ($id = BRequest::service()->get('SID'))) {
             session_id($id);
-        } elseif (!empty($_GET['SID'])) {
-            session_id($_GET['SID']);
         }
         session_start();
 

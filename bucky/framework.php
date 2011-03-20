@@ -383,7 +383,11 @@ class BParser
         $node =& $tree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
-            $node =& $node['next'][$r==='' ? '__EMPTY__' : $r];
+            if ($r!=='' && $r[0]===':') {
+                $node =& $node['param'][$r];
+            } else {
+                $node =& $node['child'][$r==='' ? '__EMPTY__' : $r];
+            }
         }
         $observer = array('callback'=>$callback);
         if (($module = BModuleRegistry::service()->currentModule())) {
@@ -418,33 +422,26 @@ class BParser
         $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
         $routeNode = $tree[$method];
         $params = array();
-        $found = true;
-        $paramId = 0;
         foreach ($requestArr as $i=>$r) {
-            if ($r==='') {
-                $r = '__EMPTY__';
+            if ($r==='' && !empty($routeNode['child']['__EMPTY__'])) {
+                $routeNode = $routeNode['child']['__EMPTY__'];
+                continue;
             }
-            if (empty($routeNode['next'])) {
-                return null;
-            }
-            if (!empty($routeNode['next'][$r])) {
-                $routeNode = $routeNode['next'][$r];
-            } else {
-                $match = false;
-                foreach ($routeNode['next'] as $k=>$n) {
-                    if ($k[0]==':') {
-                        if (!empty($n['next']) && empty($n['next'][$requestArr[$i+1]])) {
-                            continue;
-                        }
+            if (!empty($routeNode['param'])) {
+                $nextR = !empty($requestArr[$i+1]) ? $requestArr[$i+1] : null;
+                foreach ($routeNode['param'] as $k=>$n) {
+                    if ($nextR && !empty($n['child'][$nextR]) || !$nextR && !empty($n['observers'])) {
                         $params[substr($k, 1)] = $r;
-                        $match = true;
-                        break;
+                        $routeNode = $n;
+                        continue 2;                     
                     }
                 }
-                if (!$match) {
-                    return null;
-                }
             }
+            if (!empty($routeNode['child'][$r])) {
+                $routeNode = $routeNode['child'][$r];
+                continue;
+            }
+            return null;
         }
         $routeNode['params_values'] = $params;
         return $routeNode;
@@ -1122,7 +1119,7 @@ class BResponse
         }
 
         echo $this->_content;
-        echo "<hr>".BDebug::service()->delta().', '.memory_get_peak_usage(true).', '.memory_get_usage(true);
+        #echo "<hr>".BDebug::service()->delta().', '.memory_get_peak_usage(true).', '.memory_get_usage(true);
         exit;
     }
 }

@@ -26,6 +26,14 @@
 * Q: Why yet another PHP framework?
 * A: Competition is good, it drives innovation and prevents stagnation. Also, I enjoy doing it.
 
+## Performance ##
+* Server: Intel(R) Core (TM) 2 CPU E7400 @ 2.80GHz
+* Framework overhead:
+  * Without idiorm/paris and phpQuery: 3.6ms, 786,432 B
+  * Without phpQuery plugin: 6ms, 1.310 MB peak, 1.048 MB after dispatch
+  * With phpQuery plugin, without pq usage: 18ms, 2.883 MB
+  * With phpQuery plugin, with pq minimal usage: 23ms, 2.883 MB
+
 ## Installation ##
 
 This framework was just released and I'm not sure if it deserves even to be called alpha.
@@ -74,13 +82,6 @@ So, yada yada.
 ### Debugging ###
 * All the declarations and actions should be logged in dev mode, to be analyzed if needed.
 * All the errors should be logged and/or sent in staging or production modes.
-
-## Performance ##
-* Server: Intel(R) Core (TM) 2 CPU E7400 @ 2.80GHz
-* Framework overhead:
-  * Without phpQuery plugin: 6ms, 1.310 MB peak, 1.048 MB after dispatch
-  * With phpQuery plugin, without pq usage: 18ms, 2.883 MB peak/after dispatch
-  * With phpQuery plugin, with pq minimal usage: 23ms, 2.883 MB peak/after dispatch
 
 ## Application Demo ##
 

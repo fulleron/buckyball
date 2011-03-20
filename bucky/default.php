@@ -96,10 +96,12 @@ class Bucky_Default_Controller extends BActionController
         $layout = BLayout::service();
 
         // Load a view as initial HTML document
-        $layout->doc(BLayout::service()->renderView('main.php', array(
+        $html = BLayout::service()->renderView('main.php', array(
             'var'=>'VIEW LOCAL VAR TEST',
             'param'=>BRequest::service()->params('param'),
-        )));
+        ));
+        #BResponse::service()->set($html);
+        $layout->doc($html);
 
         // Dispatch layout updates
         $layout->dispatch();

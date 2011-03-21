@@ -17,7 +17,7 @@ class Bucky_Default
 
         $layout = BLayout::service();
         $body = BLayout::service()->view('body');
-        for ($i=0; $i<1000; $i++) {
+        for ($i=0; $i<100; $i++) {
             $layout->view('test'.$i, array('template'=>'view/congrats.php', 'args'=>array('i'=>$i)));
             $body->append('test'.$i);
         }

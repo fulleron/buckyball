@@ -5,7 +5,6 @@
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
 */
 
-set_time_limit(1);
 /**
 * Sometimes NULL is a value too.
 */
@@ -39,6 +38,7 @@ class BApp
     public static function init()
     {
         self::service('debug', 'BDebug');
+        self::service('classes', 'BClassRegistry');
         self::service('parser', 'BParser');
         self::service('config', 'BConfig');
         self::service('db', 'BDb');
@@ -137,6 +137,26 @@ class BApp
     }
 
     /**
+    * Shortcut to retrieve potentially overridden class instance
+    *
+    * @param string $class
+    */
+    public static function instance($class)
+    {
+        return self::service('classes')->instance($class);
+    }
+
+    /**
+    * Shortcut to retrieve potentially overridden class singleton
+    *
+    * @param string $class
+    */
+    public static function singleton($class)
+    {
+        return self::service('classes')->singleton($class);
+    }
+
+    /**
     * Shortcut to add configuration, used mostly from bootstrap index file
     *
     * @param array|string $config If string will load configuration from file
@@ -173,8 +193,9 @@ class BApp
         if (is_string($folders)) {
             $folders = explode(',', $folders);
         }
+        $modules = self::service('modules');
         foreach ($folders as $folder) {
-            self::service('modules')->scan($folder);
+            $modules->scan($folder);
         }
     }
 
@@ -391,7 +412,7 @@ class BParser
             }
         }
         $observer = array('callback'=>$callback);
-        if (($module = BModuleRegistry::service()->currentModule())) {
+        if (($module = BApp::service('modules')->currentModule())) {
             $observer['module_name'] = $module->name;
         }
         if (!empty($args)) {
@@ -410,10 +431,10 @@ class BParser
     public function routeLoad(&$tree, $route=null)
     {
         if (is_null($route)) {
-            $route = BRequest::service()->rawPath();
+            $route = BApp::service('request')->rawPath();
         }
         if (strpos($route, ' ')===false) {
-            $method = BRequest::service()->method();
+            $method = BApp::service('request')->method();
         } else {
             list($method, $route) = explode(' ', $route, 2);
         }
@@ -520,7 +541,7 @@ class BDb
         include_once('lib/idiorm.php');
         include_once('lib/paris.php');
 
-        $config = BConfig::service();
+        $config = BApp::service('config');
         if (($dsn = $config->get('db/dsn'))) {
             ORM::configure($dsn);
             ORM::configure('username', $config->get('db/username'));
@@ -530,10 +551,50 @@ class BDb
     }
 }
 
+class BClassRegistry
+{
+    protected $_classes = array();
+    protected $_singletons = array();
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BDb
+    */
+    static public function service()
+    {
+        return BApp::service('classes');
+    }
+
+
+    public function override($class, $newClass)
+    {
+        $this->_classes[$class] = $newClass;
+    }
+
+    public function className($class)
+    {
+        return isset($this->_classes[$class]) ? $this->_classes[$class] : $class;
+    }
+
+    public function instance($class, $args=array())
+    {
+        $className = $this->className($class);
+        return new $className($args);
+    }
+
+    public function singleton($class, $args=array())
+    {
+        if (empty($this->_singletons[$class])) {
+             $this->_singletons[$class] = $this->instance($class, $args);
+        }
+        return $this->_singletons[$class];
+    }
+}
+
 class BEventRegistry
 {
     protected $_events = array();
-    protected $_singletons = array();
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -582,7 +643,7 @@ class BEventRegistry
             return $this;
         }
         $observer = array('callback'=>$callback, 'args'=>$args);
-        if (($module = BModuleRegistry::service()->currentModule())) {
+        if (($module = BApp::service('modules')->currentModule())) {
             $observer['module_name'] = $module->name;
         }
         $this->_events[$eventName]['observers'][] = $observer;
@@ -621,11 +682,7 @@ class BEventRegistry
                     $args = array_merge($observer['args'], $args);
                 }
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
-                    $className = $observer['callback'][0];
-                    if (empty($this->_singletons[$className])) {
-                        $this->_singletons[$className] = new $className;
-                    }
-                    $observer['callback'][0] = $this->_singletons[$className];
+                    $observer['callback'][0] = BApp::service('classes')->singleton($observer['callback'][0]);
                 }
                 $result[] = call_user_func($observer['callback'], $args);
             }
@@ -662,7 +719,7 @@ class BModuleRegistry
         if (!$manifests) {
             return $this;
         }
-        $parser = BParser::service();
+        $parser = BApp::service('parser');
         foreach ($manifests as $file) {
             $json = file_get_contents($file);
             $manifest = $parser->fromJson($json);
@@ -849,7 +906,7 @@ class BModule
     static public function factory($params)
     {
         $className = !empty($params['registry_class']) ? $params['registry_class'] : self::$_defaultClass;
-        $module = new $className($params);
+        $module = BApp::service('classes')->instance($className, $params);
         return $module;
     }
 
@@ -897,7 +954,7 @@ class BFrontController
             return;
         }
 
-        BParser::service()->routeSave($this->_routeTree, $route, $callback, $args, false);
+        BApp::service('parser')->routeSave($this->_routeTree, $route, $callback, $args, false);
 
         $this->_routes[$route] = $callback;
         if (!is_null($name)) {
@@ -924,7 +981,7 @@ class BFrontController
 
     public function dispatch($route=null)
     {
-        $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
+        $routeNode = BApp::service('parser')->routeLoad($this->_routeTree, $route);
         $this->_currentRoute = $routeNode;
 
         if (!$routeNode || empty($routeNode['observers'])) {
@@ -943,6 +1000,7 @@ class BFrontController
         $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
         $controller = null;
         $attempts = 0;
+        $request = BApp::service('request');
         do {
             if (!empty($controller)) {
                 list($actionName, $forwardControllerName, $params) = $controller->forward();
@@ -950,11 +1008,8 @@ class BFrontController
                     $controllerName = $forwardControllerName;
                 }
             }
-            if ($this->_controllerName!=$controllerName) {
-                $this->_controllerName = $controllerName;
-                $controller = new $controllerName();
-            }
-            BRequest::service()->initParams($params);
+            $request->initParams($params);
+            $controller = BApp::service('classes')->singleton($controllerName);
             $controller->dispatch($actionName, $args);
         } while ((++$attempts<100) && $controller->forward());
 
@@ -1032,18 +1087,18 @@ class BActionController
 
     public function sendError($message)
     {
-        BResponse::service()->set($message)->status(503);
+        BApp::service('response')->set($message)->status(503);
     }
 
     public function action_noroute()
     {
-        BResponse::service()->set("Route not found")->status(404);
+        BApp::service('response')->set("Route not found")->status(404);
     }
 
     public function renderOutput()
     {
-        BLayout::service()->render();
-        BResponse::service()->output();
+        BApp::service('layout')->render();
+        BApp::service('response')->output();
     }
 }
 
@@ -1095,7 +1150,7 @@ class BRequest
     {
         $post = file_get_contents('php://input');
         if ($post && $json) {
-            $post = BParser::service()->fromJson($post, $asObject);
+            $post = BApp::service('parser')->fromJson($post, $asObject);
         }
         return $post;
     }
@@ -1203,7 +1258,7 @@ class BResponse
 
     public function sendFile($filename)
     {
-        BSession::service()->close();
+        BApp::service('session')->close();
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
         header('Content-Type: application/octet-stream');
@@ -1234,17 +1289,17 @@ class BResponse
 
     public function output()
     {
-        BSession::service()->close();
+        BApp::service('session')->close();
         header('Content-Type: '.$this->_contentType);
         if ($this->_contentType=='application/json') {
-            $this->_content = BParser::service()->toJson($this->_content);
+            $this->_content = BApp::service('parser')->toJson($this->_content);
         } elseif (is_null($this->_content)) {
-            $this->_content = BLayout::service()->render();
+            $this->_content = BApp::service('layout')->render();
         }
 
         print_r($this->_content);
         if ($this->_contentType=='text/html') {
-            echo "<hr>DELTA: ".BDebug::service()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
+            echo "<hr>DELTA: ".BApp::service('debug')->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
         }
         exit;
     }
@@ -1320,20 +1375,20 @@ class BLayout
     public function dispatch($eventName, $routeName=null, $args=array())
     {
         if (is_null($routeName)) {
-            $route = BFrontController::service()->currentRoute();
+            $route = BApp::service('controller')->currentRoute();
             if (!$route) {
                 return array();
             }
             $routeName = $route['route_name'];
             $args['route_name'] = $route['route_name'];
-            $result = BEventRegistry::service()->dispatch("layout.{$eventName}", $args);
+            $result = BApp::service('events')->dispatch("layout.{$eventName}", $args);
         } else {
             $result = array();
         }
         $routes = is_string($routeName) ? explode(',', $routeName) : $routeName;
         foreach ($routes as $route) {
             $args['route_name'] = $route;
-            $r2 = BEventRegistry::service()->dispatch("layout.{$eventName}: {$route}", $args);
+            $r2 = BApp::service('events')->dispatch("layout.{$eventName}: {$route}", $args);
             $result = array_merge($result, $r2);
         }
         return $result;
@@ -1370,11 +1425,11 @@ class BView
     static public function factory($viewname, $params)
     {
         $params['viewname'] = $viewname;
-        if (($module = BModuleRegistry::service()->currentModule())) {
+        if (($module = BApp::service('modules')->currentModule())) {
             $params['module'] = $module->name;
         }
         $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
-        $view = new $className($params);
+        $view = BApp::service('classes')->instance($className, $params);
         return $view;
     }
 
@@ -1417,7 +1472,7 @@ class BView
             throw new BException(BApp::t('Circular reference detected: %s', $viewname));
         }
 
-        return BLayout::service()->view($viewname);
+        return BApp::service('layout')->view($viewname);
     }
 
     public function render($args=array())
@@ -1425,7 +1480,7 @@ class BView
         foreach ($args as $k=>$v) {
             $this->_params['args'][$k] = $v;
         }
-        $module = BModuleRegistry::service()->module($this->param('module'));
+        $module = BApp::service('modules')->module($this->param('module'));
         $template = $module->root_dir.'/'.$this->param('template');
 
         ob_start();
@@ -1490,9 +1545,9 @@ class BViewList extends BView
     {
         $output = array();
         uasort($this->_children, array($this, 'sortChildren'));
+        $layout = BApp::service('layout');
         foreach ($this->_children as $child) {
-            $view = BLayout::service()->view($child['name']);
-            $output[] = $view->render($args);
+            $output[] = $layout->view($child['name'])->render($args);
         }
         return join('', $output);
     }
@@ -1531,7 +1586,7 @@ class BSession
         $config = BApp::service('config')->get('cookie');
         session_set_cookie_params($config['timeout'], $config['path'], $config['domain']);
         session_name($config['name']);
-        if (!empty($id) || ($id = BRequest::service()->get('SID'))) {
+        if (!empty($id) || ($id = BApp::service('request')->get('SID'))) {
             session_id($id);
         }
         session_start();

@@ -6,5 +6,6 @@ require_once "bucky/framework.php";
 
 BApp::init();
 BApp::config('storage/private/config/local.json');
-BApp::load('bucky/plugins/*,bucky');
+BApp::load('bucky/plugins/*');
+BApp::load('bucky/default');
 BApp::run();

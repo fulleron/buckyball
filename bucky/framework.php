@@ -5,6 +5,7 @@
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
 */
 
+set_time_limit(1);
 /**
 * Sometimes NULL is a value too.
 */
@@ -238,7 +239,7 @@ class BDebug
     {
         $event['ts'] = microtime(true);
         if (BApp::serviceExists('modules') && ($module = BApp::module())) {
-            $event['module'] = $module['name'];
+            $event['module'] = $module->name;
         }
         $this->_events[] = $event;
         return $this;
@@ -391,7 +392,7 @@ class BParser
         }
         $observer = array('callback'=>$callback);
         if (($module = BModuleRegistry::service()->currentModule())) {
-            $observer['module_name'] = $module['name'];
+            $observer['module_name'] = $module->name;
         }
         if (!empty($args)) {
             $observer['args'] = $args;
@@ -421,12 +422,14 @@ class BParser
         }
         $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
         $routeNode = $tree[$method];
+        $routeName = array($method.' ');
         $params = array();
         foreach ($requestArr as $i=>$r) {
-            if ($r==='') $r = '__EMPTY__';
+            $r1 = $r==='' ? '__EMPTY__' : $r;
             $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
-            if ($r==='__EMPTY__' && !empty($routeNode['/'][$r]) && is_null($nextR)) {
-                $routeNode = $routeNode['/'][$r];
+            if ($r1==='__EMPTY__' && !empty($routeNode['/'][$r1]) && is_null($nextR)) {
+                $routeNode = $routeNode['/'][$r1];
+                $routeName[] = $r;
                 break;
             }
             if (!empty($routeNode['/:'])) {
@@ -438,12 +441,14 @@ class BParser
                     }
                 }
             }
-            if (!empty($routeNode['/'][$r])) {
-                $routeNode = $routeNode['/'][$r];
+            if (!empty($routeNode['/'][$r1])) {
+                $routeNode = $routeNode['/'][$r1];
+                $routeName[] = $r;
                 continue;
             }
             return null;
         }
+        $routeNode['route_name'] = join('/', $routeName);
         $routeNode['params_values'] = $params;
         return $routeNode;
     }
@@ -554,7 +559,10 @@ class BEventRegistry
             }
             return $this;
         }
-        $this->_events[$eventName]['args'] = $args;
+        $this->_events[$eventName] = array(
+            'observers' => array(),
+            'args' => $args,
+        );
         return $this;
     }
 
@@ -575,7 +583,7 @@ class BEventRegistry
         }
         $observer = array('callback'=>$callback, 'args'=>$args);
         if (($module = BModuleRegistry::service()->currentModule())) {
-            $observer['module_name'] = $module['name'];
+            $observer['module_name'] = $module->name;
         }
         $this->_events[$eventName]['observers'][] = $observer;
         return $this;
@@ -662,17 +670,17 @@ class BModuleRegistry
                 throw new BException(BApp::t("Could not read manifest file: %s", $file));
             }
             $rootDir = dirname(realpath($file));
-            foreach ($manifest['modules'] as $modName=>$mod) {
+            foreach ($manifest['modules'] as $modName=>$params) {
                 if (!empty($this->_modules[$modName])) {
                     throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
                 }
-                if (empty($mod['bootstrap']['file']) || empty($mod['bootstrap']['callback'])) {
+                if (empty($params['bootstrap']['file']) || empty($params['bootstrap']['callback'])) {
                     BApp::log('Missing vital information, skipping module: %s', $modName);
                     continue;
                 }
-                $mod['name'] = $modName;
-                $mod['root_dir'] = $rootDir;
-                $this->_modules[$modName] = $mod;
+                $params['name'] = $modName;
+                $params['root_dir'] = $rootDir;
+                $this->_modules[$modName] = BModule::factory($params);
             }
         }
         return $this;
@@ -681,8 +689,8 @@ class BModuleRegistry
     public function checkDepends()
     {
         foreach ($this->_modules as $mod) {
-            if (!empty($mod['depends']['module'])) {
-                foreach ($mod['depends']['module'] as &$dep) {
+            if (!empty($mod->depends['module'])) {
+                foreach ($mod->depends['module'] as &$dep) {
                     if (is_string($dep)) {
                         $dep = array('name'=>$dep);
                     }
@@ -712,9 +720,9 @@ class BModuleRegistry
             foreach ($depends as $modName=>&$dep) {
                 if (!empty($dep['version'])) {
                     $depVer = $dep['version'];
-                    if (!empty($depVer['from']) && version_compare($depMod['version'], $depVer['from'], '<')
-                        || !empty($depVer['to']) && version_compare($depMod['version'], $depVer['to'], '>')
-                        || !empty($depVer['exclude']) && in_array($depMod['version'], (array)$depVer['exclude'])
+                    if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
+                        || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
+                        || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
                     ) {
                         $dep['error'] = array('type'=>'version');
                     }
@@ -754,7 +762,7 @@ class BModuleRegistry
 
     public function propagateDepends($modName, $dep)
     {
-        $this->_modules[$modName]['error'] = 'depends';
+        $this->_modules[$modName]->error = 'depends';
         $dep['error']['propagated'] = true;
         if (!empty($this->_moduleDepends[$modName])) {
             foreach ($this->_moduleDepends[$modName] as $depName=>&$subDep) {
@@ -770,26 +778,26 @@ class BModuleRegistry
     {
         $this->checkDepends();
 
-        usort($this->_modules, array($this, 'sortCallback'));
-
+        uasort($this->_modules, array($this, 'sortCallback'));
         foreach ($this->_modules as $mod) {
-            if (!empty($module['errors'])) {
+            if (!empty($mod->errors)) {
                 continue;
             }
-            $this->_currentModuleName = $mod['name'];
-            include_once ($mod['root_dir'].'/'.$mod['bootstrap']['file']);
-            call_user_func($mod['bootstrap']['callback']);
+            $this->_currentModuleName = $mod->name;
+            include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
+            call_user_func($mod->bootstrap['callback']);
         }
         return $this;
     }
 
     public function sortCallback($mod, $dep)
     {
-        if (empty($mod['name']) || empty($dep['name'])) {
+        if (empty($mod->name) || empty($dep->name)) {
+            return 0;
             var_dump($mod); var_dump($dep);
         }
-        if (!empty($this->_moduleDepends[$mod['name']][$dep['name']])) return -1;
-        elseif (!empty($this->_moduleDepends[$dep['name']][$mod['name']])) return 1;
+        if (!empty($this->_moduleDepends[$mod->name][$dep->name])) return -1;
+        elseif (!empty($this->_moduleDepends[$dep->name][$mod->name])) return 1;
         return 0;
     }
 
@@ -807,15 +815,16 @@ class BModuleRegistry
         return $this->_modules[$moduleName];
     }
 
-    public function currentModule()
+    public function module($name)
     {
-        return !$this->_currentModuleName
-            ? false
-            : (isset($this->_modules[$this->_currentModuleName])
-                ? $this->_modules[$this->_currentModuleName]
-                : null);
+        return isset($this->_modules[$name]) ? $this->_modules[$name] : null;
     }
 
+    public function currentModule()
+    {
+        return $this->_currentModuleName ? $this->module($this->_currentModuleName) : false;
+    }
+/*
     public function addAutoload($classPattern, $file)
     {
         $this->_autoload[$classPattern] = $file;
@@ -824,10 +833,39 @@ class BModuleRegistry
     public function autoload($className)
     {
         foreach ($this->_modules as $name=>$module) {
-            if (stripos($className, $module['class_prefix'])===0) {
+            if (stripos($className, $module->class_prefix)===0) {
 
             }
         }
+    }
+*/
+}
+
+class BModule
+{
+    static protected $_defaultClass = __CLASS__;
+    protected $_params;
+
+    static public function factory($params)
+    {
+        $className = !empty($params['registry_class']) ? $params['registry_class'] : self::$_defaultClass;
+        $module = new $className($params);
+        return $module;
+    }
+
+    public function __construct($params)
+    {
+        $this->_params = $params;
+    }
+
+    public function __get($name)
+    {
+        return isset($this->_params[$name]) ? $this->_params[$name] : null;
+    }
+
+    public function __set($name, $value)
+    {
+        $this->_params[$name] = $value;
     }
 }
 
@@ -881,19 +919,20 @@ class BFrontController
 
     public function currentRoute()
     {
-
+        return $this->_currentRoute;
     }
 
     public function dispatch($route=null)
     {
         $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
+        $this->_currentRoute = $routeNode;
 
         if (!$routeNode || empty($routeNode['observers'])) {
             $params = array();
             if ($this->_defaultRoutes) {
 //TODO
             } else {
-                $callback = array('BActionController', 'noroute');
+                $callback = array('BActionController', 'action_noroute');
             }
         } else {
             $callback = $routeNode['observers'][0]['callback'];
@@ -922,6 +961,84 @@ class BFrontController
     static public function url($name, $params = array())
     {
 // not implemented because not needed yet
+    }
+}
+
+class BActionController
+{
+    public $params = array();
+
+    protected $_action;
+    protected $_forward;
+    protected $_actionMethodPrefix = '';
+
+    public function dispatch($actionName, $args=array())
+    {
+        $this->_action = $actionName;
+        $this->_forward = null;
+        if (!$this->authorize($args) || !$this->beforeDispatch($args)) {
+            return $this;
+        }
+        $this->tryDispatch($actionName, $args);
+        if (!$this->forward()) {
+            $this->afterDispatch($args);
+        }
+        return $this;
+    }
+
+    public function tryDispatch($actionName, $args)
+    {
+        $actionMethod = $this->_actionMethodPrefix.$actionName;
+        if (!is_callable(array($this, $actionMethod))) {
+            $this->forward('noroute');
+            return $this;
+        }
+        try {
+            $this->$actionMethod($args);
+        } catch (DActionException $e) {
+            $this->sendError($e->getMessage());
+        }
+        return $this;
+    }
+
+    public function forward($actionName=null, $controllerName=null, $params=array())
+    {
+        if (is_null($actionName)) {
+            return $this->_forward;
+        }
+        $this->_forward = array($actionName, $controllerName, $params);
+        return $this;
+    }
+
+    public function authorize($actionName=null)
+    {
+        return true;
+    }
+
+    public function beforeDispatch()
+    {
+        return true;
+    }
+
+    public function afterDispatch()
+    {
+
+    }
+
+    public function sendError($message)
+    {
+        BResponse::service()->set($message)->status(503);
+    }
+
+    public function action_noroute()
+    {
+        BResponse::service()->set("Route not found")->status(404);
+    }
+
+    public function renderOutput()
+    {
+        BLayout::service()->render();
+        BResponse::service()->output();
     }
 }
 
@@ -1081,6 +1198,7 @@ class BResponse
 
     public function sendFile($filename)
     {
+        BSession::service()->close();
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
         header('Content-Type: application/octet-stream');
@@ -1111,85 +1229,19 @@ class BResponse
 
     public function output()
     {
+        BSession::service()->close();
         header('Content-Type: '.$this->_contentType);
-
         if ($this->_contentType=='application/json') {
             $this->_content = BParser::service()->toJson($this->_content);
         } elseif (is_null($this->_content)) {
-            $this->_content = BLayout::service()->renderDoc();
+            $this->_content = BLayout::service()->render();
         }
 
-        echo $this->_content;
-        #echo "<hr>".BDebug::service()->delta().', '.memory_get_peak_usage(true).', '.memory_get_usage(true);
+        print_r($this->_content);
+        if ($this->_contentType=='text/html') {
+            echo "<hr>DELTA: ".BDebug::service()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
+        }
         exit;
-    }
-}
-
-class BActionController
-{
-    public $params = array();
-
-    protected $_action;
-    protected $_forward;
-
-    public function dispatch($actionName, $args=array())
-    {
-        $this->_action = $actionName;
-        $this->_forward = null;
-        if (!$this->authorize($args) || !$this->beforeDispatch($args)) {
-            return;
-        }
-        $this->tryDispatch($actionName, $args);
-        if (!$this->forward()) {
-            $this->afterDispatch($args);
-        }
-    }
-
-    public function tryDispatch($actionName, $args)
-    {
-        $actionMethod = 'action_'.$actionName;
-        if (!is_callable(array($this, $actionMethod))) {
-            $this->forward('noroute');
-            return;
-        }
-        try {
-            $this->$actionMethod($args);
-        } catch (DActionException $e) {
-            $this->sendError($e->getMessage());
-        }
-    }
-
-    public function forward($actionName=null, $controllerName=null, $params=array())
-    {
-        if (is_null($actionName)) {
-            return $this->_forward;
-        }
-        $this->_forward = array($actionName, $controllerName, $params);
-    }
-
-    public function authorize($actionName=null)
-    {
-        return true;
-    }
-
-    public function beforeDispatch()
-    {
-        return true;
-    }
-
-    public function afterDispatch()
-    {
-
-    }
-
-    public function sendError($message)
-    {
-        BResponse::service()->set($message)->status(503);
-    }
-
-    public function action_noroute()
-    {
-        BResponse::service()->set("Route not found")->status(404);
     }
 }
 
@@ -1198,6 +1250,8 @@ class BLayout
     protected $_routeTree = array();
     protected $_singletons = array();
     protected $_views = array();
+    protected $_mainViewName = 'main';
+    protected $_currentStage;
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -1208,36 +1262,7 @@ class BLayout
     {
         return BApp::service('layout');
     }
-
-    public function doc($html=null)
-    {
-        if (($service = BApp::service('phpQuery'))) {
-            return $service->doc($html);
-        }
-        return null;
-    }
-
-    public function file($filename)
-    {
-        if (($service = BApp::service('phpQuery'))) {
-            return $service->file($filename);
-        }
-        return null;
-    }
-
-    public function find($selector)
-    {
-        if (($service = BApp::service('phpQuery'))) {
-            return $service->find($selector);
-        }
-        return null;
-    }
-
-    public function renderDoc()
-    {
-        return (string)$this->doc();
-    }
-
+/*
     public function allViews($folder)
     {
         $files = glob($folder);
@@ -1249,84 +1274,227 @@ class BLayout
         }
         return $this;
     }
-
-    public function view($viewname, $filename=null, $args=array())
+*/
+    public function view($viewname, $params=null)
     {
         if (is_array($viewname)) {
-            foreach ($viewname as $view) {
-                $this->view($view[0], $view[1], $view[2]);
+            foreach ($viewname as $i=>$view) {
+                if (!is_numeric($i)) {
+                    throw new BException(BApp::t('Invalid argument: %s', print_r($viewname,1)));
+                }
+                $this->view($view[0], $view[1]);
             }
             return $this;
         }
-        $this->_views[$viewname] = array('file'=>$filename, 'args'=>$args);
+        if (is_null($params)) {
+            if (!isset($this->_views[$viewname])) {
+                return null;
+            }
+            return $this->_views[$viewname];
+        }
+        if (!isset($this->_views[$viewname])) {
+            $this->_views[$viewname] = BView::factory($viewname, $params);
+        } else {
+            $this->_views[$viewname]->param($params);
+        }
         return $this;
     }
 
-    public function renderView($_viewname, $_args=array())
+    public function mainView($viewname=null)
     {
-        $_filename = $_viewname;
-        if (!empty($this->_views[$_viewname]['file'])) {
-            $_filename = $this->_views[$_viewname]['file'];
+        if (is_null($viewname)) {
+            return $this->_mainViewName ? $this->view($this->_mainViewName) : null;
         }
-        if (!empty($this->_views[$_viewname]['args'])) {
-            $_args = array_merge($this->_views[$_viewname]['args'], $_args);
+        if (empty($this->_views[$viewname])) {
+            throw new BException(BApp::t('Invalid view name for main view: %s', $viewname));
         }
-        extract($_args, EXTR_SKIP);
+        $this->_mainViewName = $viewname;
+        return $this;
+    }
+
+    public function dispatch($eventName, $routeName=null, $args=array())
+    {
+        if (is_null($routeName)) {
+            $route = BFrontController::service()->currentRoute();
+            if (!$route) {
+                return array();
+            }
+            $routeName = $route['route_name'];
+            $args['route_name'] = $route['route_name'];
+            $result = BEventRegistry::service()->dispatch("layout.{$eventName}", $args);
+        } else {
+            $result = array();
+        }
+        $routes = is_string($routeName) ? explode(',', $routeName) : $routeName;
+        foreach ($routes as $route) {
+            $args['route_name'] = $route;
+            $r2 = BEventRegistry::service()->dispatch("layout.{$eventName}: {$route}", $args);
+            $result = array_merge($result, $r2);
+        }
+        return $result;
+    }
+
+    public function currentStage($stage=null)
+    {
+        if (is_null($stage)) {
+            return $this->_currentStage;
+        }
+        $this->_currentStage = $stage;
+        return $this;
+    }
+
+    public function render($routeName=null, $args=array())
+    {
+        $this->dispatch('render.before', $routeName, $args);
+
+        $this->currentStage('render');
+        $result = $this->mainView()->render($args);
+
+        $args['output'] =& $result;
+        $this->dispatch('render.after', $routeName, $args);
+
+        return $result;
+    }
+}
+
+class BView
+{
+    static protected $_defaultClass = __CLASS__;
+    protected $_params;
+
+    static public function factory($viewname, $params)
+    {
+        $params['viewname'] = $viewname;
+        if (($module = BModuleRegistry::service()->currentModule())) {
+            $params['module'] = $module->name;
+        }
+        $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
+        $view = new $className($params);
+        return $view;
+    }
+
+    public function __construct($params)
+    {
+        $this->_params = $params;
+    }
+
+    public function param($key=null, $value=BNULL)
+    {
+        if (is_null($key)) {
+            return $this->_params;
+        }
+        if (is_array($key)) {
+            foreach ($key as $k=>$v) {
+                $this->param($k, $v);
+            }
+            return $this;
+        }
+        if ($value===BNULL) {
+            return isset($this->_params[$key]) ? $this->_params[$key] : null;
+        }
+        $this->_params[$key] = $value;
+        return $this;
+    }
+
+    public function __get($name)
+    {
+        return isset($this->_params['args'][$name]) ? $this->_params['args'][$name] : null;
+    }
+
+    public function __set($name, $value)
+    {
+        $this->_params['args'][$name] = $value;
+    }
+
+    public function view($viewname)
+    {
+        if ($viewname===$this->param('name')) {
+            throw new BException(BApp::t('Circular reference detected: %s', $viewname));
+        }
+
+        return BLayout::service()->view($viewname);
+    }
+
+    public function render($args=array())
+    {
+        foreach ($args as $k=>$v) {
+            $this->_params['args'][$k] = $v;
+        }
+        $module = BModuleRegistry::service()->module($this->param('module'));
+        $template = $module->root_dir.'/'.$this->param('template');
+
         ob_start();
-        include $_filename;
+        include $template;
         return ob_get_clean();
     }
 
-    public function route($route, $callback=null, $args=null)
+    public function clear()
     {
-        if (is_array($route)) {
-            foreach ($route as $a) {
-                $this->route($a[0], $a[1], isset($a[2])?$a[2]:null, isset($a[3])?$a[3]:null);
-            }
-            return;
+        unset($this->_params);
+    }
+
+    public function __destruct()
+    {
+        $this->clear();
+    }
+
+    public function __toString()
+    {
+        return $this->render();
+    }
+}
+
+class BViewList extends BView
+{
+    static protected $_defaultClass = __CLASS__;
+    protected $_children = array();
+    protected $_lastPosition = 0;
+
+    public function append($viewname, $params=array())
+    {
+        if (is_string($viewname)) {
+            $viewname = explode(',', $viewname);
         }
-
-        BParser::service()->routeSave($this->_routeTree, $route, $callback, $args, true);
-
+        if (isset($params['position'])) {
+            $this->_lastPosition = $params['position'];
+        }
+        foreach ($viewname as $v) {
+            $params['name'] = $v;
+            $params['position'] = $this->_lastPosition++;
+            $this->_children[] = $params;
+        }
         return $this;
     }
 
-    public function dispatch($route=null, $args=array())
+    public function remove($viewname)
     {
-        $result = array();
-        if (is_array($route)) {
-            foreach ($route as $r) {
-                $result = array_merge($result, $this->dispatch($r[0], isset($r[1]) ? $r[1] : array()));
-            }
-            return $result;
+        if (true===$viewname) {
+            $this->_children = array();
+            return $this;
         }
-        if (is_null($route)) {
-            $this->dispatch('GET *', $args);
-        }
-        $routeNode = BParser::service()->routeLoad($this->_routeTree, $route);
-        if (!$routeNode || empty($routeNode['observers'])) {
-            return $result;
-        }
-        $params = $routeNode['params_values'];
-        foreach ($routeNode['observers'] as $observer) {
-            $params = $args;
-            if (!empty($routeNode['params_values'])) {
-                $params = array_merge($routeNode['params_values'], $params);
+        foreach ($this->_children as $i=>$child) {
+            if ($child['name']==$viewname) {
+                unset($this->_children[$i]);
+                break;
             }
-            if (!empty($observer['args'])) {
-                $params = array_merge($observer['args'], $params);
-            }
-            if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
-                if (empty($this->_singletons[$observer['callback'][0]])) {
-                    $className = $observer['callback'][0];
-                    $this->_singletons[$observer['callback'][0]] = new $className($params);
-                }
-                $observer['callback'][0] = $this->_singletons[$observer['callback'][0]];
-            }
-            BDebug::service()->log(array('event'=>'layout_dispatch', $routeNode));
-            $result[] = call_user_func($observer['callback'], $params);
         }
-        return $result;
+        return $this;
+    }
+
+    public function render($args=array())
+    {
+        $output = array();
+        uasort($this->_children, array($this, 'sortChildren'));
+        foreach ($this->_children as $child) {
+            $view = BLayout::service()->view($child['name']);
+            $output[] = $view->render($args);
+        }
+        return join('', $output);
+    }
+
+    public function sortChildren($a, $b)
+    {
+        return $a['position']<$b['position'] ? -1 : ($a['position']>$b['position'] ? 1 : 0);
     }
 }
 

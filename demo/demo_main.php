@@ -1,7 +1,7 @@
 <?php
 
 // Bootstrap class
-class Bucky_Default
+class Bucky_Demo
 {
     // Bootstrap method. Can be a function as well.
     static public function init()
@@ -12,23 +12,16 @@ class Bucky_Default
         BFrontController::service()->route(array(
 
             // RESTful, can specify HTTP methods for different routes (GET, POST, PUT, DELETE)
-            array('GET /', array('Bucky_Default_Controller', 'home')),
+            array('GET /', array('Bucky_Default_Controller', 'action_home')),
 
-            array('GET /test', array('Bucky_Default_Controller', 'test')),
+            array('GET /demo', array('Bucky_Default_Controller', 'action_demo')),
 
             // /test and /test/ are distinct routes
-            array('GET /test/', array('Bucky_Default_Controller', 'test')),
+            array('GET /demo/', array('Bucky_Default_Controller', 'action_demo')),
 
             // can account for parameters in URI
             // with params and without params are distinct routes
-            array('GET /test/:param', array('Bucky_Default_Controller', 'test')),
-        ));
-
-        // Declare layout updates. Note that can use the same bootstrap class for callbacks
-        BLayout::service()->route(array(
-            array('GET *', array(__CLASS__, 'layout_all')),
-            array('GET /test', array(__CLASS__, 'layout_test')),
-            array('GET /test/:param', array(__CLASS__, 'layout_test')),
+            array('GET /demo/:param', array('Bucky_Default_Controller', 'action_demo_param')),
         ));
 
         // Declare views with default arguments.
@@ -36,20 +29,21 @@ class Bucky_Default
 
             // Views are called by the 1st argument.
             // This allows for overriding views, while still keeping all files within module's folder.
-            array('main.php', 'view/main.php', array('def'=>'VIEW DEFAULT VAR TEST')),
+            array('child', array('template'=>'view/child.php', 'args'=>array('def'=>'VIEW DEFAULT VAR TEST'))),
         ));
 
         // Can add all views within a folder, folder name will be removed from their names
-        BLayout::service()->allViews('view');
+        #BLayout::service()->allViews('view');
 
-        // [Optional] Declare events with default arguments
-        BEventRegistry::service()->event(array(
-            array('test_event', array('def_event'=>'EVENT DEFAULT VAR TEST')),
-        ));
+        // [Optional] Can change main view, by default 'main'
+        #BLayout::service()->mainView('main');
 
-        // Declare event observers with default arguments
+        // Declare layout updates. Note that can use the same bootstrap class for callbacks
         BEventRegistry::service()->observe(array(
-            array('test_event', array(__CLASS__, 'event_test'), array('dev_obs'=>'OBSERVER DEFAULT VAR TEST')),
+            array('layout.dispatch', array(__CLASS__, 'layout_all')),
+            array('layout.dispatch: GET /demo', array(__CLASS__, 'layout_demo')),
+            array('layout.dispatch: GET /demo/', array(__CLASS__, 'layout_demo')),
+            array('layout.dispatch: GET /demo/:param', array(__CLASS__, 'layout_demo')),
         ));
     }
 
@@ -61,7 +55,7 @@ class Bucky_Default
 
     // Callback for layout update test, accepts arguments overridden in this order:
     // Route default arguments, URI params, layout dispatch params.
-    public function layout_test($params)
+    public function layout_demo($params)
     {
         // The HTML can be traversed and changed in jQuery style
         BLayout::service()->find('body')->append('<div id="test" style="background:green">LAYOUT TEST</div>');
@@ -69,7 +63,7 @@ class Bucky_Default
 
     // Callback for event observer, accepts arguments overridden in this order:
     // Event default arguments, observer default arguments, event dispatch arguments
-    public function event_test($params)
+    public function event_demo($params)
     {
         BLayout::service()->find('body')->append('<div id="event_test" style="background:blue">EVENT TEST</div>');
     }
@@ -95,20 +89,16 @@ class Bucky_Default_Controller extends BActionController
     {
         $layout = BLayout::service();
 
-        // Load a view as initial HTML document
-        $html = BLayout::service()->renderView('main.php', array(
-            'var'=>'VIEW LOCAL VAR TEST',
-            'param'=>BRequest::service()->params('param'),
-        ));
-        #BResponse::service()->set($html);
-        $layout->doc($html);
-
         // Dispatch layout updates
-        $layout->dispatch();
-
+        $layout->prepare();
+/*
         // Append some HTML into a specific HTML element
-        $layout->find('#test')->append('<span style="background:red">ACTION TEST</span>');
-
+        $time = microtime(true);
+        for ($i=0; $i<1000; $i++) {
+            $layout->find('#test')->append('<span style="background:red">ACTION TEST</span>');
+        }
+        $layout->find('body')->append('<div>'.(microtime(true)-$time).'</div>');
+*/
         // Dispatch event
         BEventRegistry::service()->dispatch('test_event', array('dsp_var'=>'EVENT DISPATCH VAR TEST'));
 

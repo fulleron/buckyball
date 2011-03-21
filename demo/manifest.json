@@ -1,0 +1,8 @@
+{
+    "modules": {
+        "bucky_demo": {
+            "bootstrap": {"file":"demo_main.php", "callback":"Bucky_Demo::init"},
+            "version": "0.0.1"
+        }
+    }
+}

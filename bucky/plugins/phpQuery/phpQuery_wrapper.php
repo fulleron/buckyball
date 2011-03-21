@@ -1,6 +1,5 @@
 <?php
 
-require_once "phpQuery/phpQuery.php";
 
 /**
 * Wrapper for phpQuery API
@@ -10,10 +9,12 @@ require_once "phpQuery/phpQuery.php";
 class BphpQuery
 {
     protected $_doc;
+    protected $_html;
 
     static public function init()
     {
         BApp::service('phpQuery', 'BphpQuery');
+        BEventRegistry::service()->observe('layout.render.after', array(__CLASS__, 'event_layout_render_after'));
     }
 
     static public function service()
@@ -21,11 +22,26 @@ class BphpQuery
         return BApp::service('phpQuery');
     }
 
+    public function event_layout_render_after($args)
+    {
+        $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
+
+        BEventRegistry::service()->dispatch('phpQuery.render', $args);
+
+        if ($this->_doc) {
+            $args['output'] = (string)$this->_doc;
+        }
+    }
+
     public function doc($html=null)
     {
+        if (is_null($this->_doc)) {
+            require_once "phpQuery/phpQuery.php";
+        }
         if (!is_null($html) || is_null($this->_doc)) {
             if (is_null($html) && is_null($this->_doc)) {
-                $html = '<!DOCTYPE html><html><head></head><body></body></html>';
+                $html = $this->_html;
+                unset($this->_html);
             } elseif (!is_null($html) && !is_null($this->_doc)) {
                 unset($this->_doc);
             }

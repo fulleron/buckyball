@@ -932,7 +932,7 @@ class BFrontController
             if ($this->_defaultRoutes) {
 //TODO
             } else {
-                $callback = array('BActionController', 'action_noroute');
+                $callback = array('BActionController', 'noroute');
             }
         } else {
             $callback = $routeNode['observers'][0]['callback'];
@@ -942,6 +942,7 @@ class BFrontController
         $actionName = $callback[1];
         $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
         $controller = null;
+        $attempts = 0;
         do {
             if (!empty($controller)) {
                 list($actionName, $forwardControllerName, $params) = $controller->forward();
@@ -955,7 +956,11 @@ class BFrontController
             }
             BRequest::service()->initParams($params);
             $controller->dispatch($actionName, $args);
-        } while ($controller->forward());
+        } while ((++$attempts<100) && $controller->forward());
+
+        if ($attempts==100) {
+            throw new BException(BApp::t('Reached 100 route iterations: %s', print_r($callback,1)));
+        }
     }
 
     static public function url($name, $params = array())
@@ -970,7 +975,7 @@ class BActionController
 
     protected $_action;
     protected $_forward;
-    protected $_actionMethodPrefix = '';
+    protected $_actionMethodPrefix = 'action_';
 
     public function dispatch($actionName, $args=array())
     {

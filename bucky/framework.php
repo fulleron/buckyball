@@ -10,9 +10,6 @@
 */
 define('BNULL', 'THIS IS A DUMMY VALUE TO DISTINCT BETWEEN LACK OF ARGUMENT/VALUE AND PHP NULL VALUE');
 
-// Currently not recommended
-//spl_autoload_register('BApp::autoload', true);
-
 
 /**
 * Main BuckyBall Framework class
@@ -170,16 +167,6 @@ class BApp
         } else {
             throw new BException("Invalid configuration argument");
         }
-    }
-
-    /**
-    * Shortcut for autoload callback
-    *
-    * @param string $name
-    */
-    public static function autoload($name)
-    {
-        self::service('modules')->autoload($name);
     }
 
     /**
@@ -693,7 +680,6 @@ class BEventRegistry
 
 class BModuleRegistry
 {
-    protected $_autoload = array();
     protected $_modules = array();
     protected $_moduleDepends = array();
     protected $_services = array();
@@ -881,21 +867,6 @@ class BModuleRegistry
     {
         return $this->_currentModuleName ? $this->module($this->_currentModuleName) : false;
     }
-/*
-    public function addAutoload($classPattern, $file)
-    {
-        $this->_autoload[$classPattern] = $file;
-    }
-
-    public function autoload($className)
-    {
-        foreach ($this->_modules as $name=>$module) {
-            if (stripos($className, $module->class_prefix)===0) {
-
-            }
-        }
-    }
-*/
 }
 
 class BModule

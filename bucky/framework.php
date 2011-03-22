@@ -397,83 +397,6 @@ class BParser
         }
         return $diff;
     }
-
-    public function routeSave(&$tree, $route, $callback=null, $args=null, $multiple=false)
-    {
-        list($method, $route) = explode(' ', $route, 2);
-        $route = ltrim($route, '/');
-
-        $node =& $tree[$method];
-        $routeArr = explode('/', $route);
-        foreach ($routeArr as $r) {
-            if ($r!=='' && $r[0]===':') {
-                $node =& $node['/:'][$r];
-            } else {
-                $node =& $node['/'][$r==='' ? '__EMPTY__' : $r];
-            }
-        }
-        $observer = array('callback'=>$callback);
-        if (($module = BApp::service('modules')->currentModule())) {
-            $observer['module_name'] = $module->name;
-        }
-        if (!empty($args)) {
-            $observer['args'] = $args;
-        }
-        if ($multiple || empty($node['observers'])) {
-            $node['observers'][] = $observer;
-        } else {
-            $node['observers'][0] = array_merge_recursive($node['observers'][0], $observer);
-        }
-        unset($node);
-
-        return $this;
-    }
-
-    public function routeLoad(&$tree, $route=null)
-    {
-        if (is_null($route)) {
-            $route = BApp::service('request')->rawPath();
-        }
-        if (strpos($route, ' ')===false) {
-            $method = BApp::service('request')->method();
-        } else {
-            list($method, $route) = explode(' ', $route, 2);
-        }
-        if (empty($tree[$method])) {
-            return null;
-        }
-        $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
-        $routeNode = $tree[$method];
-        $routeName = array($method.' ');
-        $params = array();
-        foreach ($requestArr as $i=>$r) {
-            $r1 = $r==='' ? '__EMPTY__' : $r;
-            $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
-            if ($r1==='__EMPTY__' && !empty($routeNode['/'][$r1]) && is_null($nextR)) {
-                $routeNode = $routeNode['/'][$r1];
-                $routeName[] = $r;
-                break;
-            }
-            if (!empty($routeNode['/:'])) {
-                foreach ($routeNode['/:'] as $k=>$n) {
-                    if (!is_null($nextR) && !empty($n['/'][$nextR]) || is_null($nextR) && !empty($n['observers'])) {
-                        $params[substr($k, 1)] = $r;
-                        $routeNode = $n;
-                        continue 2;
-                    }
-                }
-            }
-            if (!empty($routeNode['/'][$r1])) {
-                $routeNode = $routeNode['/'][$r1];
-                $routeName[] = $r;
-                continue;
-            }
-            return null;
-        }
-        $routeNode['route_name'] = join('/', $routeName);
-        $routeNode['params_values'] = $params;
-        return $routeNode;
-    }
 }
 
 class BConfig
@@ -914,7 +837,7 @@ class BModule
 class BFrontController
 {
     protected $_routes = array();
-    protected $_defaultRoutes = array();
+    protected $_defaultRoutes = array('default'=>array('callback'=>array('BActionController', 'noroute')));
     protected $_routeTree = array();
     protected $_urlTemplates = array();
 
@@ -930,6 +853,83 @@ class BFrontController
         return BApp::service('controller');
     }
 
+    public function saveRoute(&$tree, $route, $callback=null, $args=null, $multiple=false)
+    {
+        list($method, $route) = explode(' ', $route, 2);
+        $route = ltrim($route, '/');
+
+        $node =& $tree[$method];
+        $routeArr = explode('/', $route);
+        foreach ($routeArr as $r) {
+            if ($r!=='' && $r[0]===':') {
+                $node =& $node['/:'][$r];
+            } else {
+                $node =& $node['/'][$r==='' ? '__EMPTY__' : $r];
+            }
+        }
+        $observer = array('callback'=>$callback);
+        if (($module = BApp::service('modules')->currentModule())) {
+            $observer['module_name'] = $module->name;
+        }
+        if (!empty($args)) {
+            $observer['args'] = $args;
+        }
+        if ($multiple || empty($node['observers'])) {
+            $node['observers'][] = $observer;
+        } else {
+            $node['observers'][0] = array_merge_recursive($node['observers'][0], $observer);
+        }
+        unset($node);
+
+        return $this;
+    }
+
+    public function findRoute(&$tree, $route=null)
+    {
+        if (is_null($route)) {
+            $route = BApp::service('request')->rawPath();
+        }
+        if (strpos($route, ' ')===false) {
+            $method = BApp::service('request')->method();
+        } else {
+            list($method, $route) = explode(' ', $route, 2);
+        }
+        if (empty($tree[$method])) {
+            return null;
+        }
+        $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
+        $routeNode = $tree[$method];
+        $routeName = array($method.' ');
+        $params = array();
+        foreach ($requestArr as $i=>$r) {
+            $r1 = $r==='' ? '__EMPTY__' : $r;
+            $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
+            if ($r1==='__EMPTY__' && !empty($routeNode['/'][$r1]) && is_null($nextR)) {
+                $routeNode = $routeNode['/'][$r1];
+                $routeName[] = $r;
+                break;
+            }
+            if (!empty($routeNode['/:'])) {
+                foreach ($routeNode['/:'] as $k=>$n) {
+                    if (!is_null($nextR) && !empty($n['/'][$nextR]) || is_null($nextR) && !empty($n['observers'])) {
+                        $params[substr($k, 1)] = $r;
+                        $routeNode = $n;
+                        continue 2;
+                    }
+                }
+            }
+            if (!empty($routeNode['/'][$r1])) {
+                $routeNode = $routeNode['/'][$r1];
+                $routeName[] = $r;
+                continue;
+            }
+            return null;
+        }
+        $routeNode['route_name'] = join('/', $routeName);
+        $routeNode['params_values'] = $params;
+        return $routeNode;
+    }
+
     public function route($route, $callback=null, $args=null, $name=null)
     {
         if (is_array($route)) {
@@ -939,7 +939,7 @@ class BFrontController
             return;
         }
 
-        BApp::service('parser')->routeSave($this->_routeTree, $route, $callback, $args, false);
+        $this->saveRoute($this->_routeTree, $route, $callback, $args, false);
 
         $this->_routes[$route] = $callback;
         if (!is_null($name)) {
@@ -948,7 +948,7 @@ class BFrontController
         return $this;
     }
 
-    public function defaultRoute($callback, $args=null, $name=null)
+    public function defaultRoute($callback, $args=null, $name='default')
     {
         $route = array('callback'=>$callback, 'args'=>$args);
         if ($name) {
@@ -966,16 +966,12 @@ class BFrontController
 
     public function dispatch($route=null)
     {
-        $routeNode = BApp::service('parser')->routeLoad($this->_routeTree, $route);
+        $routeNode = $this->findRoute($this->_routeTree, $route);
         $this->_currentRoute = $routeNode;
 
         if (!$routeNode || empty($routeNode['observers'])) {
             $params = array();
-            if ($this->_defaultRoutes) {
-//TODO
-            } else {
-                $callback = array('BActionController', 'noroute');
-            }
+            $callback = $this->_defaultRoutes['default']['callback'];
         } else {
             $callback = $routeNode['observers'][0]['callback'];
             $params = isset($routeNode['params_values']) ? $routeNode['params_values'] : array();
@@ -1003,7 +999,7 @@ class BFrontController
         }
     }
 
-    static public function url($name, $params = array())
+    public function url($name, $params = array())
     {
 // not implemented because not needed yet
     }
@@ -1295,6 +1291,9 @@ class BResponse
         if (is_null($type)) {
             return $this->_contentType;
         }
+        if ($type=='json') {
+            $type = 'application/json';
+        }
         $this->_contentType = $type;
         return $this;
     }
@@ -1330,8 +1329,11 @@ class BResponse
         $this->output();
     }
 
-    public function output()
+    public function output($type=null)
     {
+        if (!is_null($type)) {
+            $this->contentType($type);
+        }
         BApp::service('session')->close();
         header('Content-Type: '.$this->_contentType);
         if ($this->_contentType=='application/json') {
@@ -1421,6 +1423,9 @@ class BLayout
             }
             return $this->_views[$viewname];
         }
+        if (empty($params['module']) && ($module = BApp::service('modules')->currentModule())) {
+            $params['module'] = $module->name;
+        }
         if (!isset($this->_views[$viewname])) {
             $this->_views[$viewname] = BView::factory($viewname, $params);
         } else {
@@ -1494,9 +1499,6 @@ class BView
     static public function factory($viewname, $params)
     {
         $params['viewname'] = $viewname;
-        if (($module = BApp::service('modules')->currentModule())) {
-            $params['module'] = $module->name;
-        }
         $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
         $view = BApp::service('classes')->instance($className, $params);
         return $view;

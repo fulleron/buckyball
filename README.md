@@ -98,6 +98,13 @@ So, yada yada.
 
 ## Application Demo ##
 
+First, we start with the main gateway to the application. It should include:
+
+- Reference to framework and initialization
+- Loading application specific configuration
+- Loading application specific modules
+- Running the application
+
 ### index.php ###
 
     <?php
@@ -110,21 +117,29 @@ So, yada yada.
     // load local configuration (db, enabled modules, etc)
     BApp::config('storage/private/config/local.json');
 
-    // load
-    BApp::load('bucky/plugins/*,bucky');
-    // Same, order doesn't matter, modules will be loaded in order based on dependencies:
-    // BApp::load(array('bucky/plugins/*', 'bucky'));
-    // BApp::load('bucky/plugins/*'); BApp::load('bucky');
+    // load modules
+    BApp::load('bucky/default');
+
+    // load plugins (optionally)
+    // order doesn't matter, modules will be loaded in order based on dependencies:
+    #BApp::load('bucky/plugins/*');
 
     // Dispatch the application
     BApp::run();
 
-### bucky/manifest.json ###
+Next, we create the application manifest. It includes:
+
+- Module name
+- Module version
+- Initial bootstrap file callback
+- Dependencies
+
+### manifest.json ###
 
     {
         "modules": {
             "bucky_default": {
-                "bootstrap": {"file":"default.php", "callback":"Bucky_Default::init"},
+                "bootstrap": {"file":"default_main.php", "callback":"Bucky_Default::init"},
                 "version": "0.0.1",
                 "depends": {
                     "modules": {
@@ -135,7 +150,14 @@ So, yada yada.
         }
     }
 
-### bucky/default.php (bootstrap file) ###
+Then, we create bootstrap file and method, that will load all hooks into BuckyBall framework. Possible hooks:
+
+- Controller routes
+- Events and event observers
+- Views
+- Services
+
+### default_main.php ###
 
     <?php
 

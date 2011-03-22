@@ -14,14 +14,14 @@ class Bucky_Default
             ->view('congrats', array('template'=>'view/congrats.php'));
 
         BLayout::service()->view('body')->append('congrats');
-
+/*
         $layout = BLayout::service();
         $body = BLayout::service()->view('body');
         for ($i=0; $i<100; $i++) {
             $layout->view('test'.$i, array('template'=>'view/congrats.php', 'args'=>array('i'=>$i)));
             $body->append('test'.$i);
         }
-
+*/
     }
 }
 

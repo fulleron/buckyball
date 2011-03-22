@@ -196,6 +196,20 @@ class BApp
     {
         return self::service('locale')->t($string, $args);
     }
+
+    /**
+    * Shortcut for base URL to use in views and controllers
+    *
+    * @return string
+    */
+    public static function baseUrl()
+    {
+        static $baseUrl;
+        if (!$baseUrl) {
+            $baseUrl = self::service('request')->webRoot();
+        }
+        return $baseUrl;
+    }
 }
 
 /**
@@ -1003,6 +1017,11 @@ class BActionController
     protected $_forward;
     protected $_actionMethodPrefix = 'action_';
 
+    public function view($viewname)
+    {
+        return BApp::service('layout')->view($viewname);
+    }
+
     public function dispatch($actionName, $args=array())
     {
         $this->_action = $actionName;
@@ -1068,7 +1087,6 @@ class BActionController
 
     public function renderOutput()
     {
-        BApp::service('layout')->render();
         BApp::service('response')->output();
     }
 }
@@ -1085,6 +1103,32 @@ class BRequest
     static public function service()
     {
         return BApp::service('request');
+    }
+
+    public function ip()
+    {
+        return !empty($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : null;
+    }
+
+    public function serverIp()
+    {
+        return !empty($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : null;
+
+    }
+
+    public function serverName()
+    {
+        return !empty($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : null;
+    }
+
+    public function https()
+    {
+        return !empty($_SERVER['HTTPS']);
+    }
+
+    public function xhr()
+    {
+        return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH']=='XMLHttpRequest';
     }
 
     public function method()
@@ -1117,6 +1161,11 @@ class BRequest
         return is_null($key) ? $_POST : (isset($_POST[$key]) ? $_POST[$key] : null);
     }
 
+    public function request($key=null)
+    {
+        return is_null($key) ? $_REQUEST : (isset($_REQUEST[$key]) ? $_REQUEST[$key] : null);
+    }
+
     public function rawPost($json=false, $asObject=false)
     {
         $post = file_get_contents('php://input');
@@ -1124,6 +1173,23 @@ class BRequest
             $post = BApp::service('parser')->fromJson($post, $asObject);
         }
         return $post;
+    }
+
+    public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
+    {
+        if (is_null($value)) {
+            return isset($_COOKIE[$name]) ? $_COOKIE[$name] : null;
+        }
+        if (false===$value) {
+            return $this->cookie($name, '', -1000);
+        }
+        setcookie($name, $value, time()+$lifespan, $path, $domain);
+        return $this;
+    }
+
+    public function referrer($default=null)
+    {
+        return !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : $default;
     }
 
     public function initParams($params)
@@ -1206,6 +1272,12 @@ class BResponse
         return BApp::service('response');
     }
 
+    public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
+    {
+        BApp::service('request')->cookie($name, $value, $lifespan, $path, $domain);
+        return $this;
+    }
+
     public function set($content)
     {
         $this->_content = $content;
@@ -1274,6 +1346,17 @@ class BResponse
         }
         exit;
     }
+
+    public function render()
+    {
+        $this->output();
+    }
+
+    public function redirect($url)
+    {
+        header("Location: {$url}");
+        exit;
+    }
 }
 
 class BLayout
@@ -1293,19 +1376,34 @@ class BLayout
     {
         return BApp::service('layout');
     }
-/*
-    public function allViews($folder)
+
+    public function allViews($rootDir)
     {
-        $files = glob($folder);
+        $this->viewRootDir($rootDir);
+        $files = glob($rootDir.'/*');
         if (!$files) {
             return $this;
         }
+        for ($i=0; $i<count($files); $i++) {
+            if (is_dir($files[$i])) {
+                $add = glob($files[$i] . '/*');
+                $files = array_merge($files, $add);
+            }
+        }
         foreach ($files as $file) {
-
+            if (preg_match('#^('.preg_quote($rootDir.'/', '#').')(.*)(\.php)$#', $file, $m)) {
+                $this->view($m[2], array('template'=>$m[2].$m[3]));
+            }
         }
         return $this;
     }
-*/
+
+    public function viewRootDir($rootDir)
+    {
+        BApp::service('modules')->currentModule()->view_root_dir = $rootDir;
+        return $this;
+    }
+
     public function view($viewname, $params=null)
     {
         if (is_array($viewname)) {
@@ -1452,7 +1550,15 @@ class BView
             $this->_params['args'][$k] = $v;
         }
         $module = BApp::service('modules')->module($this->param('module'));
-        $template = $module->root_dir.'/'.$this->param('template');
+        $template = $module->root_dir.'/';
+        if ($module->view_root_dir) {
+            $template .= $module->view_root_dir.'/';
+        }
+        if ($this->param('template')) {
+            $template .= $this->param('template');
+        } else {
+            $template .= $this->param('name').'.php';
+        }
 
         ob_start();
         include $template;

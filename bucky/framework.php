@@ -904,6 +904,7 @@ class BFrontController
         foreach ($requestArr as $i=>$r) {
             $r1 = $r==='' ? '__EMPTY__' : $r;
             $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
+            $nextR = $nextR==='' ? '__EMPTY__' : $nextR;
             if ($r1==='__EMPTY__' && !empty($routeNode['/'][$r1]) && is_null($nextR)) {
                 $routeNode = $routeNode['/'][$r1];
                 $routeName[] = $r;
@@ -1157,11 +1158,6 @@ class BRequest
         return is_null($key) ? $_POST : (isset($_POST[$key]) ? $_POST[$key] : null);
     }
 
-    public function request($key=null)
-    {
-        return is_null($key) ? $_REQUEST : (isset($_REQUEST[$key]) ? $_REQUEST[$key] : null);
-    }
-
     public function rawPost($json=false, $asObject=false)
     {
         $post = file_get_contents('php://input');
@@ -1169,6 +1165,11 @@ class BRequest
             $post = BApp::service('parser')->fromJson($post, $asObject);
         }
         return $post;
+    }
+
+    public function request($key=null)
+    {
+        return is_null($key) ? $_REQUEST : (isset($_REQUEST[$key]) ? $_REQUEST[$key] : null);
     }
 
     public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
@@ -1183,6 +1184,13 @@ class BRequest
         return $this;
     }
 
+    /**
+    * Get request referrer
+    *
+    * @see http://en.wikipedia.org/wiki/HTTP_referrer#Origin_of_the_term_referer
+    * @param string $default default value to use in case there is no referrer available
+    * @return string|null
+    */
     public function referrer($default=null)
     {
         return !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : $default;
@@ -1580,6 +1588,11 @@ class BView
     public function __toString()
     {
         return $this->render();
+    }
+
+    public function q($str)
+    {
+        return htmlspecialchars($str);
     }
 }
 

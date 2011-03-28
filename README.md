@@ -99,3 +99,5 @@ So, yada yada.
 ## Application Demo ##
 
 For demo please see /blog
+
+Make sure to edit protected/config.json to set your own environment details.

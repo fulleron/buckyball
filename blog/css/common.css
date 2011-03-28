@@ -1,0 +1,8 @@
+label { display:block; }
+input[type=text],input[type=password] { width:100%; }
+textarea { width:100%; height:150px; }
+
+.login-form { float:right; }
+
+.success { background:#AFA; border:solid 1px #0F0; }
+.error { background:#FAA; border:solid 1px #F00; }

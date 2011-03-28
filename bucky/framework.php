@@ -10,6 +10,11 @@
 */
 define('BNULL', 'THIS IS A DUMMY VALUE TO DISTINCT BETWEEN LACK OF ARGUMENT/VALUE AND PHP NULL VALUE');
 
+/**
+* @see http://j4mie.github.com/idiormandparis/
+*/
+include_once('lib/idiorm.php');
+include_once('lib/paris.php');
 
 /**
 * Main BuckyBall Framework class
@@ -202,13 +207,15 @@ class BApp
     *
     * @return string
     */
-    public static function baseUrl()
+    public static function baseUrl($full=true)
     {
-        static $baseUrl;
-        if (!$baseUrl) {
-            $baseUrl = self::service('request')->webRoot();
+        static $baseUrl = array();
+        if (empty($baseUrl[(int)$full])) {
+            /** @var BRequest */
+            $r = self::service('request');
+            $baseUrl[(int)$full] = $full ? $r->baseUrl() : $r->webRoot();
         }
-        return $baseUrl;
+        return $baseUrl[(int)$full];
     }
 }
 
@@ -325,6 +332,7 @@ class BParser
      *  'second'=> '2nd'
      * ));
      *
+     * @see http://www.php.net/manual/en/function.sprintf.php#94608
      * @param string $format sprintf format string, with any number of named arguments
      * @param array $args array of [ 'arg_name' => 'arg value', ... ] replacements to be made
      * @return string|false result of sprintf call, or bool false on error
@@ -459,12 +467,6 @@ class BDb
 
     public function init()
     {
-        /**
-        * @see http://j4mie.github.com/idiormandparis/
-        */
-        include_once('lib/idiorm.php');
-        include_once('lib/paris.php');
-
         $config = BApp::service('config');
         if (($dsn = $config->get('db/dsn'))) {
             ORM::configure($dsn);
@@ -472,6 +474,20 @@ class BDb
             ORM::configure('password', $config->get('db/password'));
             ORM::configure('logging', $config->get('db/logging'));
         }
+    }
+
+    static public function now()
+    {
+        return gmstrftime('%F %T');
+    }
+}
+
+class BModel extends Model
+{
+    public static function factory($class_name)
+    {
+        $class_name = BApp::service('classes')->className($class_name);
+        return parent::factory($class_name);
     }
 }
 
@@ -483,7 +499,7 @@ class BClassRegistry
     /**
     * Shortcut to help with IDE autocompletion
     *
-    * @return BDb
+    * @return BClassRegistry
     */
     static public function service()
     {
@@ -523,7 +539,7 @@ class BEventRegistry
     /**
     * Shortcut to help with IDE autocompletion
     *
-    * @return BDb
+    * @return BEventRegistry
     */
     static public function service()
     {
@@ -1023,7 +1039,10 @@ class BActionController
     {
         $this->_action = $actionName;
         $this->_forward = null;
-        if (!$this->authorize($args) || !$this->beforeDispatch($args)) {
+        if (!$this->beforeDispatch($args)) {
+            return $this;
+        } elseif (!$this->authorize($args)) {
+            $this->forward('unauthorized');
             return $this;
         }
         $this->tryDispatch($actionName, $args);
@@ -1057,7 +1076,7 @@ class BActionController
         return $this;
     }
 
-    public function authorize($actionName=null)
+    public function authorize($args=array())
     {
         return true;
     }
@@ -1075,6 +1094,11 @@ class BActionController
     public function sendError($message)
     {
         BApp::service('response')->set($message)->status(503);
+    }
+
+    public function action_unauthorized()
+    {
+        BApp::service('response')->set("Unauthorized")->status(401);
     }
 
     public function action_noroute()
@@ -1138,6 +1162,11 @@ class BRequest
         return !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
     }
 
+    public function baseUrl()
+    {
+        return ($this->https() ? 'https' : 'http').'://'.$this->serverName().$this->webRoot();
+    }
+
     public function rawPath()
     {
         return !empty($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '';
@@ -1180,6 +1209,12 @@ class BRequest
         if (false===$value) {
             return $this->cookie($name, '', -1000);
         }
+
+        $config = BApp::service('config')->get('cookie');
+        $lifespan = !is_null($lifespan) ? $lifespan : $config['timeout'];
+        $path = !is_null($path) ? $path : $config['path'];
+        $domain = !is_null($domain) ? $domain : $config['domain'];
+
         setcookie($name, $value, time()+$lifespan, $path, $domain);
         return $this;
     }
@@ -1240,9 +1275,12 @@ class BRequest
         foreach ($filter as $f) {
             if (strpos($f, ':')) {
                 list($f, $p) = explode(':', $f, 2);
+            } else {
+                $p = null;
             }
             switch ($f) {
                 case 'int': $v = (int)$v; break;
+                case 'positive': $v = $v>0 ? $v : null; break;
                 case 'float': $v = (float)$v; break;
                 case 'trim': $v = trim($v); break;
                 case 'nohtml': $v = htmlentities($v, ENT_QUOTES); break;
@@ -1253,8 +1291,12 @@ class BRequest
                 case 'ucfirst': $v = ucfirst($v); break;
                 case 'urle': $v = urlencode($v); break;
                 case 'urld': $v = urldecode($v); break;
-                case 'alnum': $v = preg_replace('#[^a-z0-9_]#i', '', $v); break;
+                case 'alnum': $p = !empty($p)?$p:'_'; $v = preg_replace('#[^a-z0-9'.$p.']#i', '', $v); break;
                 case 'regex': case 'regexp': $v = preg_replace($p, '', $v); break;
+                case 'date': $v = date('Y-m-d', strtotime($v)); break;
+                case 'datetime': $v = date('Y-m-d H:i:s', strtotime($v)); break;
+                case 'gmdate': $v = gmdate('Y-m-d', strtotime($v)); break;
+                case 'gmdatetime': $v = gmdate('Y-m-d H:i:s', strtotime($v)); break;
             }
         }
         return $v;
@@ -1323,10 +1365,14 @@ class BResponse
         exit;
     }
 
-    public function status($status, $message=null)
+    public function status($status, $message=null, $output=true)
     {
         if (is_null($message)) {
             switch ((int)$status) {
+                case 301: $message = 'Moved Permanently'; break;
+                case 302: $message = 'Moved Temporarily'; break;
+                case 303: $message = 'See Other'; break;
+                case 401: $message = 'Unauthorized'; break;
                 case 404: $message = 'Not Found'; break;
                 case 503: $message = 'Service Unavailable'; break;
                 default: $message = 'Unknown';
@@ -1334,7 +1380,10 @@ class BResponse
         }
         header("HTTP/1.0 {$status} {$message}");
         header("Status: {$status} {$message}");
-        $this->output();
+        if ($output) {
+            $this->output();
+        }
+        return $this;
     }
 
     public function output($type=null)
@@ -1362,8 +1411,10 @@ class BResponse
         $this->output();
     }
 
-    public function redirect($url)
+    public function redirect($url, $status=302)
     {
+        BApp::service('session')->close();
+        $this->status($status, null, false);
         header("Location: {$url}");
         exit;
     }
@@ -1556,6 +1607,9 @@ class BView
 
     public function render($args=array())
     {
+        if ($this->param('raw_text')!==null) {
+            return $this->param('raw_text');
+        }
         foreach ($args as $k=>$v) {
             $this->_params['args'][$k] = $v;
         }
@@ -1596,9 +1650,62 @@ class BView
     }
 }
 
+class BViewHead extends BView
+{
+    static protected $_defaultClass = __CLASS__;
+
+    protected $_meta = array();
+    protected $_js = array();
+    protected $_css = array();
+
+    public function meta($name=null, $content=null)
+    {
+        if (is_null($name)) {
+            return join("\n", $this->_meta);
+        }
+        $this->_meta[$name] = '<meta name="'.$name.'" content="'.htmlspecialchars($content).'" />';
+        return $this;
+    }
+
+    public function js($name=null, $args=array())
+    {
+        if (is_null($name)) {
+            return join("\n", $this->_js);
+        }
+        if (!empty($args['raw'])) {
+            $this->_js[$name] = $args['raw'];
+            return $this;
+        }
+        $this->_js[$name] = '<script type="text/javascript" src="'.BApp::baseUrl().'/'.htmlspecialchars($name).'"></script>';
+        return $this;
+    }
+
+    public function css($name=null, $args=array())
+    {
+        if (is_null($name)) {
+            return join("\n", $this->_css);
+        }
+        if (!empty($args['raw'])) {
+            $this->_css[$name] = $args['raw'];
+            return $this;
+        }
+        $this->_css[$name] = '<link rel="stylesheet" type="text/css" href="'.BApp::baseUrl().'/'.htmlspecialchars($name).'"></script>';
+        return $this;
+    }
+
+    public function render($args=array())
+    {
+        if (!$this->param('template')) {
+            return $this->meta()."\n".$this->js()."\n".$this->css();
+        }
+        return parent::render($args);
+    }
+}
+
 class BViewList extends BView
 {
     static protected $_defaultClass = __CLASS__;
+
     protected $_children = array();
     protected $_lastPosition = 0;
 
@@ -1688,6 +1795,20 @@ class BSession
         $namespace = $config['session_namespace'];
         $this->data = !empty($_SESSION[$namespace]) ? $_SESSION[$namespace] : array();
 
+        if (!empty($this->data['_locale'])) {
+            if (is_array($this->data['_locale'])) {
+                foreach ($this->data['_locale'] as $c=>$l) {
+                    setlocale($c, $l);
+                }
+            } elseif (is_string($this->data['_locale'])) {
+                setlocale(LC_ALL, $this->data['_locale']);
+            }
+        }
+
+        if (!empty($this->data['_timezone'])) {
+            date_default_timezone_set($this->data['_timezone']);
+        }
+
         if ($close) {
             session_write_close();
         }
@@ -1702,10 +1823,20 @@ class BSession
         $this->_dirty = $flag;
     }
 
-    public function data()
+    public function data($key=null, $value=null)
     {
         $this->open();
-        return $this->data;
+        if (is_null($key)) {
+            return $this->data;
+        }
+        if (is_null($value)) {
+            return isset($this->data[$key]) ? $this->data[$key] : null;
+        }
+        if (!isset($this->data[$key]) || $this->data[$key]!==$value) {
+            $this->dirty(true);
+        }
+        $this->data[$key] = $value;
+        return $this;
     }
 
     public function &dataToUpdate()
@@ -1753,6 +1884,10 @@ class BCache
 
 class BLocale
 {
+    protected $_defaultTz = 'America/Los_Angeles';
+    protected $_defaultLocale = 'en_US';
+    protected $_tzCache = array();
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -1763,9 +1898,42 @@ class BLocale
         return BApp::service('locale');
     }
 
+    public function __construct()
+    {
+        date_default_timezone_set($this->_defaultTz);
+        setlocale(LC_ALL, $this->_defaultLocale);
+        $this->_tzCache['GMT'] = new DateTimeZone('GMT');
+    }
+
     public function t($string, $args)
     {
         return BApp::service('parser')->sprintfn($string, $args);
+    }
+
+    public function serverTz()
+    {
+        return date('e'); // Examples: UTC, GMT, Atlantic/Azores
+    }
+
+    public function tzOffset($tz=null)
+    {
+        if (is_null($tz)) { // Server timezone
+            return date('O') * 36; //  x/100*60*60; // Seconds from GMT
+        }
+        if (empty($this->_tzCache[$tz])) {
+            $this->_tzCache[$tz] = new DateTimeZone($tz);
+        }
+        return $this->_tzCache[$tz]->getOffset($this->_tzCache['GMT']);
+    }
+
+    public function datetimeLocalToDb($value)
+    {
+        return gmstrftime('%F %T', strtotime($value));
+    }
+
+    public function datetimeDbToLocal($value, $full=false)
+    {
+        return strftime($full ? '%c' : '%x', strtotime($value));
     }
 }
 

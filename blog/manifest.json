@@ -1,0 +1,8 @@
+{
+    "modules": {
+        "blog": {
+            "bootstrap": {"file":"protected/blog_main.php", "callback":"Blog::init"},
+            "version": "0.1.0"
+        }
+    }
+}

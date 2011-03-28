@@ -1,0 +1,17 @@
+{
+    "devmode": true,
+    "db": {
+        "dsn": "mysql:host=localhost;dbname=buckyball",
+        "username": "web",
+        "password": "",
+        "logging": true
+    },
+    "cookie": {
+        "domain": "dev.unirgy.com",
+        "path": "/b/blog",
+        "timeout": 86400,
+        "name": "frontend",
+        "session_namespace": "blog"
+    },
+    "modules": ["blog"]
+}

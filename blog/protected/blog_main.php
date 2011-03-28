@@ -105,7 +105,7 @@ class Blog_Public extends BActionController
             if (!$request->post('name') || !$request->post('body')) {
                 throw new Exception("Not enough information for comment!");
             }
-            $post = BModel::factory('BlogPost')->find_one($requset->params('post_id'));
+            $post = BModel::factory('BlogPost')->find_one($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post");
             }

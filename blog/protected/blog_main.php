@@ -40,6 +40,11 @@ class Blog
         BResponse::service()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode($msg));
     }
 
+    static public function q($str)
+    {
+        return strip_tags($str, '<a><p><b><i><u><ul><ol><li><strong><em><br><img>');
+    }
+
     public function layout_render_before($args)
     {
         $layout = BLayout::service();

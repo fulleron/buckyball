@@ -1,7 +1,7 @@
 <?php if (!Blog::user()): ?>
 
-<h1><?php echo $this->q($this->post->title) ?></h1>
-<p><?php echo $this->q($this->post->body) ?></p>
+<h1><?php echo Blog::q($this->post->title) ?></h1>
+<p><?php echo Blog::q($this->post->body) ?></p>
 
 <?php else: ?>
 
@@ -24,7 +24,7 @@
 
 <?php foreach ($this->comments as $comment): ?>
     <hr/>
-    <blockquote><?php echo $this->q($comment->body) ?></blockquote>
+    <blockquote><?php echo Blog::q($comment->body) ?></blockquote>
     <cite>by <?php echo $this->q($comment->name) ?> on <?php echo $comment->posted_at ?></cite>
     <?php if (Blog::user()): ?>
         <form class="update-comments-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id.'/comments/'.$comment->id ?>"><fieldset>

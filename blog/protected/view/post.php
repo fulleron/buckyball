@@ -1,7 +1,7 @@
 <?php if (!Blog::user()): ?>
 
-<h1><?php echo $this->post->title ?></h1>
-<p><?php echo $this->post->body ?></p>
+<h1><?php echo $this->q($this->post->title) ?></h1>
+<p><?php echo $this->q($this->post->body) ?></p>
 
 <?php else: ?>
 

@@ -19,8 +19,8 @@
 <?php else: ?>
 
 <?php foreach ($this->posts as $post): ?>
-    <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo $post->title ?></a></h2>
-    <p class="post-preview"><?php echo $post->preview ? $post->preview : $post->body ?></p>
+    <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo $this->q($post->title) ?></a></h2>
+    <p class="post-preview"><?php echo $this->q($post->preview ? $post->preview : $post->body) ?></p>
     <a class="comment-count" href="<?php echo BApp::baseUrl().'/posts/'.$post->id.'#comments' ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
 <?php endforeach ?>
 

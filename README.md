@@ -100,4 +100,4 @@ So, yada yada.
 
 For demo please see /blog
 
-Make sure to edit protected/config.json to set your own environment details.
+Make sure to edit protected/config.json to set your own environment details, and run protected/blog.sql on your DB to create tables.

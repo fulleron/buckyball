@@ -16,6 +16,6 @@ CREATE TABLE `blog_post_comment` (
   `posted_at` datetime DEFAULT NULL,
   `approved` tinyint(4) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `post_id` (`post_id`,`posted_at`),
+  KEY `post_id` (`post_id`,`approved`,`posted_at`),
   CONSTRAINT `FK_blog_post_comment_post` FOREIGN KEY (`post_id`) REFERENCES `blog_post` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;

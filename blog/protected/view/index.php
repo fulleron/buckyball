@@ -1,14 +1,14 @@
 <?php if (Blog::user()): ?>
-    <form class="create-post-form" method="post" action="<?php echo BApp::baseUrl().'/posts/' ?>"><fieldset>
-        <h2>Submit a post</h2>
+    <form class="post-form create-post-form" method="post" action="<?php echo BApp::baseUrl().'/posts/' ?>"><fieldset>
+        <h2>Submit a Post</h2>
         <label for="title">Post Title:</label>
-        <input type="text" id="title" name="title"/>
+        <input type="text" id="title" name="title"/><br/>
         <label for="preview">Preview:</label>
-        <textarea id="body" id="preview" name="preview"></textarea>
+        <textarea id="preview" name="preview"></textarea><br/>
         <label for="body">Contents:</label>
-        <textarea id="body" id="body" name="body"></textarea>
-        <br/>
-        <input type="submit" value="Post"/>
+        <textarea id="body" name="body"></textarea><br/>
+        <label>&nbsp;</label>
+        <input type="submit" value="Submit a Post"/>
     </fieldset></form>
 <?php endif ?>
 
@@ -19,9 +19,11 @@
 <?php else: ?>
 
 <?php foreach ($this->posts as $post): ?>
-    <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo Blog::q($post->title) ?></a></h2>
-    <p class="post-preview"><?php echo Blog::q($post->preview ? $post->preview : $post->body) ?></p>
-    <a class="comment-count" href="<?php echo BApp::baseUrl().'/posts/'.$post->id.'#comments' ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
+    <div class="post-entry">
+        <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo Blog::q($post->title) ?></a></h2>
+        <p class="post-preview"><?php echo Blog::q($post->preview ? $post->preview : $post->body) ?></p>
+        <a class="comment-count" href="<?php echo BApp::baseUrl().'/posts/'.$post->id.'#comments' ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
+    </div>
 <?php endforeach ?>
 
 <?php endif ?>

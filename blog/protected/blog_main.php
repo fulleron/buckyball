@@ -214,10 +214,14 @@ class Blog_Admin extends BActionController
             if (!$comment || $comment->post_id != $post->id) {
                 throw new Exception("Invalid comment ID");
             }
-            $comment->approved = $request->post('approved');
-            $comment->save();
-
-            Blog::redirect('/posts/'.$post->id, 'success',  "The comment has been updated!");
+            if ($request->post('action')=='Delete') {
+                $comment->delete();
+                Blog::redirect('/posts/'.$post->id, 'success',  "The comment has been deleted!");
+            } else {
+                $comment->approved = $request->post('approved');
+                $comment->save();
+                Blog::redirect('/posts/'.$post->id, 'success',  "The comment has been updated!");
+            }
         } catch (Exception $e) {
             Blog::redirect('/', 'error', $e->getMessage());
         }

@@ -24,7 +24,7 @@
         </div>
         <div class="main">
         <?php if ($this->message): ?>
-            <div class="<?php echo $this->messageClass ?>">
+            <div class="<?php echo $this->q($this->messageClass) ?>">
                 <?php echo $this->q($this->message) ?>
             </div>
         <?php endif ?>

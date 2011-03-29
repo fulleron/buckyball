@@ -102,12 +102,12 @@ class Blog_Public extends BActionController
     {
         $request = BRequest::service();
         try {
-            if (!$request->post('name') || !$request->post('body')) {
-                throw new Exception("Not enough information for comment!");
-            }
             $post = BModel::factory('BlogPost')->find_one($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post");
+            }
+            if (!$request->post('name') || !$request->post('body')) {
+                throw new Exception("Not enough information for comment!");
             }
             $comment = BModel::factory('BlogPostComment')->create();
             $comment->post_id = $post->id;
@@ -120,7 +120,7 @@ class Blog_Public extends BActionController
             $msg = "Thank you for your comment!".(!Blog::user() ? " It will appear after approval." : "");
             Blog::redirect('/posts/'.$post->id, 'success',  $msg);
         } catch (Exception $e) {
-            Blog::redirect('/', 'error', $e->getMessage());
+            Blog::redirect(empty($post) ? '/' : '/posts/'.$post->id, 'error', $e->getMessage());
         }
     }
 

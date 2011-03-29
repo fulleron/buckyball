@@ -2,7 +2,7 @@
 <?php if (Blog::user()): ?>
 
 <form class="post-form update-post-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id ?>"><fieldset>
-    <h2>Update a post</h2>
+    <h2>Update the Post</h2>
     <label for="title">Title:</label>
     <input type="text" id="title" name="title" value="<?php echo $this->q($this->post->title) ?>"/><br/>
     <label for="preview">Preview:</label>
@@ -10,7 +10,8 @@
     <label for="body">Content:</label>
     <textarea id="body" name="body"><?php echo $this->q($this->post->body) ?></textarea><br/>
     <label>&nbsp;</label>
-    <input type="submit" value="Update Post"/>
+    <input type="submit" name="action" value="Update the Post"/>
+    <input type="submit" name="action" value="Delete" onclick="return confirm('Are you sure?')"/>
 </fieldset></form>
 
 <?php endif ?>
@@ -27,13 +28,13 @@
 
 <?php foreach ($this->comments as $comment): ?>
     <div class="post-comment <?php echo !$comment->approved ? 'unapproved' : '' ?>">
-        <blockquote><?php echo Blog::q($comment->body) ?></blockquote>
+        <blockquote><?php echo nl2br(Blog::q($comment->body)) ?></blockquote>
         <cite>by <?php echo $this->q($comment->name) ?> on <?php echo $comment->posted_at ?></cite>
         <?php if (Blog::user()): ?>
             <form class="update-comments-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id.'/comments/'.$comment->id ?>"><fieldset>
                 <input type="hidden" name="approved" value="<?php echo $comment->approved ? 0 : 1 ?>"/>
                 <input type="submit" name="action" value="<?php echo $comment->approved ? 'Unapprove' : 'Approve' ?>"/>
-                <input type="submit" name="action" value="Delete"/>
+                <input type="submit" name="action" value="Delete" onclick="return confirm('Are you sure?')"/>
             </fieldset></form>
         <?php endif ?>
     </div>
@@ -52,5 +53,5 @@
     <label for="body">Comment:</label>
     <textarea id="body" name="body"></textarea><br/>
     <label>&nbsp;</label>
-    <input type="submit" value="Submit your comment"/>
+    <input type="submit" value="Submit your Comment"/>
 </fieldset></form>

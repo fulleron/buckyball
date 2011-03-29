@@ -191,12 +191,16 @@ class Blog_Admin extends BActionController
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
-            $post->title = $request->post('title');
-            $post->preview = $request->post('preview');
-            $post->body = $request->post('body');
-            $post->save();
-
-            Blog::redirect('/posts/'.$post->id, 'success',  "The post has been updated!");
+            if ($request->post('action')=='Delete') {
+                $post->delete();
+                Blog::redirect('/', 'success',  "The post has been deleted!");
+            } else {
+                $post->title = $request->post('title');
+                $post->preview = $request->post('preview');
+                $post->body = $request->post('body');
+                $post->save();
+                Blog::redirect('/posts/'.$post->id, 'success',  "The post has been updated!");
+            }
         } catch (Exception $e) {
             Blog::redirect('/', 'error', $e->getMessage());
         }

@@ -132,8 +132,9 @@ button:active, input[type=submit]:active {
 .login-form input[type=text], .login-form input[type=password] { width:150px; }
 .logged-in-welcome { float:right; }
 
-.success { background:#AFA; border:solid 1px #0F0; padding:5px; margin:5px; font-weight:bold; }
-.error { background:#FAA; border:solid 1px #F00; padding:5px; margin:5px; font-weight:bold; }
+.message { padding:5px; margin:5px; font-size:20px; font-weight:bold; }
+.success { background:#AFA; border:solid 1px #0F0;  }
+.error { background:#FAA; border:solid 1px #F00; }
 
 .post-form { width:500px; background:#fff; }
 .post-form label { display:inline-block; width:90px; }

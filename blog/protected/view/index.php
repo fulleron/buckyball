@@ -22,6 +22,7 @@
     <div class="post-entry">
         <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo Blog::q($post->title) ?></a></h2>
         <p class="post-preview"><?php echo Blog::q($post->preview ? $post->preview : $post->body) ?></p>
+        <cite>Posted by admin on <?php echo $post->posted_at ?></cite>
         <a class="comment-count" href="<?php echo BApp::baseUrl().'/posts/'.$post->id.'#comments' ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
     </div>
 <?php endforeach ?>

@@ -15,8 +15,11 @@
 
 <?php endif ?>
 
-<h1><?php echo Blog::q($this->post->title) ?></h1>
-<p><?php echo nl2br(Blog::q($this->post->body)) ?></p>
+<div class="post-entry">
+    <h1><?php echo Blog::q($this->post->title) ?></h1>
+    <p><?php echo nl2br(Blog::q($this->post->body)) ?></p>
+    <cite>Posted by admin on <?php echo $this->post->posted_at ?></cite>
+</div>
 
 <a name="comments"></a>
 <h2>Comments</h2>

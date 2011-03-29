@@ -143,6 +143,8 @@ button:active, input[type=submit]:active {
 .create-post-form, .update-post-form { float:right; }
 textarea#preview { height:100px; }
 
+.post-entry cite { padding-left:30px; font-style:italic; margin-right:10px;  }
+
 .post-comment { border:solid 1px #EEE; background:#fff; margin:10px; padding:5px; }
 .post-comment blockquote { font-size:14px; }
 .post-comment cite { padding-left:30px; font-style:italic; }

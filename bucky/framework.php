@@ -27,7 +27,7 @@ class BApp
     */
     public static function init()
     {
-
+        BDebug::s();
     }
 
     /**
@@ -1539,6 +1539,16 @@ class BView
         $this->_params['args'][$name] = $value;
     }
 
+    public function __isset($name)
+    {
+        return isset($this->_params['args'][$name]);
+    }
+
+    public function __unset($name)
+    {
+        unset($this->_pararms['args'][$name]);
+    }
+
     public function view($viewname)
     {
         if ($viewname===$this->param('name')) {
@@ -1780,6 +1790,36 @@ class BSession
         }
         $this->data[$key] = $value;
         return $this;
+    }
+
+    /**
+    * Get session variable
+    *
+    * Note, that PHP does not allow passing data by reference in magic methods.
+    * That means you can not update variables using __get unless they're objects.
+    *
+    * Use data('key', 'value') for session updates
+    *
+    * @param string $name
+    */
+    public function __get($name)
+    {
+        return isset($this->data[$name]) ? $this->data[$name] : null;
+    }
+
+    public function __set($name, $value)
+    {
+        $this->data[$name] = $value;
+    }
+
+    public function __isset($name)
+    {
+        return isset($this->data[$name]);
+    }
+
+    public function __unset($name)
+    {
+        unset($this->data[$name]);
     }
 
     public function &dataToUpdate()

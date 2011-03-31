@@ -4,16 +4,16 @@ class Bucky_Default
 {
     static public function init()
     {
-        BFrontController::service()
+        BFrontController::s()
             ->route('GET /', array('Bucky_Default_Controller', 'home'));
 
-        BLayout::service()
+        BLayout::s()
             ->view('main', array('template'=>'view/main.php'))
             ->view('head', array('view_class'=>'BViewList'))
             ->view('body', array('view_class'=>'BViewList'))
             ->view('congrats', array('template'=>'view/congrats.php'));
 
-        BLayout::service()->view('body')->append('congrats');
+        BLayout::s()->view('body')->append('congrats');
 /*
         $layout = BLayout::service();
         $body = BLayout::service()->view('body');

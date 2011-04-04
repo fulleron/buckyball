@@ -4,7 +4,8 @@ class BuckyUI
 {
     static public function init()
     {
-        BLayout::s()->allViews('view');
+        BLayout::s()->viewRootDir('ui/view')
+            ->view('grid', array('view_class'=>'BViewGrid', 'template'=>'grid.php'));
     }
 }
 

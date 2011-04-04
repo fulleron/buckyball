@@ -1522,7 +1522,8 @@ class BLayout
 
     public function viewRootDir($rootDir)
     {
-        BModuleRegistry::s()->currentModule()->view_root_dir = $rootDir;
+        $module = BApp::module();
+        $module->view_root_dir = strpos($rootDir, '/')===0 ? $rootDir : $module->root_dir.'/'.$rootDir;
         return $this;
     }
 

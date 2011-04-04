@@ -35,9 +35,9 @@ class Blog
         return BSession::s()->data('user');
     }
 
-    static public function redirect($url, $status, $msg)
+    static public function redirect($url, $status, $msg, $msgArgs=array())
     {
-        BResponse::s()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode($msg));
+        BResponse::s()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs)));
     }
 
     static public function q($str)
@@ -48,7 +48,7 @@ class Blog
     public function layout_render_before($args)
     {
         $layout = BLayout::s();
-        $layout->view('head')->css('css/common.css');
+        $layout->view('head')->css('css/common.css', array());
 
         $request = BRequest::s();
         if ($request->get('status') && $request->get('msg')) {

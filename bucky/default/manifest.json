@@ -1,8 +1,0 @@
-{
-    "modules": {
-        "bucky_default": {
-            "bootstrap": {"file":"default_main.php", "callback":"Bucky_Default::init"},
-            "version": "0.0.1"
-        }
-    }
-}

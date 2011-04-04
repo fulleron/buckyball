@@ -13,20 +13,24 @@ class BphpQuery
 
     static public function init()
     {
-        BApp::service('phpQuery', 'BphpQuery');
-        BEventRegistry::service()->observe('layout.render.after', array(__CLASS__, 'event_layout_render_after'));
+        BEventRegistry::s()->observe('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
     }
 
-    static public function service()
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BphpQuery
+    */
+    static public function s()
     {
-        return BApp::service('phpQuery');
+        return BClassRegistry::s()->singleton(__CLASS__);
     }
 
-    public function event_layout_render_after($args)
+    public function observer_layout_render_after($args)
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
 
-        BEventRegistry::service()->dispatch('phpQuery.render', $args);
+        BEventRegistry::s()->dispatch('phpQuery.render', $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;

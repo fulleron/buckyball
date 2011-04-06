@@ -4,7 +4,7 @@ class Blog
 {
     static public function init()
     {
-        BFrontController::s()
+        BFrontController::i()
         // public access
             ->route('GET /', array('Blog_Public', 'index'))
             ->route('GET /posts/:post_id', array('Blog_Public', 'post'))
@@ -19,25 +19,25 @@ class Blog
             ->route('GET /logout', array('Blog_Admin', 'logout'))
         ;
 
-        BLayout::s()
+        BLayout::i()
             ->allViews('protected/view')
             ->view('head', array('view_class'=>'BViewHead'))
             ->view('body', array('view_class'=>'BViewList'))
         ;
 
-        BEventRegistry::s()
+        BEventRegistry::i()
             ->observe('layout.render.before', array('Blog', 'layout_render_before'))
         ;
     }
 
     static public function user()
     {
-        return BSession::s()->data('user');
+        return BSession::i()->data('user');
     }
 
     static public function redirect($url, $status, $msg, $msgArgs=array())
     {
-        BResponse::s()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs)));
+        BResponse::i()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs)));
     }
 
     static public function q($str)
@@ -47,10 +47,10 @@ class Blog
 
     public function layout_render_before($args)
     {
-        $layout = BLayout::s();
+        $layout = BLayout::i();
         $layout->view('head')->css('css/common.css', array());
 
-        $request = BRequest::s();
+        $request = BRequest::i();
         if ($request->get('status') && $request->get('msg')) {
             $layout->view('main')->messageClass = $request->get('status');
             $layout->view('main')->message = $request->get('msg');
@@ -62,7 +62,7 @@ class Blog_Public extends BActionController
 {
     public function action_index()
     {
-        $layout = BLayout::s();
+        $layout = BLayout::i();
         $layout->view('body')->append('index');
         $layout->view('index')->posts = BModel::factory('BlogPost')
             ->select('id')->select('title')->select('preview')->select('posted_at')
@@ -70,12 +70,12 @@ class Blog_Public extends BActionController
             ->order_by_desc('posted_at')
             ->find_many();
 
-        BResponse::s()->output();
+        BResponse::i()->output();
     }
 
     public function action_post()
     {
-        $postId = BRequest::s()->params('post_id');
+        $postId = BRequest::i()->params('post_id');
         $post = BModel::factory('BlogPost')->find_one($postId);
         if (!$post) {
             Blog::redirect('/', 'error', "Post not found!");
@@ -90,17 +90,17 @@ class Blog_Public extends BActionController
         }
         $comments = $commentsOrm->find_many();
 
-        $layout = BLayout::s();
+        $layout = BLayout::i();
         $layout->view('body')->append('post');
         $layout->view('post')->post = $post;
         $layout->view('post')->comments = $comments;
 
-        BResponse::s()->output();
+        BResponse::i()->output();
     }
 
     public function action_new_comment()
     {
-        $request = BRequest::s();
+        $request = BRequest::i();
         try {
             $post = BModel::factory('BlogPost')->find_one($request->params('post_id'));
             if (!$post) {
@@ -126,8 +126,8 @@ class Blog_Public extends BActionController
 
     public function action_noroute()
     {
-        BLayout::s()->view('body')->append('404');
-        BResponse::s()->status(404);
+        BLayout::i()->view('body')->append('404');
+        BResponse::i()->status(404);
     }
 }
 
@@ -140,12 +140,12 @@ class Blog_Admin extends BActionController
 
     public function action_login()
     {
-        $request = BRequest::s();
+        $request = BRequest::i();
         try {
             if (!($request->post('username')=='admin' && $request->post('password')=='admin')) {
                 throw new Exception("Invalid user name or password");
             }
-            BSession::s()->data('user', 'admin');
+            BSession::i()->data('user', 'admin');
             Blog::redirect('/', 'success',  "You're logged in as admin");
         } catch (Exception $e) {
             Blog::redirect('/', 'error', $e->getMessage());
@@ -154,13 +154,13 @@ class Blog_Admin extends BActionController
 
     public function action_logout()
     {
-        BSession::s()->data('user', false);
+        BSession::i()->data('user', false);
         Blog::redirect('/', 'success', "You've been logged out");
     }
 
     public function action_new_post()
     {
-        $request = BRequest::s();
+        $request = BRequest::i();
         try {
             if (!$request->post('title') || !$request->post('body')) {
                 throw new Exception("Invalid post data");
@@ -181,7 +181,7 @@ class Blog_Admin extends BActionController
 
     public function action_update_post()
     {
-        $request = BRequest::s();
+        $request = BRequest::i();
         try {
             if (!$request->post('title') || !$request->post('body')) {
                 throw new Exception("Invalid post data");
@@ -208,7 +208,7 @@ class Blog_Admin extends BActionController
 
     public function action_update_comment()
     {
-        $request = BRequest::s();
+        $request = BRequest::i();
         try {
             $post = BModel::factory('BlogPost')->find_one($request->params('post_id'));
             if (!$post) {

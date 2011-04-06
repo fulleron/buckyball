@@ -4,8 +4,7 @@ class BuckyUI
 {
     static public function init()
     {
-        BLayout::s()->viewRootDir('ui/view')
-            ->view('grid', array('view_class'=>'BViewGrid', 'template'=>'grid.php'));
+        BLayout::i()->viewRootDir('ui/view');
     }
 }
 
@@ -14,7 +13,7 @@ class BViewGrid extends BView
     public function gridUrl($changeRequest=array())
     {
         $grid = $this->grid;
-        $grid['request'] = BParser::s()->arrayMerge($grid['request'], $changeRequest);
+        $grid['request'] = BParser::i()->arrayMerge($grid['request'], $changeRequest);
         return BApp::baseUrl().$grid['config']['gridUrl'].'?'.http_build_query($grid['request']);
     }
 
@@ -36,12 +35,17 @@ class BViewGrid extends BView
         }
         $cell = $this->grid['data']['rows'][$rowId][$colId];
         */
-        return $this->q(isset($cell['title']) ? $cell['title'] : $cell['value']);
+        return $this->q(isset($cell['title']) ? $cell['title'] : (!empty($cell['value']) ? $cell['value'] : ''));
+    }
+
+    public function rowActions($row)
+    {
+        return array();
     }
 
     public function gridData()
     {
-        $parser = BParser::s();
+        $parser = BParser::i();
         // fetch grid configuration
         $config = $this->grid['config'];
         if (!empty($this->grid['server_config'])) {
@@ -51,10 +55,10 @@ class BViewGrid extends BView
         // fetch request parameters
         if (empty($this->grid['request'])) {
             $grid = $this->grid;
-            $grid['request'] = BRequest::s()->get();
+            $grid['request'] = BRequest::i()->get();
             $this->grid = $grid;
         }
-        $p = BRequest::s()->sanitize($this->grid['request'], array(
+        $p = BRequest::i()->sanitize($this->grid['request'], array(
             'page' => array('int', !empty($config['page']) ? $config['page'] : 1),
             'pageSize' => array('int', !empty($config['pageSize']) ? $config['pageSize'] : $config['pageSizeOptions'][0]),
             'sort' => array('alnum|lower', !empty($config['sort']) ? $config['sort'] : null),
@@ -132,7 +136,7 @@ class BViewGrid extends BView
                     switch ($col['type']) {
                         case 'row_checkbox': continue 2;
                         case 'link': $a['href'] = $parser->injectVars($col['href'], $r); break;
-                        case 'actions': $a = call_user_func($this->grid['row_actions_callback'], $row); break;
+                        case 'actions': $a = call_user_func($col['callback'], $row); break;
                         default: if (!empty($this->grid['data_formatters'][$col['type']])) {
                             $fmt = $this->grid['data_formatters'][$col['type']];
                             $a = call_user_func($fmt['callback'], $r, $col);

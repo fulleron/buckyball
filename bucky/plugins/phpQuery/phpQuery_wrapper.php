@@ -6,14 +6,14 @@
 *
 * @see http://code.google.com/p/phpquery/
 */
-class BphpQuery
+class BphpQuery extends BClass
 {
     protected $_doc;
     protected $_html;
 
     static public function init()
     {
-        BEventRegistry::s()->observe('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
+        BEventRegistry::i()->observe('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
     }
 
     /**
@@ -21,16 +21,16 @@ class BphpQuery
     *
     * @return BphpQuery
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function observer_layout_render_after($args)
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
 
-        BEventRegistry::s()->dispatch('phpQuery.render', $args);
+        BEventRegistry::i()->dispatch('phpQuery.render', $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;

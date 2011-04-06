@@ -4,7 +4,7 @@
             "bootstrap": {"file":"phpQuery/phpQuery_wrapper.php", "callback":"BphpQuery::init"},
             "version": "0.9.5"
         },
-        "bucky_ui": {
+        "buckyball.ui": {
             "bootstrap": {"file":"ui/ui_main.php", "callback":"BuckyUI::init"},
             "version": "0.0.1"
         }

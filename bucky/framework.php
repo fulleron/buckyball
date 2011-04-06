@@ -16,18 +16,75 @@ define('BNULL', 'THIS IS A DUMMY VALUE TO DISTINCT BETWEEN LACK OF ARGUMENT/VALU
 include_once('lib/idiorm.php');
 include_once('lib/paris.php');
 
+
+/**
+* Base class that allows easy singleton/instance creation and method overrides (decorator)
+*
+* This class is used for all BuckyBall framework base classes
+*
+* @see BClassRegistry for invokation
+*/
+class BClass
+{
+    /**
+    * Create new singleton or instance of the class
+    *
+    * @param bool $new
+    * @param string $class
+    */
+    static public function instance($new=false, array $args=array(), $class=__CLASS__)
+    {
+        $registry = BClassRegistry::i();
+        return $new ? $registry->getInstance($class) : $registry->getSingleton($class);
+    }
+
+    /**
+    * Fallback singleton/instance factory
+    *
+    * Works correctly only in PHP 5.3.0
+    * With PHP 5.2.0 will always return instance of BClass and should be overridden in child classes
+    *
+    * @param bool $new if true returns a new instance, otherwise singleton
+    * @param array $args
+    * @return BClass
+    */
+    public static function i($new=false, array $args=array())
+    {
+        if (function_exists('get_called_class')) {
+            $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        }
+        return self::instance($new, $args, $class);
+    }
+}
+
 /**
 * Main BuckyBall Framework class
+*
 */
-class BApp
+class BApp extends BClass
 {
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @todo Run multiple applications within the same script
+    *       This requires to decide which registries should be app specific
+    *
+    * @return BApp
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return self::instance($new, $args, __CLASS__);
+    }
+
     /**
     * The first method to be ran in bootstrap index file.
     *
+    * @return BApp
     */
     public static function init()
     {
-        BDebug::s();
+        BDebug::i();
+        return self::i();
     }
 
     /**
@@ -38,11 +95,20 @@ class BApp
     */
     public static function run()
     {
-        BDb::s()->init();
-        BSession::s()->open();
-        BModuleRegistry::s()->bootstrap();
-        BFrontController::s()->dispatch();
-        BSession::s()->close();
+        // initialize database connections
+        BDb::i()->init();
+
+        // load session variables
+        BSession::i()->open();
+
+        // bootstrap modules
+        BModuleRegistry::i()->bootstrap();
+
+        // dispatch requested controller action
+        BFrontController::i()->dispatch();
+
+        // If session variables were changed, update session
+        BSession::i()->close();
     }
 
     /**
@@ -55,37 +121,7 @@ class BApp
     public static function log($message, $args, $data=array())
     {
         $data['message'] = self::t($message, $args);
-        BDebug::s()->log($data);
-    }
-
-    /**
-    * Shortcut to retrieve a current module object
-    *
-    * @return BModule
-    */
-    public static function module()
-    {
-        return BModuleRegistry::s()->currentModule();
-    }
-
-    /**
-    * Shortcut to retrieve potentially overridden class instance
-    *
-    * @param string $class
-    */
-    public static function instance($class)
-    {
-        return BClassRegistry::s()->instance($class);
-    }
-
-    /**
-    * Shortcut to retrieve potentially overridden class singleton
-    *
-    * @param string $class
-    */
-    public static function singleton($class)
-    {
-        return BClassRegistry::s()->singleton($class);
+        BDebug::i()->log($data);
     }
 
     /**
@@ -96,9 +132,9 @@ class BApp
     public static function config($config)
     {
         if (is_array($config)) {
-            BConfig::s()->add($config);
+            BConfig::i()->add($config);
         } elseif (is_string($config) && is_file($config)) {
-            BConfig::s()->addFile($config);
+            BConfig::i()->addFile($config);
         } else {
             throw new BException("Invalid configuration argument");
         }
@@ -115,7 +151,7 @@ class BApp
         if (is_string($folders)) {
             $folders = explode(',', $folders);
         }
-        $modules = BModuleRegistry::s();
+        $modules = BModuleRegistry::i();
         foreach ($folders as $folder) {
             $modules->scan($folder);
         }
@@ -126,10 +162,11 @@ class BApp
     *
     * @param string $string Text to be translated
     * @param string|array $args Arguments for the text
+    * @return string
     */
     public static function t($string, $args=array())
     {
-        return Blocale::s()->t($string, $args);
+        return Blocale::i()->t($string, $args);
     }
 
     /**
@@ -142,7 +179,7 @@ class BApp
         static $baseUrl = array();
         if (empty($baseUrl[(int)$full])) {
             /** @var BRequest */
-            $r = BRequest::s();
+            $r = BRequest::i();
             $baseUrl[(int)$full] = $full ? $r->baseUrl() : $r->webRoot();
         }
         return $baseUrl[(int)$full];
@@ -154,6 +191,13 @@ class BApp
 */
 class BException extends Exception
 {
+    /**
+    * Logs exceptions
+    *
+    * @param string $message
+    * @param int $code
+    * @return BException
+    */
     public function __construct($message="", $code=0)
     {
         parent::__construct($message, $code);
@@ -162,9 +206,9 @@ class BException extends Exception
 }
 
 /**
-* Service to log errors and events for development and debugging
+* Facility to log errors and events for development and debugging
 */
-class BDebug
+class BDebug extends BClass
 {
     protected $_startTime;
     protected $_events = array();
@@ -172,6 +216,7 @@ class BDebug
     /**
     * Contructor, remember script start time for delta timestamps
     *
+    * @return BDebug
     */
     public function __construct()
     {
@@ -183,9 +228,9 @@ class BDebug
     *
     * @return BDebug
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     /**
@@ -197,21 +242,34 @@ class BDebug
     public function log($event)
     {
         $event['ts'] = microtime(true);
-        if (($module = BApp::module())) {
+        if (($module = BModuleRegistry::i()->currentModule())) {
             $event['module'] = $module->name;
         }
         $this->_events[] = $event;
         return $this;
     }
 
+    /**
+    * Delta time from start
+    *
+    * @return float
+    */
     public function delta()
     {
         return microtime(true)-$this->_startTime;
     }
 }
 
-class BParser
+/**
+* Utility class to parse and construct strings and data structures
+*/
+class BParser extends BClass
 {
+    /**
+    * Default hash algorithm
+    *
+    * @var string default sha512 for strength and slowness
+    */
     protected $_hashAlgo = 'sha512';
 
     /**
@@ -219,22 +277,41 @@ class BParser
     *
     * @return BParser
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Convert any data to JSON
+    *
+    * @param mixed $data
+    * @return string
+    */
     public function toJson($data)
     {
         return json_encode($data);
     }
 
-    public function fromJson($data, $asObject=false)
+    /**
+    * Parse JSON into PHP data
+    *
+    * @param string $json
+    * @param bool $asObject if false will attempt to convert to array,
+    *                       otherwise standard combination of objects and arrays
+    */
+    public function fromJson($json, $asObject=false)
     {
-        $obj = json_decode($data);
+        $obj = json_decode($json);
         return $asObject ? $obj : $this->objectToArray($obj);
     }
 
+    /**
+    * Convert object to array recursively
+    *
+    * @param object $d
+    * @return array
+    */
     public function objectToArray($d)
     {
         if (is_object($d)) {
@@ -246,6 +323,12 @@ class BParser
         return $d;
     }
 
+    /**
+    * Convert array to object
+    *
+    * @param mixed $d
+    * @return object
+    */
     public function arrayToObject($d)
     {
         if (is_array($d)) {
@@ -296,6 +379,16 @@ class BParser
         return vsprintf($format, array_values($args));
     }
 
+    /**
+    * Inject vars into string template
+    *
+    * Ex: echo BParser::i()->injectVars('One :two :three', array('two'=>2, 'three'=>3))
+    * Result: "One 2 3"
+    *
+    * @param string $str
+    * @param array $vars
+    * @return string
+    */
     public function injectVars($str, $vars)
     {
         foreach ($vars as $k=>$v) {
@@ -339,7 +432,13 @@ class BParser
       return $base;
     }
 
-    public function arrayCompare($array1, $array2)
+    /**
+    * Compare 2 arrays recursively
+    *
+    * @param array $array1
+    * @param array $array2
+    */
+    public function arrayCompare(array $array1, array $array2)
     {
         $diff = false;
         // Left-to-right
@@ -373,6 +472,12 @@ class BParser
         return $diff;
     }
 
+    /**
+    * Set or retrieve current hash algorithm
+    *
+    * @param string$algo
+    * @return BParser|string
+    */
     public function hashAlgo($algo=null)
     {
         if (is_null($algo)) {
@@ -382,6 +487,12 @@ class BParser
         return $this;
     }
 
+    /**
+    * Generate random string
+    *
+    * @param int $strLen length of resulting string
+    * @param string $chars allowed characters to be used
+    */
     public function randomString($strLen=8, $chars='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789')
     {
         $charsLen = strlen($chars)-1;
@@ -392,11 +503,28 @@ class BParser
         return $str;
     }
 
+    /**
+    * Generate salted hash
+    *
+    * @param string $string original text
+    * @param mixed $salt
+    * @param mixed $algo
+    * @return string
+    */
     public function saltedHash($string, $salt, $algo=null)
     {
         return hash($algo ? $algo : $this->_hashAlgo, $salt.$string);
     }
 
+    /**
+    * Generate fully composed salted hash
+    *
+    * Ex: sha512:<hashed-string-here>:<salt>
+    *
+    * @param string $string
+    * @param string $salt
+    * @param string $algo
+    */
     public function fullSaltedHash($string, $salt=null, $algo=null)
     {
         $salt = !is_null($salt) ? $salt : $this->randomString();
@@ -404,6 +532,12 @@ class BParser
         return $algo.':'.$this->saltedHash($string, $salt).':'.$salt;
     }
 
+    /**
+    * Validate salted hash against original text
+    *
+    * @param string $string original text
+    * @param string $storedHash fully composed salted hash
+    */
     public function validateSaltedHash($string, $storedHash)
     {
         list($algo, $hash, $salt) = explode(':', $storedHash);
@@ -411,8 +545,16 @@ class BParser
     }
 }
 
-class BConfig
+/**
+* Global configuration storage class
+*/
+class BConfig extends BClass
 {
+    /**
+    * Configuration storage
+    *
+    * @var array
+    */
     protected $_config = array();
 
     /**
@@ -420,23 +562,34 @@ class BConfig
     *
     * @return BConfig
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
-    public function add($config, $root=null)
+    /**
+    * Add configuration fragment to global tree
+    *
+    * @param array $config
+    * @return BConfig
+    */
+    public function add(array $config)
     {
-        $this->_config = BParser::s()->arrayMerge($this->_config, $config);
+        $this->_config = BParser::i()->arrayMerge($this->_config, $config);
         return $this;
     }
 
+    /**
+    * Add configuration from file, stored as JSON
+    *
+    * @param string $filename
+    */
     public function addFile($filename)
     {
         if (!is_readable($filename)) {
             throw new BException(BApp::t('Invalid configuration file name: %s', $filename));
         }
-        $config = BParser::s()->fromJson(file_get_contents($filename));
+        $config = BParser::i()->fromJson(file_get_contents($filename));
         if (!$config) {
             throw new BException(BApp::t('Invalid configuration contents: %s', $filename));
         }
@@ -444,6 +597,13 @@ class BConfig
         return $this;
     }
 
+    /**
+    * Get configuration data using path
+    *
+    * Ex: BConfig::i()->get('some/deep/config')
+    *
+    * @param string $path
+    */
     public function get($path)
     {
         $root = $this->_config;
@@ -457,21 +617,32 @@ class BConfig
     }
 }
 
-class BDb
+/**
+* Wrapper for idiorm/paris
+*
+* For multiple connections waiting on: https://github.com/j4mie/idiorm/issues#issue/15
+*
+* @see http://j4mie.github.com/idiormandparis/
+*/
+class BDb extends BClass
 {
     /**
     * Shortcut to help with IDE autocompletion
     *
     * @return BDb
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Initialize main DB connection
+    *
+    */
     public function init()
     {
-        $config = BConfig::s();
+        $config = BConfig::i();
         if (($dsn = $config->get('db/dsn'))) {
             ORM::configure($dsn);
             ORM::configure('username', $config->get('db/username'));
@@ -480,20 +651,40 @@ class BDb
         }
     }
 
+    /**
+    * DB friendly current date/time
+    *
+    * @return string
+    */
     static public function now()
     {
         return gmstrftime('%F %T');
     }
 }
 
+/**
+* ORM model base class
+*/
 class BModel extends Model
 {
+    /**
+    * Model instance factory
+    *
+    * @param string $class_name
+    * @return ORMWrapper
+    */
     public static function factory($class_name)
     {
-        $class_name = BClassRegistry::s()->className($class_name);
+        $class_name = BClassRegistry::i()->className($class_name);
         return parent::factory($class_name);
     }
 
+    /**
+    * Set few object properties in the same call
+    *
+    * @param array $arr
+    * @return BModel
+    */
     public function setFew(array $arr)
     {
         foreach ($arr as $k=>$v) {
@@ -503,11 +694,37 @@ class BModel extends Model
     }
 }
 
-class BClassRegistry
+/**
+* Registry of classes, class overrides and method overrides
+*/
+class BClassRegistry extends BClass
 {
+    /**
+    * Self instance for singleton
+    *
+    * @var BClassRegistry
+    */
     static protected $_instance;
 
+    /**
+    * Class overrides
+    *
+    * @var array
+    */
     protected $_classes = array();
+
+    /**
+    * Method overrides
+    *
+    * @var array
+    */
+    protected $_methods = array();
+
+    /**
+    * Registry of singletons
+    *
+    * @var array
+    */
     protected $_singletons = array();
 
     /**
@@ -515,42 +732,248 @@ class BClassRegistry
     *
     * @return BClassRegistry
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
         if (!self::$_instance) {
             self::$_instance = new BClassRegistry;
         }
-        return self::$_instance->singleton(__CLASS__);
+        $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        return $new ? self::$_instance->getInstance($class) : self::$_instance->getSingleton($class);
     }
 
-
-    public function override($class, $newClass)
+    /**
+    * Override a class
+    *
+    * Usage: BClassRegistry::i()->override('BaseClass', 'MyClass');
+    *
+    * Remembering the module that overrode the class for debugging
+    *
+    * @param string $class Class to be overridden
+    * @param string $newClass New class
+    * @param bool $replaceSingleton If there's already singleton of overridden class, replace with new one
+    * @return BClassRegistry
+    */
+    public function override($class, $newClass, $replaceSingleton=false)
     {
-        $this->_classes[$class] = $newClass;
+        $this->_classes[$class] = array(
+            'class_name' => $newClass,
+            'module_name' => BModuleRegistry::i()->currentModule(),
+        );
+        if ($replaceExisting && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
+            $this->_singletons[$class] = $this->getInstance($newClass);
+        }
+        return $this;
     }
 
+    /**
+    * Dynamically override a class method (decorator pattern)
+    *
+    * Already existing instances of the class will not be affected.
+    *
+    * Usage: BClassRegistry::i()->overrideMethod('BaseClass', 'someMethod', array('MyClass', 'someMethod'));
+    *
+    * Overridden class should be called one of the following ways:
+    * - BClassRegistry::i()->getInstance('BaseClass')
+    * - BClassRegistry::i()->getSingleton('BaseClass')
+    * - BaseClass:i() -- if it extends BClass or has the shortcut defined
+    *
+    * Callback method example (original method had 2 arguments):
+    *
+    * class MyClass {
+    *   static public function someMethod($origObject, $arg1, $arg2)
+    *   {
+    *       // do some custom stuff before call to original method here
+    *
+    *       $origObject->someMethod($arg1, $arg2);
+    *
+    *       // do some custom stuff after call to original method here
+    *
+    *       return $origObject;
+    *   }
+    * }
+    *
+    * Remembering the module that overrode the method for debugging
+    *
+    * @todo decide whether static overrides are needed
+    *
+    * @param string $class Class to be overridden
+    * @param string $method Method to be overridden
+    * @param mixed $callback Callback to invoke on method call
+    * @param bool $static Whether the static method call should be overridden
+    * @return BClassRegistry
+    */
+    public function overrideMethod($class, $method, $callback, $static=false)
+    {
+        $this->_methods[$class][$static ? 1 : 0][$method] = array(
+            'module_name' => BModuleRegistry::i()->currentModule(),
+            'callback' => $callback,
+        );
+        return $this;
+    }
+
+    /**
+    * Call overridden method
+    *
+    * @param object $origObject
+    * @param string $method
+    * @param mixed $args
+    * @return mixed
+    */
+    public function callMethod($origObject, $method, array $args=array())
+    {
+        $class = get_class($origObject);
+
+        $callback = !empty($this->_methods[$class][0][$method])
+            ? $this->_methods[$class][0][$method]['callback']
+            : array($origObject, $method);
+
+        array_unshift($origObject, $args);
+
+        return call_user_func_array($callback, $args);
+    }
+
+    /**
+    * Call static overridden method
+    *
+    * Static class properties will not be available to callbacks
+    *
+    * @todo decide if this is needed
+    *
+    * @param string $class
+    * @param string $method
+    * @param array $args
+    */
+    public function callStaticMethod($class, $method, array $args=array())
+    {
+        $callback = !empty($this->_methods[$class][1][$method])
+            ? $this->_methods[$class][1][$method]['callback']
+            : array($class, $method);
+
+        return call_user_func_array($callback, $args);
+    }
+
+    /**
+    * Get actual class name for potentially overridden class
+    *
+    * @param mixed $class
+    * @return mixed
+    */
     public function className($class)
     {
-        return isset($this->_classes[$class]) ? $this->_classes[$class] : $class;
+        return !empty($this->_classes[$class]) ? $this->_classes[$class]['class_name'] : $class;
     }
 
-    public function instance($class, $args=array())
+    /**
+    * Get a new instance of a class
+    *
+    * If at least one method of the class if overridden, returns decorator
+    *
+    * @param string $class
+    * @param array $args
+    * @return object
+    */
+    public function getInstance($class, array $args=array())
     {
         $className = $this->className($class);
-        return new $className($args);
+        $instance = new $className($args);
+
+        // if no methods are overridden, just return the instance
+        if (empty($this->_methods[$class])) {
+            return $instance;
+        }
+
+        // otherwise return decorator
+        return $this->getInstance('BClassDecorator', array($instance));
     }
 
-    public function singleton($class, $args=array())
+    /**
+    * Get a class singleton
+    *
+    * @param string $class
+    * @param array $args
+    * @return object
+    */
+    public function getSingleton($class, array $args=array())
     {
         if (empty($this->_singletons[$class])) {
-            $this->_singletons[$class] = $class===__CLASS__ ? self::$_instance : $this->instance($class, $args);
+            $this->_singletons[$class] = $class===__CLASS__ ? self::$_instance : $this->getInstance($class, $args);
         }
         return $this->_singletons[$class];
     }
 }
 
-class BEventRegistry
+
+/**
+* Decorator class to allow easy method overrides
+*
+*/
+class BClassDecorator extends BClass
 {
+    /**
+    * Contains the decorated (original) object
+    *
+    * @var object
+    */
+    protected $_decoratedComponent;
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BClassDecorator
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return self::instance($new, $args, __CLASS__);
+    }
+
+    /**
+    * Decorator constructor, creates an instance of decorated class
+    *
+    * @param object $class
+    * @return BClassDecorator
+    */
+    public function __construct($class)
+    {
+        $this->_decoratedComponent = BClassRegistry::instance($class);
+    }
+
+    /**
+    * Method override facility
+    *
+    * @param string $name
+    * @param array $args
+    * @return mixed Result of callback
+    */
+    public function __call($name, array $args)
+    {
+        return BClassRegistry::i()->callMethod($this->_decoratedComponent, $name, $args);
+    }
+
+    /**
+    * Static method override facility
+    *
+    * Depends on PHP 5.3.0
+    *
+    * @param mixed $name
+    * @param mixed $args
+    * @return mixed Result of callback
+    */
+    public function __callStatic($name, array $args)
+    {
+        return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args);
+    }
+}
+
+/**
+* Events and observers registry
+*/
+class BEventRegistry extends BClass
+{
+    /**
+    * Stores events and observers
+    *
+    * @var array
+    */
     protected $_events = array();
 
     /**
@@ -558,9 +981,9 @@ class BEventRegistry
     *
     * @return BEventRegistry
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     /**
@@ -568,6 +991,7 @@ class BEventRegistry
     *
     * @param string|array $eventName accepts multiple events in form of non-associative array
     * @param array $args
+    * @return BEventRegistry
     */
     public function event($eventName, $args=array())
     {
@@ -590,6 +1014,7 @@ class BEventRegistry
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
     * @param array $args
+    * @return BEventRegistry
     */
     public function observe($eventName, $callback=null, $args=array())
     {
@@ -600,7 +1025,7 @@ class BEventRegistry
             return $this;
         }
         $observer = array('callback'=>$callback, 'args'=>$args);
-        if (($module = BModuleRegistry::s()->currentModule())) {
+        if (($module = BModuleRegistry::i()->currentModule())) {
             $observer['module_name'] = $module->name;
         }
         $this->_events[$eventName]['observers'][] = $observer;
@@ -613,6 +1038,7 @@ class BEventRegistry
     * @param string|array $eventName
     * @param mixed $callback
     * @param array $args
+    * @return BEventRegistry
     */
     public function watch($eventName, $callback=null, $args=array())
     {
@@ -639,25 +1065,48 @@ class BEventRegistry
                     $args = array_merge($observer['args'], $args);
                 }
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
-                    $observer['callback'][0] = BClassRegistry::s()->singleton($observer['callback'][0]);
+                    $observer['callback'][0] = BClassRegistry::i()->getSingleton($observer['callback'][0]);
                 }
-                if (!empty($observer['module_name'])) {
-                    BModuleRegistry::s()->currentModule($observer['module_name']);
-                }
+                // Set current module to be used in observer callback
+                BModuleRegistry::i()->currentModule(!empty($observer['module_name']) ? $observer['module_name'] : null);
+
+                // Invoke observer
                 $result[] = call_user_func($observer['callback'], $args);
             }
-            BModuleRegistry::s()->currentModule(null);
+            // Unset current module
+            BModuleRegistry::i()->currentModule(null);
         }
         return $result;
     }
 }
 
-class BModuleRegistry
+/**
+* Registry of modules, their manifests and dependencies
+*/
+class BModuleRegistry extends BClass
 {
+    /**
+    * Module manifests
+    *
+    * @var array
+    */
     protected $_modules = array();
+
+    /**
+    * Module dependencies tree
+    *
+    * @var array
+    */
     protected $_moduleDepends = array();
-    protected $_services = array();
-    protected $_serviceDepends = array();
+
+    /**
+    * Current module name, not BNULL when:
+    * - In module bootstrap
+    * - In observer
+    * - In view
+    *
+    * @var string
+    */
     protected $_currentModuleName = BNULL;
 
     /**
@@ -665,11 +1114,21 @@ class BModuleRegistry
     *
     * @return BModuleRegistry
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Scan for module manifests in a folder
+    *
+    * Scan can be performed multiple times on different locations, order doesn't matter for dependencies
+    * Wildcards are accepted.
+    *
+    * @see BApp::load() for examples
+    *
+    * @param string $source
+    */
     public function scan($source)
     {
         if (substr($source, -5)!=='.json') {
@@ -679,7 +1138,7 @@ class BModuleRegistry
         if (!$manifests) {
             return $this;
         }
-        $parser = BParser::s();
+        $parser = BParser::i();
         foreach ($manifests as $file) {
             $json = file_get_contents($file);
             $manifest = $parser->fromJson($json);
@@ -781,7 +1240,7 @@ class BModuleRegistry
             include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
             call_user_func($mod->bootstrap['callback']);
         }
-        BModuleRegistry::s()->currentModule(null);
+        BModuleRegistry::i()->currentModule(null);
         return $this;
     }
 
@@ -819,7 +1278,7 @@ class BModule
     static public function factory($params)
     {
         $className = !empty($params['registry_class']) ? $params['registry_class'] : self::$_defaultClass;
-        $module = BClassRegistry::s()->instance($className, $params);
+        $module = BClassRegistry::i()->getInstance($className, $params);
         return $module;
     }
 
@@ -857,7 +1316,7 @@ class BModule
     }
 }
 
-class BFrontController
+class BFrontController extends BClass
 {
     protected $_routes = array();
     protected $_defaultRoutes = array('default'=>array('callback'=>array('BActionController', 'noroute')));
@@ -871,9 +1330,9 @@ class BFrontController
     *
     * @return BFrontController
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function saveRoute(&$tree, $route, $callback=null, $args=null, $multiple=false)
@@ -891,7 +1350,7 @@ class BFrontController
             }
         }
         $observer = array('callback'=>$callback);
-        if (($module = BModuleRegistry::s()->currentModule())) {
+        if (($module = BModuleRegistry::i()->currentModule())) {
             $observer['module_name'] = $module->name;
         }
         if (!empty($args)) {
@@ -900,7 +1359,7 @@ class BFrontController
         if ($multiple || empty($node['observers'])) {
             $node['observers'][] = $observer;
         } else {
-            $node['observers'][0] = BParser::s()->arrayMerge($node['observers'][0], $observer);
+            $node['observers'][0] = BParser::i()->arrayMerge($node['observers'][0], $observer);
         }
         unset($node);
 
@@ -910,10 +1369,10 @@ class BFrontController
     public function findRoute(&$tree, $route=null)
     {
         if (is_null($route)) {
-            $route = BRequest::s()->rawPath();
+            $route = BRequest::i()->rawPath();
         }
         if (strpos($route, ' ')===false) {
-            $method = BRequest::s()->method();
+            $method = BRequest::i()->method();
         } else {
             list($method, $route) = explode(' ', $route, 2);
         }
@@ -1006,9 +1465,9 @@ class BFrontController
         $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
         $controller = null;
         $attempts = 0;
-        $request = BRequest::s();
+        $request = BRequest::i();
         if (!empty($routeNode['observers'][0]['module_name'])) {
-            BModuleRegistry::s()->currentModule($routeNode['observers'][0]['module_name']);
+            BModuleRegistry::i()->currentModule($routeNode['observers'][0]['module_name']);
         }
         do {
             if (!empty($controller)) {
@@ -1018,7 +1477,7 @@ class BFrontController
                 }
             }
             $request->initParams($params);
-            $controller = BClassRegistry::s()->singleton($controllerName);
+            $controller = BClassRegistry::i()->getSingleton($controllerName);
             $controller->dispatch($actionName, $args);
         } while ((++$attempts<100) && $controller->forward());
 
@@ -1033,7 +1492,7 @@ class BFrontController
     }
 }
 
-class BActionController
+class BActionController extends BClass
 {
     public $params = array();
 
@@ -1043,7 +1502,7 @@ class BActionController
 
     public function view($viewname)
     {
-        return BLayout::s()->view($viewname);
+        return BLayout::i()->view($viewname);
     }
 
     public function dispatch($actionName, $args=array())
@@ -1104,22 +1563,22 @@ class BActionController
 
     public function sendError($message)
     {
-        BResponse::s()->set($message)->status(503);
+        BResponse::i()->set($message)->status(503);
     }
 
     public function action_unauthorized()
     {
-        BResponse::s()->set("Unauthorized")->status(401);
+        BResponse::i()->set("Unauthorized")->status(401);
     }
 
     public function action_noroute()
     {
-        BResponse::s()->set("Route not found")->status(404);
+        BResponse::i()->set("Route not found")->status(404);
     }
 
     public function renderOutput()
     {
-        BResponse::s()->output();
+        BResponse::i()->output();
     }
 }
 
@@ -1130,15 +1589,15 @@ class BJsonActionController extends BActionController
 
     public function beforeDispatch()
     {
-        BResponse::s()->contentType('json');
-        $this->request = BRequest::s()->rawPost(true, true);
+        BResponse::i()->contentType('json');
+        $this->request = BRequest::i()->rawPost(true, true);
         $this->result = array('status'=>'success');
         return true;
     }
 
     public function afterDispatch()
     {
-        BResponse::s()->set($this->result)->output();
+        BResponse::i()->set($this->result)->output();
     }
 
     public function sendError($message)
@@ -1156,11 +1615,11 @@ class BJsonActionController extends BActionController
         //header("Status: 404 Not Found");
         $this->result['status'] = 'error';
         $this->result['error'] = array('message'=>'Route not found');
-        BResponse::s()->output();
+        BResponse::i()->output();
     }
 }
 
-class BRequest
+class BRequest extends BClass
 {
     protected $_params = array();
 
@@ -1169,9 +1628,9 @@ class BRequest
     *
     * @return BRequest
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function ip()
@@ -1251,7 +1710,7 @@ class BRequest
     {
         $post = file_get_contents('php://input');
         if ($post && $json) {
-            $post = BParser::s()->fromJson($post, $asObject);
+            $post = BParser::i()->fromJson($post, $asObject);
         }
         return $post;
     }
@@ -1270,7 +1729,7 @@ class BRequest
             return $this->cookie($name, '', -1000);
         }
 
-        $config = BConfig::s()->get('cookie');
+        $config = BConfig::i()->get('cookie');
         $lifespan = !is_null($lifespan) ? $lifespan : $config['timeout'];
         $path = !is_null($path) ? $path : $config['path'];
         $domain = !is_null($domain) ? $domain : $config['domain'];
@@ -1363,7 +1822,7 @@ class BRequest
     }
 }
 
-class BResponse
+class BResponse extends BClass
 {
     protected $_contentType = 'text/html';
     protected $_content;
@@ -1373,14 +1832,14 @@ class BResponse
     *
     * @return BResponse
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
     {
-        BRequest::s()->cookie($name, $value, $lifespan, $path, $domain);
+        BRequest::i()->cookie($name, $value, $lifespan, $path, $domain);
         return $this;
     }
 
@@ -1410,7 +1869,7 @@ class BResponse
 
     public function sendFile($filename)
     {
-        BSession::s()->close();
+        BSession::i()->close();
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
         header('Content-Type: application/octet-stream');
@@ -1451,17 +1910,17 @@ class BResponse
         if (!is_null($type)) {
             $this->contentType($type);
         }
-        BSession::s()->close();
+        BSession::i()->close();
         header('Content-Type: '.$this->_contentType);
         if ($this->_contentType=='application/json') {
-            $this->_content = BParser::s()->toJson($this->_content);
+            $this->_content = BParser::i()->toJson($this->_content);
         } elseif (is_null($this->_content)) {
-            $this->_content = BLayout::s()->render();
+            $this->_content = BLayout::i()->render();
         }
 
         print_r($this->_content);
         if ($this->_contentType=='text/html') {
-            echo "<hr>DELTA: ".BDebug::s()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
+            echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
         }
         exit;
     }
@@ -1473,14 +1932,14 @@ class BResponse
 
     public function redirect($url, $status=302)
     {
-        BSession::s()->close();
+        BSession::i()->close();
         $this->status($status, null, false);
         header("Location: {$url}");
         exit;
     }
 }
 
-class BLayout
+class BLayout extends BClass
 {
     protected $_routeTree = array();
     protected $_singletons = array();
@@ -1493,14 +1952,14 @@ class BLayout
     *
     * @return BLayout
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function allViews($rootDir)
     {
-        $rootDir = BApp::module()->root_dir.'/'.$rootDir;
+        $rootDir = BModuleRegistry::i()->currentModule()->root_dir.'/'.$rootDir;
         $this->viewRootDir($rootDir);
         $files = glob($rootDir.'/*');
         if (!$files) {
@@ -1522,7 +1981,7 @@ class BLayout
 
     public function viewRootDir($rootDir)
     {
-        $module = BApp::module();
+        $module = BModuleRegistry::i()->currentModule();
         $module->view_root_dir = strpos($rootDir, '/')===0 ? $rootDir : $module->root_dir.'/'.$rootDir;
         return $this;
     }
@@ -1544,7 +2003,7 @@ class BLayout
             }
             return $this->_views[$viewname];
         }
-        if (empty($params['module_name']) && ($module = BModuleRegistry::s()->currentModule())) {
+        if (empty($params['module_name']) && ($module = BModuleRegistry::i()->currentModule())) {
             $params['module_name'] = $module->name;
         }
         if (!isset($this->_views[$viewname]) || !empty($params['view_class'])) {
@@ -1570,21 +2029,21 @@ class BLayout
     public function dispatch($eventName, $routeName=null, $args=array())
     {
         if (is_null($routeName)) {
-            $route = BFrontController::s()->currentRoute();
+            $route = BFrontController::i()->currentRoute();
             if (!$route) {
                 return array();
             }
             $routeName = $route['route_name'];
             $args['route_name'] = $route['route_name'];
-            $result = BEventRegistry::s()->dispatch("layout.{$eventName}", $args);
+            $result = BEventRegistry::i()->dispatch("layout.{$eventName}", $args);
         } else {
             $result = array();
         }
         $routes = is_string($routeName) ? explode(',', $routeName) : $routeName;
         foreach ($routes as $route) {
             $args['route_name'] = $route;
-            $r2 = BEventRegistry::s()->dispatch("layout.{$eventName}: {$route}", $args);
-            $result = BParser::s()->arrayMerge($result, $r2);
+            $r2 = BEventRegistry::i()->dispatch("layout.{$eventName}: {$route}", $args);
+            $result = BParser::i()->arrayMerge($result, $r2);
         }
         return $result;
     }
@@ -1625,7 +2084,7 @@ class BView
     {
         $params['viewname'] = $viewname;
         $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
-        $view = BClassRegistry::s()->instance($className, $params);
+        $view = BClassRegistry::i()->getInstance($className, $params);
         return $view;
     }
 
@@ -1678,7 +2137,7 @@ class BView
             throw new BException(BApp::t('Circular reference detected: %s', $viewname));
         }
 
-        return BLayout::s()->view($viewname);
+        return BLayout::i()->view($viewname);
     }
 
     public function render($args=array())
@@ -1690,9 +2149,9 @@ class BView
             $this->_params['args'][$k] = $v;
         }
         if ($this->param('module_name')) {
-            BModuleRegistry::s()->currentModule($this->param('module_name'));
+            BModuleRegistry::i()->currentModule($this->param('module_name'));
         }
-        $module = BApp::module();
+        $module = BModuleRegistry::i()->currentModule();
         $template = $module ? $module->view_root_dir.'/' : '';
         if ($this->param('template')) {
             $template .= $this->param('template');
@@ -1783,7 +2242,7 @@ class BViewHead extends BView
             $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $file = !empty($args['file']) ? $args['file'] : $name;
             if (strpos($file, 'http:')===false && strpos($file, 'https:')===false) {
-                $module = !empty($args['module_name']) ? BModuleRegistry::s()->module($args['module_name']) : null;
+                $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;
                 $baseUrl = $module ? $module->param('base_url') : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
@@ -1795,7 +2254,7 @@ class BViewHead extends BView
         } elseif (!is_array($args)) {
             throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }
-        if (($module = BApp::module())) {
+        if (($module = BModuleRegistry::i()->currentModule())) {
             $args['module_name'] = $module->name;
         }
         if ($this->_currentIfContext) {
@@ -1855,8 +2314,8 @@ class BViewList extends BView
 
     public function appendText($text)
     {
-        $parser = BParser::s();
-        $layout = BLayout::s();
+        $parser = BParser::i();
+        $layout = BLayout::i();
         for ($viewname = md5(mt_rand()); $layout->view($viewname); );
         $layout->view($viewname, array('raw_text'=>$text));
         $this->append($viewname);
@@ -1893,7 +2352,7 @@ class BViewList extends BView
     {
         $output = array();
         uasort($this->_children, array($this, 'sortChildren'));
-        $layout = BLayout::s();
+        $layout = BLayout::i();
         foreach ($this->_children as $child) {
             $childView = $layout->view($child['name']);
             if (!$childView) {
@@ -1910,7 +2369,7 @@ class BViewList extends BView
     }
 }
 
-class BSession
+class BSession extends BClass
 {
     public $data = null;
 
@@ -1925,9 +2384,9 @@ class BSession
     *
     * @return BSession
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function open($id=null, $close=true)
@@ -1935,10 +2394,10 @@ class BSession
         if (!is_null($this->data)) {
             return;
         }
-        $config = BConfig::s()->get('cookie');
+        $config = BConfig::i()->get('cookie');
         session_set_cookie_params($config['timeout'], $config['path'], $config['domain']);
         session_name($config['name']);
-        if (!empty($id) || ($id = BRequest::s()->get('SID'))) {
+        if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
             session_id($id);
         }
         session_start();
@@ -2005,7 +2464,7 @@ class BSession
             return;
         }
         session_start();
-        $namespace = BConfig::s()->get('cookie/session_namespace');
+        $namespace = BConfig::i()->get('cookie/session_namespace');
         $_SESSION[$namespace] = $this->data;
         session_write_close();
         $this->dirty(false);
@@ -2017,16 +2476,16 @@ class BSession
     }
 }
 
-class BCache
+class BCache extends BClass
 {
     /**
     * Shortcut to help with IDE autocompletion
     *
     * @return BCache
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function init()
@@ -2035,7 +2494,7 @@ class BCache
     }
 }
 
-class BLocale
+class BLocale extends BClass
 {
     protected $_defaultTz = 'America/Los_Angeles';
     protected $_defaultLocale = 'en_US';
@@ -2046,9 +2505,9 @@ class BLocale
     *
     * @return BLocale
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function __construct()
@@ -2060,7 +2519,7 @@ class BLocale
 
     public function t($string, $args)
     {
-        return BParser::s()->sprintfn($string, $args);
+        return BParser::i()->sprintfn($string, $args);
     }
 
     public function serverTz()
@@ -2090,7 +2549,7 @@ class BLocale
     }
 }
 
-class BUnit
+class BUnit extends BClass
 {
     protected $_currentTest;
 
@@ -2099,9 +2558,9 @@ class BUnit
     *
     * @return BUnit
     */
-    static public function s()
+    public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::s()->singleton(__CLASS__);
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function test($methods)

@@ -1,5 +1,5 @@
 <?php
-$config = UAdmin_Grids::getDownloadsGridConfig();
+$config = $this->grid['config'];
 $data = $this->gridData();
 $s = $data['state'];
 #var_dump($data['state']);
@@ -42,7 +42,14 @@ $s = $data['state'];
     <tr>
 <?php foreach ($config['columns'] as $colId=>$column): ?>
         <td>
+<?php switch ($column['type']): ?>
+<?php default: ?>
+<?php if (empty($column['no_sort'])): ?>
             <a href="<?php echo $this->sortUrl($colId) ?>" class="<?php echo !empty($s['sort']) && $s['sort']==$colId ? 'sort-'.$s['sortDir'] : '' ?>"><?php echo $this->q($column['title']) ?></a>
+<?php else: ?>
+            <a href="#"><?php echo $this->q($column['title']) ?></a>
+<?php endif ?>
+<?php endswitch ?>
         </td>
 <?php endforeach ?>
     </tr>
@@ -61,11 +68,16 @@ $s = $data['state'];
 <tbody>
 <?php foreach ($data['rows'] as $rowId=>$row): ?>
     <tr class="<?php echo $rowId%2 ? 'odd' : 'even' ?>">
-<?php foreach ($config['columns'] as $colId=>$column): $cell = $row[$colId]; ?>
+<?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array(); ?>
         <td>
 <?php switch (!empty($column['type']) ? $column['type'] : ''): ?>
-<?php case 'link': ?> <a href="<?php echo $cell['href'] ?>"><?php echo $this->cellData($cell) ?></a><?php break; ?>
-<?php default: echo $this->cellData($cell) ?>
+<?php case 'link': ?>
+            <a href="<?php echo $cell['href'] ?>"><?php echo $this->cellData($cell) ?></a>
+<?php break; case 'actions': ?>
+            <?php foreach ($this->rowActions($row) as $a): ?>
+                <a href="<?php echo $a['href'] ?>"><?php echo $a['title']?></a>
+            <?php endforeach ?>
+<?php break; default: echo $this->cellData($cell) ?>
 <?php endswitch ?>
         </td>
 <?php endforeach ?>

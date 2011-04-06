@@ -8,7 +8,7 @@
     },
     "cookie": {
         "domain": "dev.unirgy.com",
-        "path": "/b/blog",
+        "path": "/b/demo/blog",
         "timeout": 86400,
         "name": "frontend",
         "session_namespace": "blog"

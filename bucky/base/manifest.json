@@ -1,0 +1,8 @@
+{
+    "modules": {
+        "bucky_base": {
+            "bootstrap": {"file":"protected/base_main.php", "callback":"Bucky_Base::init"},
+            "version": "0.0.1"
+        }
+    }
+}

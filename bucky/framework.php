@@ -391,10 +391,12 @@ class BParser extends BClass
     */
     public function injectVars($str, $vars)
     {
+        $from = array(); $to = array();
         foreach ($vars as $k=>$v) {
-            $str = str_replace(':'.$k, $v, $str);
+            $from[] = ':'.$k;
+            $to[] = $v;
         }
-        return $str;
+        return str_replace($from, $to, $str);;
     }
 
     /**
@@ -958,7 +960,7 @@ class BClassDecorator extends BClass
     * @param mixed $args
     * @return mixed Result of callback
     */
-    public function __callStatic($name, array $args)
+    public static function __callStatic($name, array $args)
     {
         return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args);
     }
@@ -1633,6 +1635,11 @@ class BRequest extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    public function __construct()
+    {
+        $this->stripMagicQuotes();
+    }
+
     public function ip()
     {
         return !empty($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : null;
@@ -1819,6 +1826,28 @@ class BRequest extends BClass
             }
         }
         return $v;
+    }
+
+    public function stripMagicQuotes()
+    {
+        static $alreadyRan = false;
+        if (get_magic_quotes_gpc() && !$alreadyRan) {
+            $process = array(&$_GET, &$_POST, &$_COOKIE, &$_REQUEST);
+            while (list($key, $val) = each($process)) {
+                foreach ($val as $k => $v) {
+                    unset($process[$key][$k]);
+                    if (is_array($v)) {
+                        $process[$key][stripslashes($k)] = $v;
+                        $process[] = &$process[$key][stripslashes($k)];
+                    } else {
+                        $process[$key][stripslashes($k)] = stripslashes($v);
+                    }
+                }
+            }
+            unset($process);
+            $alreadyRan = true;
+        }
+        return $this;
     }
 }
 

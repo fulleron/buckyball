@@ -2083,20 +2083,10 @@ class BLayout extends BClass
         return $result;
     }
 
-    public function currentStage($stage=null)
-    {
-        if (is_null($stage)) {
-            return $this->_currentStage;
-        }
-        $this->_currentStage = $stage;
-        return $this;
-    }
-
     public function render($routeName=null, $args=array())
     {
         $this->dispatch('render.before', $routeName, $args);
 
-        $this->currentStage('render');
         $mainView = $this->mainView();
         if (!$mainView) {
             throw new BException(BApp::t('Main view not found: %s', $this->_mainViewName));
@@ -2353,7 +2343,6 @@ class BViewList extends BView
 
     public function appendText($text)
     {
-        $parser = BParser::i();
         $layout = BLayout::i();
         for ($viewname = md5(mt_rand()); $layout->view($viewname); );
         $layout->view($viewname, array('raw_text'=>$text));
@@ -2416,6 +2405,7 @@ class BSession extends BClass
     protected $_location;
 
     protected $_sessionId;
+    protected $_open = false;
     protected $_dirty = false;
 
     /**
@@ -2430,8 +2420,8 @@ class BSession extends BClass
 
     public function open($id=null, $close=true)
     {
-        if (!is_null($this->data)) {
-            return;
+        if ($this->_open) {
+            return $this;
         }
         $config = BConfig::i()->get('cookie');
         session_set_cookie_params($config['timeout'], $config['path'], $config['domain']);
@@ -2439,8 +2429,8 @@ class BSession extends BClass
         if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
             session_id($id);
         }
-        session_start();
-
+        @session_start();
+        $this->_open = true;
         $this->_sessionId = session_id();
 
         $namespace = $config['session_namespace'];
@@ -2462,7 +2452,9 @@ class BSession extends BClass
 
         if ($close) {
             session_write_close();
+            $this->_open = false;
         }
+        return $this;
     }
 
     public function dirty($flag=null)
@@ -2472,6 +2464,7 @@ class BSession extends BClass
         }
         $this->open();
         $this->_dirty = $flag;
+        return $this;
     }
 
     public function data($key=null, $value=null)
@@ -2502,11 +2495,15 @@ class BSession extends BClass
         if (!$this->dirty()) {
             return;
         }
-        session_start();
+        if (!$this->_open) {
+            session_start();
+        }
         $namespace = BConfig::i()->get('cookie/session_namespace');
         $_SESSION[$namespace] = $this->data;
         session_write_close();
+        $this->_open = false;
         $this->dirty(false);
+        return $this;
     }
 
     public function sessionId()

@@ -4,8 +4,8 @@ ini_set('display_errors', 1);
 
 require_once "bucky/framework.php";
 
-BApp::init();
-BApp::config('storage/private/config/local.json');
-BApp::load('bucky/plugins/*');
-BApp::load('bucky/default');
-BApp::run();
+BApp::i()
+    ->config('storage/private/config/local.json')
+    ->load('bucky/plugins/*')
+    ->load('bucky/base')
+    ->run();

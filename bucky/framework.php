@@ -77,14 +77,50 @@ class BApp extends BClass
     }
 
     /**
-    * The first method to be ran in bootstrap index file.
+    * Application contructor
+    *
+    * Starts debugging session for timing
     *
     * @return BApp
     */
-    public static function init()
+    public function __construct()
     {
         BDebug::i();
-        return self::i();
+    }
+
+    /**
+    * Shortcut to add configuration, used mostly from bootstrap index file
+    *
+    * @param array|string $config If string will load configuration from file
+    */
+    public function config($config)
+    {
+        if (is_array($config)) {
+            BConfig::i()->add($config);
+        } elseif (is_string($config) && is_file($config)) {
+            BConfig::i()->addFile($config);
+        } else {
+            throw new BException("Invalid configuration argument");
+        }
+        return $this;
+    }
+
+    /**
+    * Shortcut to scan folders for module manifest files
+    *
+    * @param string|array $folders Relative path(s) to manifests. May include wildcards.
+    */
+    public function load($folders='.')
+    {
+#echo "<pre>"; print_r(debug_backtrace()); echo "</pre>";
+        if (is_string($folders)) {
+            $folders = explode(',', $folders);
+        }
+        $modules = BModuleRegistry::i();
+        foreach ($folders as $folder) {
+            $modules->scan($folder);
+        }
+        return $this;
     }
 
     /**
@@ -93,7 +129,7 @@ class BApp extends BClass
     * Performs necessary initializations and dispatches requested action.
     *
     */
-    public static function run()
+    public function run()
     {
         // initialize database connections
         BDb::i()->init();
@@ -109,6 +145,8 @@ class BApp extends BClass
 
         // If session variables were changed, update session
         BSession::i()->close();
+
+        return $this;
     }
 
     /**
@@ -122,39 +160,6 @@ class BApp extends BClass
     {
         $data['message'] = self::t($message, $args);
         BDebug::i()->log($data);
-    }
-
-    /**
-    * Shortcut to add configuration, used mostly from bootstrap index file
-    *
-    * @param array|string $config If string will load configuration from file
-    */
-    public static function config($config)
-    {
-        if (is_array($config)) {
-            BConfig::i()->add($config);
-        } elseif (is_string($config) && is_file($config)) {
-            BConfig::i()->addFile($config);
-        } else {
-            throw new BException("Invalid configuration argument");
-        }
-    }
-
-    /**
-    * Shortcut to scan folders for module manifest files
-    *
-    * @param string|array $folders Relative path(s) to manifests. May include wildcards.
-    */
-    public static function load($folders='.')
-    {
-#echo "<pre>"; print_r(debug_backtrace()); echo "</pre>";
-        if (is_string($folders)) {
-            $folders = explode(',', $folders);
-        }
-        $modules = BModuleRegistry::i();
-        foreach ($folders as $folder) {
-            $modules->scan($folder);
-        }
     }
 
     /**
@@ -396,7 +401,7 @@ class BParser extends BClass
             $from[] = ':'.$k;
             $to[] = $v;
         }
-        return str_replace($from, $to, $str);;
+        return str_replace($from, $to, $str);
     }
 
     /**
@@ -761,7 +766,7 @@ class BClassRegistry extends BClass
             'class_name' => $newClass,
             'module_name' => BModuleRegistry::i()->currentModule(),
         );
-        if ($replaceExisting && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
+        if ($replaceSingleton && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
             $this->_singletons[$class] = $this->getInstance($newClass);
         }
         return $this;
@@ -931,12 +936,12 @@ class BClassDecorator extends BClass
     /**
     * Decorator constructor, creates an instance of decorated class
     *
-    * @param object $class
+    * @param object|string $class
     * @return BClassDecorator
     */
     public function __construct($class)
     {
-        $this->_decoratedComponent = BClassRegistry::instance($class);
+        $this->_decoratedComponent = is_string($class) ? BClassRegistry::instance($class) : $class;
     }
 
     /**
@@ -1160,7 +1165,7 @@ class BModuleRegistry extends BClass
                 $params['root_dir'] = $rootDir;
                 $params['view_root_dir'] = $rootDir;
                 $params['base_url'] = BApp::baseUrl().'/'.(!empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file));
-                $this->_modules[$modName] = BModule::factory($params);
+                $this->_modules[$modName] = BModule::i(true, $params);
             }
         }
         return $this;
@@ -1272,16 +1277,18 @@ class BModuleRegistry extends BClass
     }
 }
 
-class BModule
+class BModule extends BClass
 {
-    static protected $_defaultClass = __CLASS__;
     protected $_params;
 
-    static public function factory($params)
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BModule
+    */
+    public static function i($new=false, array $args=array())
     {
-        $className = !empty($params['registry_class']) ? $params['registry_class'] : self::$_defaultClass;
-        $module = BClassRegistry::i()->getInstance($className, $params);
-        return $module;
+        return self::instance($new, $args, __CLASS__);
     }
 
     public function __construct($params)

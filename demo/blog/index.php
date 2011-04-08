@@ -5,7 +5,4 @@ error_reporting(E_ALL | E_STRICT);
 
 require_once "../../bucky/framework.php";
 
-BApp::init();
-BApp::config('protected/config.json');
-BApp::load();
-BApp::run();
+BApp::i()->config('protected/config.json')->load()->run();

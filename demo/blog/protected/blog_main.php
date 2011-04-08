@@ -26,7 +26,7 @@ class Blog
         ;
 
         BEventRegistry::i()
-            ->observe('layout.render.before', array('Blog', 'layout_render_before'))
+            ->observe('BLayout::render.before', array('Blog', 'layout_render_before'))
         ;
     }
 

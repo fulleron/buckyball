@@ -35,7 +35,7 @@ class BClass
     static public function instance($new=false, array $args=array(), $class=__CLASS__)
     {
         $registry = BClassRegistry::i();
-        return $new ? $registry->getInstance($class) : $registry->getSingleton($class);
+        return $new ? $registry->getInstance($class, $args) : $registry->getSingleton($class, $args);
     }
 
     /**
@@ -1655,7 +1655,6 @@ class BRequest extends BClass
     public function serverIp()
     {
         return !empty($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : null;
-
     }
 
     public function serverName()
@@ -1694,7 +1693,7 @@ class BRequest extends BClass
             return null;
         }
         $path = explode('/', ltrim($_SERVER['PATH_INFO'], '/'));
-        if (BNULL===$toIdx) {
+        if (BNULL===$length) {
             return isset($path[$offset]) ? $path[$offset] : null;
         }
         return join('/', array_slice($path, $offset, true===$length ? null : $length));
@@ -1734,12 +1733,12 @@ class BRequest extends BClass
         return is_null($key) ? $_REQUEST : (isset($_REQUEST[$key]) ? $_REQUEST[$key] : null);
     }
 
-    public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
+    public function cookie($name, $value=BNULL, $lifespan=null, $path=null, $domain=null)
     {
-        if (is_null($value)) {
+        if (BNULL===$value) {
             return isset($_COOKIE[$name]) ? $_COOKIE[$name] : null;
         }
-        if (false===$value) {
+        if (is_null($value) || false===$value) {
             return $this->cookie($name, '', -1000);
         }
 
@@ -1949,7 +1948,7 @@ class BResponse extends BClass
         BSession::i()->close();
         header('Content-Type: '.$this->_contentType);
         if ($this->_contentType=='application/json') {
-            $this->_content = BParser::i()->toJson($this->_content);
+            $this->_content = is_string($this->_content) ? $this->_content : BParser::i()->toJson($this->_content);
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
@@ -2071,14 +2070,14 @@ class BLayout extends BClass
             }
             $routeName = $route['route_name'];
             $args['route_name'] = $route['route_name'];
-            $result = BEventRegistry::i()->dispatch("layout.{$eventName}", $args);
+            $result = BEventRegistry::i()->dispatch("BLayout::{$eventName}", $args);
         } else {
             $result = array();
         }
         $routes = is_string($routeName) ? explode(',', $routeName) : $routeName;
         foreach ($routes as $route) {
             $args['route_name'] = $route;
-            $r2 = BEventRegistry::i()->dispatch("layout.{$eventName}: {$route}", $args);
+            $r2 = BEventRegistry::i()->dispatch("BLayout::{$eventName}: {$route}", $args);
             $result = BParser::i()->arrayMerge($result, $r2);
         }
         return $result;
@@ -2111,7 +2110,7 @@ class BLayout extends BClass
     }
 }
 
-class BView
+class BView extends BClass
 {
     static protected $_defaultClass = __CLASS__;
     protected $_params;
@@ -2123,7 +2122,7 @@ class BView
         $view = BClassRegistry::i()->getInstance($className, $params);
         return $view;
     }
-
+    
     public function __construct($params)
     {
         $this->_params = $params;
@@ -2175,6 +2174,16 @@ class BView
 
         return BLayout::i()->view($viewname);
     }
+    
+    protected function _render()
+    {
+        $module = BModuleRegistry::i()->currentModule();
+        $template = ($module ? $module->view_root_dir.'/' : '');
+        $template .= ($tpl = $this->param('template')) ? $tpl : ($this->param('name').'.php');
+        ob_start();
+        include $template;
+        return ob_get_clean();
+    }
 
     public function render($args=array())
     {
@@ -2184,20 +2193,14 @@ class BView
         foreach ($args as $k=>$v) {
             $this->_params['args'][$k] = $v;
         }
-        if ($this->param('module_name')) {
-            BModuleRegistry::i()->currentModule($this->param('module_name'));
+        if (($modName = $this->param('module_name'))) {
+            BModuleRegistry::i()->currentModule($modName);
         }
-        $module = BModuleRegistry::i()->currentModule();
-        $template = $module ? $module->view_root_dir.'/' : '';
-        if ($this->param('template')) {
-            $template .= $this->param('template');
-        } else {
-            $template .= $this->param('name').'.php';
+        $result = $this->_render();
+        if ($modName) {
+            BModuleRegistry::i()->currentModule(null);
         }
-
-        ob_start();
-        include $template;
-        return ob_get_clean();
+        return $result;
     }
 
     public function clear()

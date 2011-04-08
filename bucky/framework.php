@@ -1138,6 +1138,7 @@ class BModuleRegistry extends BClass
     */
     public function scan($source)
     {
+        // if $source does not end with .json, assume it is a folder
         if (substr($source, -5)!=='.json') {
             $source .= '/manifest.json';
         }
@@ -1171,8 +1172,14 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    /**
+    * Check module dependencies
+    * 
+    * @return BModuleRegistry
+    */
     public function checkDepends()
     {
+        // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
             if (!empty($mod->depends['module'])) {
                 $depends = $mod->depends;
@@ -1186,6 +1193,7 @@ class BModuleRegistry extends BClass
                 $mod->depends = $depends;
             }
         }
+        // validate dependencies
         foreach ($this->_moduleDepends as $depName=>&$depends) {
             if (empty($this->_modules[$depName])) {
                 foreach ($depends as $modName=>&$dep) {
@@ -1211,6 +1219,7 @@ class BModuleRegistry extends BClass
             unset($dep);
         }
         unset($depends);
+        // propagate dependencies into subdependent modules
         foreach ($this->_moduleDepends as $depName=>$depends) {
             foreach ($depends as $modName=>$dep) {
                 if (!empty($dep['error']) && empty($dep['error']['propagated'])) {
@@ -1221,6 +1230,13 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    /**
+    * Propagate dependencies into submodules recursively
+    * 
+    * @param string $modName
+    * @param BModule $dep
+    * @return BModuleRegistry
+    */
     public function propagateDepends($modName, $dep)
     {
         $this->_modules[$modName]->error = 'depends';
@@ -1235,6 +1251,11 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    /**
+    * Run modules bootstrap callbacks
+    * 
+    * @return BModuleRegistry
+    */
     public function bootstrap()
     {
         $this->checkDepends();
@@ -1251,6 +1272,13 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    /**
+    * Sort modules by dependencies
+    * 
+    * @param BModule $mod
+    * @param BModule $dep
+    * @return int
+    */
     public function sortCallback($mod, $dep)
     {
         if (!$mod->name || !$dep->name) {
@@ -1262,11 +1290,27 @@ class BModuleRegistry extends BClass
         return 0;
     }
 
+    /**
+    * Return module object based on module name
+    * 
+    * @param string $name
+    * @return BModule
+    */
     public function module($name)
     {
         return isset($this->_modules[$name]) ? $this->_modules[$name] : null;
     }
 
+    /**
+    * Set or return current module context
+    * 
+    * If $name is specified, set current module, otherwise retrieve one
+    * 
+    * Used in context of bootstrap, event observer, view
+    * 
+    * @param string|empty $name
+    * @return BModule|BModuleRegistry
+    */
     public function currentModule($name=BNULL)
     {
         if (BNULL===$name) {
@@ -1277,8 +1321,16 @@ class BModuleRegistry extends BClass
     }
 }
 
+/**
+* Module object to store module manifest and other properties
+*/
 class BModule extends BClass
 {
+    /**
+    * Module manifest and properties
+    * 
+    * @var mixed
+    */
     protected $_params;
 
     /**
@@ -1291,21 +1343,50 @@ class BModule extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Constructor
+    * 
+    * @param array $params
+    * @return BModule
+    */
     public function __construct($params)
     {
         $this->_params = $params;
     }
 
+    /**
+    * Magic getter
+    * 
+    * @param string $name
+    * @return mixed
+    */
     public function __get($name)
     {
         return isset($this->_params[$name]) ? $this->_params[$name] : null;
     }
 
+    /**
+    * Magic setter
+    * 
+    * @param string $name
+    * @param mixed $value
+    */
     public function __set($name, $value)
     {
         $this->_params[$name] = $value;
     }
 
+    /**
+    * Retrieve or set parameters
+    * 
+    * If $key is not specified, return all parameters as array
+    * If $value is not specified, return $key value
+    * If $value specified set $key=$value and return BModule for chaining
+    * 
+    * @param string $key
+    * @param mixed $value
+    * @return mixed
+    */
     public function param($key=BNULL, $value=BNULL)
     {
         if (BNULL===$key) {
@@ -1325,13 +1406,44 @@ class BModule extends BClass
     }
 }
 
+/**
+* Front controller class to register and dispatch routes
+*/
 class BFrontController extends BClass
 {
+    /**
+    * Array of routes
+    * 
+    * @var array
+    */
     protected $_routes = array();
+    
+    /**
+    * Default routes if route not found in tree
+    * 
+    * @var array
+    */
     protected $_defaultRoutes = array('default'=>array('callback'=>array('BActionController', 'noroute')));
+
+    /**
+    * Tree of routes
+    * 
+    * @var array
+    */
     protected $_routeTree = array();
+    
+    /**
+    * Templates to generate URLs based on routes
+    * 
+    * @var array
+    */
     protected $_urlTemplates = array();
 
+    /**
+    * Current controller name
+    * 
+    * @var string
+    */
     protected $_controllerName;
 
     /**
@@ -1344,6 +1456,15 @@ class BFrontController extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Save RESTful route in tree
+    * 
+    * @param array $tree reference to tree where to save the route
+    * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    * @param mixed $callback PHP callback
+    * @param array $args Route arguments
+    * @param mixed $multiple Allow multiple callbacks for the same route
+    */
     public function saveRoute(&$tree, $route, $callback=null, $args=null, $multiple=false)
     {
         list($method, $route) = explode(' ', $route, 2);
@@ -1375,6 +1496,13 @@ class BFrontController extends BClass
         return $this;
     }
 
+    /**
+    * Find a route in the tree
+    * 
+    * @param array $tree Reference to the route tree
+    * @param string $route RESTful route
+    * @return array|null Route node or null if not found
+    */
     public function findRoute(&$tree, $route=null)
     {
         if (is_null($route)) {
@@ -1422,6 +1550,15 @@ class BFrontController extends BClass
         return $routeNode;
     }
 
+    /**
+    * Declare RESTful route
+    * 
+    * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    * @param mixed $callback PHP callback
+    * @param array $args Route arguments
+    * @param string $name optional name for the route for URL templating
+    * @return BFrontController for chain linking
+    */
     public function route($route, $callback=null, $args=null, $name=null)
     {
         if (is_array($route)) {
@@ -1440,6 +1577,14 @@ class BFrontController extends BClass
         return $this;
     }
 
+    /**
+    * Set default route
+    * 
+    * @param mixed $callback PHP callback
+    * @param mixed $args Route arguments
+    * @param mixed $name optional route name
+    * @return BFrontController
+    */
     public function defaultRoute($callback, $args=null, $name='default')
     {
         $route = array('callback'=>$callback, 'args'=>$args);
@@ -1451,11 +1596,21 @@ class BFrontController extends BClass
         return $this;
     }
 
+    /**
+    * Retrieve current route node
+    * 
+    */
     public function currentRoute()
     {
         return $this->_currentRoute;
     }
 
+    /**
+    * Dispatch current route
+    * 
+    * @param string $route optional route for explicit route dispatch
+    * @return BFrontController
+    */
     public function dispatch($route=null)
     {
         $routeNode = $this->findRoute($this->_routeTree, $route);
@@ -1495,25 +1650,69 @@ class BFrontController extends BClass
         }
     }
 
+    /**
+    * Generate URL based on route template
+    * 
+    * @todo implement whenever needed
+    * @param string $name
+    * @param array $params
+    */
     public function url($name, $params = array())
     {
-// not implemented because not needed yet
+
     }
 }
 
+/**
+* Action controller class for route action declarations
+*/
 class BActionController extends BClass
 {
+    /**
+    * Action parameters
+    * 
+    * @var array
+    */
     public $params = array();
 
+    /**
+    * Current action name
+    * 
+    * @var string
+    */
     protected $_action;
+    
+    /**
+    * Forward location. If set the dispatch will loop and forward to next action
+    * 
+    * @var string|null
+    */
     protected $_forward;
+    
+    /**
+    * Prefix for action methods
+    * 
+    * @var string
+    */
     protected $_actionMethodPrefix = 'action_';
 
+    /**
+    * Shortcut for fetching layout views
+    * 
+    * @param string $viewname
+    * @return BView
+    */
     public function view($viewname)
     {
         return BLayout::i()->view($viewname);
     }
 
+    /**
+    * Dispatch action within the action controller class
+    * 
+    * @param string $actionName
+    * @param array $args Action arguments
+    */
     public function dispatch($actionName, $args=array())
     {
         $this->_action = $actionName;
@@ -1531,6 +1730,12 @@ class BActionController extends BClass
         return $this;
     }
 
+    /**
+    * Try to dispatch action and catch exception if any
+    * 
+    * @param string $actionName
+    * @param array $args
+    */
     public function tryDispatch($actionName, $args)
     {
         $actionMethod = $this->_actionMethodPrefix.$actionName;
@@ -1546,56 +1751,119 @@ class BActionController extends BClass
         return $this;
     }
 
-    public function forward($actionName=null, $controllerName=null, $params=array())
+    /**
+    * Forward to another action or retrieve current forward
+    * 
+    * @param string $actionName
+    * @param string $controllerName
+    * @param array $params
+    * @return string|null|BActionController
+    */
+    public function forward($actionName=BNULL, $controllerName=null, array $params=array())
     {
-        if (is_null($actionName)) {
+        if (BNULL===$actionName) {
             return $this->_forward;
         }
         $this->_forward = array($actionName, $controllerName, $params);
         return $this;
     }
 
+    /**
+    * Authorize logic for current action controller, based on arguments
+    * 
+    * Use $this->_action to fetch current action
+    * 
+    * @param array $args
+    */
     public function authorize($args=array())
     {
         return true;
     }
 
+    /**
+    * Execute before dispatch and return resutl
+    * If false, do not dispatch action, and either forward or default
+    * 
+    * @return bool
+    */
     public function beforeDispatch()
     {
         return true;
     }
 
+    /**
+    * Execute after dispatch
+    * 
+    */
     public function afterDispatch()
     {
 
     }
 
+    /**
+    * Send error to the browser
+    * 
+    * @param string $message to be in response
+    * @return exit
+    */
     public function sendError($message)
     {
         BResponse::i()->set($message)->status(503);
     }
 
+    /**
+    * Default unauthorized action
+    * 
+    */
     public function action_unauthorized()
     {
         BResponse::i()->set("Unauthorized")->status(401);
     }
 
+    /**
+    * Default not found action
+    * 
+    */
     public function action_noroute()
     {
         BResponse::i()->set("Route not found")->status(404);
     }
 
+    /**
+    * Render output
+    * 
+    * Final method to be called in standard action method
+    */
     public function renderOutput()
     {
         BResponse::i()->output();
     }
 }
 
+/**
+* Action controller for JSON API actions
+*/
 class BJsonActionController extends BActionController
 {
+    /**
+    * Holds object from JSON POST request
+    * 
+    * @var object|array
+    */
     public $request = false;
+    
+    /**
+    * Response to be returned to the client as JSON
+    * 
+    * @var object|array
+    */
     public $result = array();
 
+    /**
+    * Before dispatch set content type to JSON, fetch request 
+    * and set default status success
+    * 
+    */
     public function beforeDispatch()
     {
         BResponse::i()->contentType('json');
@@ -1604,11 +1872,20 @@ class BJsonActionController extends BActionController
         return true;
     }
 
+    /**
+    * After dispatch output result as JSON
+    * 
+    */
     public function afterDispatch()
     {
         BResponse::i()->set($this->result)->output();
     }
 
+    /**
+    * On error return status error and message
+    * 
+    * @param string $message
+    */
     public function sendError($message)
     {
         #header("HTTP/1.0 503 Service Unavailable");
@@ -1618,6 +1895,10 @@ class BJsonActionController extends BActionController
         return false;
     }
 
+    /**
+    * On no route return JSON error
+    * 
+    */
     public function action_noroute()
     {
         //header("HTTP/1.0 404 Not Found");
@@ -1628,8 +1909,21 @@ class BJsonActionController extends BActionController
     }
 }
 
+/**
+* Facility to handle request input
+*/
 class BRequest extends BClass
 {
+    /**
+    * Route parameters
+    * 
+    * Taken from route, ex: 
+    * Route: /part1/:param1/part2/:param2
+    * Request: /part1/test1/param2/test2
+    * $_params: array('param1'=>'test1', 'param2'=>'test2')
+    * 
+    * @var array
+    */
     protected $_params = array();
 
     /**
@@ -1642,51 +1936,105 @@ class BRequest extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * On first invokation strip magic quotes in case magic_quotes_gpc = on
+    * 
+    * @return BRequest
+    */
     public function __construct()
     {
         $this->stripMagicQuotes();
     }
 
+    /**
+    * Client remote IP
+    * 
+    * @return string
+    */
     public function ip()
     {
         return !empty($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : null;
     }
 
+    /**
+    * Server local IP
+    * 
+    * @return string
+    */
     public function serverIp()
     {
         return !empty($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : null;
     }
 
+    /**
+    * Server host name
+    * 
+    * @return string
+    */
     public function serverName()
     {
         return !empty($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : null;
     }
 
+    /**
+    * Whether request is SSL
+    * 
+    * @return bool
+    */
     public function https()
     {
         return !empty($_SERVER['HTTPS']);
     }
 
+    /**
+    * Whether request is AJAX
+    * 
+    * @return bool
+    */
     public function xhr()
     {
         return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH']=='XMLHttpRequest';
     }
 
+    /**
+    * Request method:
+    * 
+    * @return string GET|POST|HEAD|PUT|DELETE
+    */
     public function method()
     {
         return !empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
     }
-
+    
+    /**
+    * Web root path for current application
+    * 
+    * If request is /folder1/folder2/index.php, return /folder1/folder2/
+    * 
+    * @return string
+    */
     public function webRoot()
     {
         return !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
     }
 
+    /**
+    * Full base URL, including scheme and domain name
+    * 
+    * @return string
+    */
     public function baseUrl()
     {
         return ($this->https() ? 'https' : 'http').'://'.$this->serverName().$this->webRoot();
     }
 
+    /**
+    * Full request path, one part or slice of path
+    * 
+    * @param int $offset
+    * @param int $length
+    * @return string
+    */
     public function path($offset, $length=BNULL)
     {
         if (empty($_SERVER['PATH_INFO'])) {
@@ -1699,26 +2047,55 @@ class BRequest extends BClass
         return join('/', array_slice($path, $offset, true===$length ? null : $length));
     }
 
+    /**
+    * Raw path string
+    * 
+    * @return string
+    */
     public function rawPath()
     {
         return !empty($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '/';
     }
 
+    /**
+    * Request query variables
+    * 
+    * @param string $key
+    * @return array|string|null
+    */
     public function get($key=null)
     {
         return is_null($key) ? $_GET : (isset($_GET[$key]) ? $_GET[$key] : null);
     }
 
+    /**
+    * Request query as string
+    * 
+    * @return string
+    */
     public function rawGet()
     {
         return !empty($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : '';
     }
 
+    /**
+    * Request POST variables
+    * 
+    * @param string|null $key
+    * @return array|string|null
+    */
     public function post($key=null)
     {
         return is_null($key) ? $_POST : (isset($_POST[$key]) ? $_POST[$key] : null);
     }
 
+    /**
+    * Request raw POST text
+    * 
+    * @param bool $json Receive request as JSON
+    * @param bool $asObject Return as object vs array
+    * @return object|array|string
+    */
     public function rawPost($json=false, $asObject=false)
     {
         $post = file_get_contents('php://input');
@@ -1727,12 +2104,27 @@ class BRequest extends BClass
         }
         return $post;
     }
-
+    
+    /**
+    * Request variable (GET|POST|COOKIE)
+    * 
+    * @param string|null $key
+    * @return array|string|null
+    */
     public function request($key=null)
     {
         return is_null($key) ? $_REQUEST : (isset($_REQUEST[$key]) ? $_REQUEST[$key] : null);
     }
 
+    /**
+    * Set or retrieve cookie value
+    * 
+    * @param string $name Cookie name
+    * @param string $value Cookie value to be set
+    * @param int $lifespan Optional lifespan, default from config
+    * @param string $path Optional cookie path, default from config
+    * @param string $domain Optional cookie domain, default from config
+    */
     public function cookie($name, $value=BNULL, $lifespan=null, $path=null, $domain=null)
     {
         if (BNULL===$value) {
@@ -1763,17 +2155,42 @@ class BRequest extends BClass
         return !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : $default;
     }
 
-    public function initParams($params)
+    /**
+    * Initialize route parameters
+    * 
+    * @param array $params
+    */
+    public function initParams(array $params)
     {
         $this->_params = $params;
         return $this;
     }
 
-    public function params($key=null)
+    /**
+    * Return route parameter by name or all parameters as array
+    * 
+    * @param string $key
+    * @return array|string|null
+    */
+    public function params($key=BNULL)
     {
-        return is_null($key) ? $this->_params : (isset($this->_params[$key]) ? $this->_params[$key] : null);
+        return BNULL===$key ? $this->_params : (isset($this->_params[$key]) ? $this->_params[$key] : null);
     }
 
+    /**
+    * Sanitize input and assign default values
+    * 
+    * Syntax: BRequest::i()->sanitize($post, array(
+    *   'var1' => 'alnum', // return only alphanumeric components, default null
+    *   'var2' => array('trim|ucwords', 'default'), // trim and capitalize, default 'default'
+    *   'var3' => array('regex:/[^0-9.]/', '0'), // remove anything not number or .
+    * ));
+    * 
+    * @param array $data Array to be sanitized
+    * @param array $config Configuration for sanitizing
+    * @param bool $trim Whether to return only variables specified in config
+    * @return array Sanitized result
+    */
     public function sanitize($data, $config, $trim=true)
     {
         if ($trim) {
@@ -1792,6 +2209,33 @@ class BRequest extends BClass
         return $data;
     }
 
+    /**
+    * Sanitize one variable based on specified filter(s)
+    * 
+    * Filters: 
+    * - int
+    * - positive
+    * - float
+    * - trim
+    * - nohtml
+    * - plain
+    * - upper
+    * - lower
+    * - ucwords
+    * - ucfirst
+    * - urle
+    * - urld
+    * - alnum
+    * - regex
+    * - date
+    * - datetime
+    * - gmdate
+    * - gmdatetime
+    * 
+    * @param string $v Value to be sanitized
+    * @param array|string $filter Filters as array or string separated by |
+    * @return string Sanitized value
+    */
     public function sanitizeOne($v, $filter)
     {
         if (is_array($v)) {
@@ -1834,6 +2278,11 @@ class BRequest extends BClass
         return $v;
     }
 
+    /**
+    * String magic quotes in case magic_quotes_gpc = on
+    * 
+    * @return BRequest
+    */
     public function stripMagicQuotes()
     {
         static $alreadyRan = false;
@@ -1857,9 +2306,23 @@ class BRequest extends BClass
     }
 }
 
+/**
+* Facility to handle response to client
+*/
 class BResponse extends BClass
 {
+    /**
+    * Response content MIME type
+    * 
+    * @var string
+    */
     protected $_contentType = 'text/html';
+    
+    /**
+    * Content to be returned to client
+    * 
+    * @var mixed
+    */
     protected $_content;
 
     /**
@@ -1872,24 +2335,50 @@ class BResponse extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Alias for BRequest::i()->cookie()
+    * 
+    * @param string $name
+    * @param string $value
+    * @param int $lifespan
+    * @param string $path
+    * @param string $domain
+    * @return BResponse
+    */
     public function cookie($name, $value=null, $lifespan=null, $path=null, $domain=null)
     {
         BRequest::i()->cookie($name, $value, $lifespan, $path, $domain);
         return $this;
     }
 
+    /**
+    * Set response content
+    * 
+    * @param mixed $content
+    */
     public function set($content)
     {
         $this->_content = $content;
         return $this;
     }
 
+    /**
+    * Add content to response
+    * 
+    * @param mixed $content
+    */
     public function add($content)
     {
         $this->_content = (array)$this->_content+(array)$content;
         return $this;
     }
 
+    /**
+    * Set or retrieve response content MIME type
+    * 
+    * @param string $type 'json' will expand to 'application/json'
+    * @return BResponse|string
+    */
     public function contentType($type=null)
     {
         if (is_null($type)) {
@@ -1902,6 +2391,12 @@ class BResponse extends BClass
         return $this;
     }
 
+    /**
+    * Send file download to client
+    * 
+    * @param string $filename
+    * @return exit
+    */
     public function sendFile($filename)
     {
         BSession::i()->close();
@@ -1919,6 +2414,14 @@ class BResponse extends BClass
         exit;
     }
 
+    /**
+    * Send status response to client
+    * 
+    * @param int $status Status code number
+    * @param string $message Message to be sent to client
+    * @param bool $output Proceed to output content and exit
+    * @return BResponse|exit
+    */
     public function status($status, $message=null, $output=true)
     {
         if (is_null($message)) {
@@ -1940,6 +2443,12 @@ class BResponse extends BClass
         return $this;
     }
 
+    /**
+    * Output the response to client
+    * 
+    * @param string $type Optional content type
+    * @return exit
+    */
     public function output($type=null)
     {
         if (!is_null($type)) {
@@ -1960,11 +2469,21 @@ class BResponse extends BClass
         exit;
     }
 
+    /**
+    * Alias for output
+    * 
+    */
     public function render()
     {
         $this->output();
     }
 
+    /**
+    * Redirect browser to another URL
+    * 
+    * @param string $url URL to redirect
+    * @param int $status Default 302, another possible value 301
+    */
     public function redirect($url, $status=302)
     {
         BSession::i()->close();
@@ -1974,14 +2493,25 @@ class BResponse extends BClass
     }
 }
 
+/**
+* Layout facility to register views and render output from views
+*/
 class BLayout extends BClass
 {
-    protected $_routeTree = array();
-    protected $_singletons = array();
+    /**
+    * View objects registry
+    * 
+    * @var array
+    */
     protected $_views = array();
+    
+    /**
+    * Main (root) view to be rendered first
+    * 
+    * @var BView
+    */
     protected $_mainViewName = 'main';
-    protected $_currentStage;
-
+    
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -1992,7 +2522,30 @@ class BLayout extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
-    public function allViews($rootDir)
+    /**
+    * Set root dir for view templates, relative to current module root
+    * 
+    * @param string $rootDir
+    * @return BLayout
+    */
+    public function viewRootDir($rootDir)
+    {
+        $module = BModuleRegistry::i()->currentModule();
+        $isAbsPath = strpos($rootDir, '/')===0 || strpos($rootDir, ':')===1;
+        $module->view_root_dir = $isAbsPath ? $rootDir : $module->root_dir.'/'.$rootDir;
+        return $this;
+    }
+    
+    /**
+    * Find and register all templates within a folder as view objects
+    * 
+    * View objects will be named by template file paths, stripped of extension (.php)
+    * 
+    * @param string $rootDir Folder with view templates, relative to current module root
+    * @param string $prefix Optional: add prefix to view names
+    * @return BLayout
+    */
+    public function allViews($rootDir, $prefix='')
     {
         $rootDir = BModuleRegistry::i()->currentModule()->root_dir.'/'.$rootDir;
         $this->viewRootDir($rootDir);
@@ -2008,20 +2561,23 @@ class BLayout extends BClass
         }
         foreach ($files as $file) {
             if (preg_match('#^('.preg_quote($rootDir.'/', '#').')(.*)(\.php)$#', $file, $m)) {
-                $this->view($m[2], array('template'=>$m[2].$m[3]));
+                $this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
             }
         }
         return $this;
     }
 
-    public function viewRootDir($rootDir)
-    {
-        $module = BModuleRegistry::i()->currentModule();
-        $module->view_root_dir = strpos($rootDir, '/')===0 ? $rootDir : $module->root_dir.'/'.$rootDir;
-        return $this;
-    }
-
-    public function view($viewname, $params=null)
+    /**
+    * Register or retrieve a view object
+    * 
+    * @param string $viewname
+    * @param array $params View parameters
+    *   - template: optional, for templated views
+    *   - view_class: optional, for custom views
+    *   - module_name: optional, to use template from a specific module
+    * @return BModule|BModuleRegistry
+    */
+    public function view($viewname, $params=BNULL)
     {
         if (is_array($viewname)) {
             foreach ($viewname as $i=>$view) {
@@ -2032,7 +2588,7 @@ class BLayout extends BClass
             }
             return $this;
         }
-        if (is_null($params)) {
+        if (BNULL===$params) {
             if (!isset($this->_views[$viewname])) {
                 return null;
             }
@@ -2049,9 +2605,15 @@ class BLayout extends BClass
         return $this;
     }
 
-    public function mainView($viewname=null)
+    /**
+    * Set or retrieve main (root) view object
+    * 
+    * @param string $viewname
+    * @return BView|BLayout
+    */
+    public function mainView($viewname=BNULL)
     {
-        if (is_null($viewname)) {
+        if (BNULL===$viewname) {
             return $this->_mainViewName ? $this->view($this->_mainViewName) : null;
         }
         if (empty($this->_views[$viewname])) {
@@ -2061,6 +2623,17 @@ class BLayout extends BClass
         return $this;
     }
 
+    /**
+    * Dispatch layout event, for both general observers and route specific observers
+    * 
+    * Observers should watch for these events:
+    * - BLayout::{event}
+    * - BLayout::{event}: GET {route}
+    * 
+    * @param mixed $eventName
+    * @param mixed $routeName
+    * @param mixed $args
+    */
     public function dispatch($eventName, $routeName=null, $args=array())
     {
         if (is_null($routeName)) {
@@ -2083,6 +2656,13 @@ class BLayout extends BClass
         return $result;
     }
 
+    /**
+    * Render layout starting with main (root) view
+    * 
+    * @param string $routeName Optional: render a specific route, default current route
+    * @param BView|BLayout $args Render arguments
+    * @return mixed
+    */
     public function render($routeName=null, $args=array())
     {
         $this->dispatch('render.before', $routeName, $args);
@@ -2100,12 +2680,36 @@ class BLayout extends BClass
     }
 }
 
+/**
+* First parent view class
+*/
 class BView extends BClass
 {
+    /**
+    * Default class for the view, overridden in child classes
+    * 
+    * @var string
+    */
     static protected $_defaultClass = __CLASS__;
+    
+    /**
+    * View parameters
+    * - view_class
+    * - template
+    * - module_name
+    * - args 
+    * 
+    * @var array
+    */
     protected $_params;
 
-    static public function factory($viewname, $params)
+    /**
+    * Factory to generate view instances
+    * 
+    * @param string $viewname
+    * @param array $params
+    */
+    static public function factory($viewname, array $params)
     {
         $params['viewname'] = $viewname;
         $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
@@ -2113,14 +2717,29 @@ class BView extends BClass
         return $view;
     }
     
-    public function __construct($params)
+    /**
+    * Constructor, set initial view parameters
+    * 
+    * @param array $params
+    * @return BView
+    */
+    public function __construct(array $params)
     {
         $this->_params = $params;
     }
 
-    public function param($key=null, $value=BNULL)
+    /**
+    * Set or retrieve view parameters
+    * 
+    * 
+    * 
+    * @param string $key 
+    * @param string $value
+    * @return mixed|BView
+    */
+    public function param($key=BNULL, $value=BNULL)
     {
-        if (is_null($key)) {
+        if (BNULL===$key) {
             return $this->_params;
         }
         if (is_array($key)) {
@@ -2129,33 +2748,61 @@ class BView extends BClass
             }
             return $this;
         }
-        if ($value===BNULL) {
+        if (BNULL===$value) {
             return isset($this->_params[$key]) ? $this->_params[$key] : null;
         }
         $this->_params[$key] = $value;
         return $this;
     }
 
+    /**
+    * Magic method to retrieve argument, accessible from view/template as $this->var
+    * 
+    * @param string $name
+    * @return mixed
+    */
     public function __get($name)
     {
         return isset($this->_params['args'][$name]) ? $this->_params['args'][$name] : null;
     }
 
+    /**
+    * Magic method to set argument, stored in params['args']
+    * 
+    * @param string $name
+    * @param mixed $value
+    */
     public function __set($name, $value)
     {
         $this->_params['args'][$name] = $value;
     }
 
+    /**
+    * Magic method to check if argument is set
+    * 
+    * @param string $name
+    */
     public function __isset($name)
     {
         return isset($this->_params['args'][$name]);
     }
 
+    /**
+    * Magic method to unset argument
+    * 
+    * @param string $name
+    */
     public function __unset($name)
     {
         unset($this->_pararms['args'][$name]);
     }
 
+    /**
+    * Retrieve view object 
+    * 
+    * @param string $viewname
+    * @return BModule
+    */
     public function view($viewname)
     {
         if ($viewname===$this->param('name')) {
@@ -2165,6 +2812,11 @@ class BView extends BClass
         return BLayout::i()->view($viewname);
     }
     
+    /**
+    * View class specific rendering
+    * 
+    * @return string
+    */
     protected function _render()
     {
         $module = BModuleRegistry::i()->currentModule();
@@ -2175,7 +2827,13 @@ class BView extends BClass
         return ob_get_clean();
     }
 
-    public function render($args=array())
+    /**
+    * General render public method
+    * 
+    * @param array $args
+    * @return string
+    */
+    public function render(array $args=array())
     {
         if ($this->param('raw_text')!==null) {
             return $this->param('raw_text');
@@ -2193,16 +2851,31 @@ class BView extends BClass
         return $result;
     }
 
+    /**
+    * Clear parameters to avoid circular reference memory leaks
+    * 
+    */
     public function clear()
     {
         unset($this->_params);
     }
 
+    /**
+    * Clear params on destruct
+    * 
+    */
     public function __destruct()
     {
         $this->clear();
     }
 
+    /**
+    * Render as string
+    * 
+    * If there's exception during render, output as string as well
+    * 
+    * @return string
+    */
     public function __toString()
     {
         try {
@@ -2215,26 +2888,69 @@ class BView extends BClass
         return $result;
     }
 
+    /**
+    * Escape HTML
+    * 
+    * @param string $str
+    * @return string
+    */
     public function q($str)
     {
         return htmlspecialchars($str);
     }
 }
 
+/**
+* View dedicated for rendering HTML HEAD tags
+*/
 class BViewHead extends BView
 {
+    /**
+    * Default view class name
+    * 
+    * @var string
+    */
     static protected $_defaultClass = __CLASS__;
 
+    /**
+    * Meta tags
+    * 
+    * @var array
+    */
     protected $_meta = array();
-    protected $_js = array();
-    protected $_css = array();
+    
+    /**
+    * External resources (JS and CSS)
+    * 
+    * @var array
+    */
     protected $_elements = array();
+    
+    /**
+    * Default tag templates for JS and CSS resources
+    * 
+    * @var array
+    */
     protected $_defaultTag = array(
         'js' => '<script type="text/javascript" src="%s"></script>',
         'css' => '<link rel="stylesheet" type="text/css" href="%s"/>',
     );
+    
+    /**
+    * Current IE <!--[if]--> context
+    * 
+    * @var string
+    */
     protected $_currentIfContext = null;
 
+    /**
+    * Add meta tag, or return meta tag(s)
+    * 
+    * @param string $name If not specified, will return all meta tags as string
+    * @param string $content If not specified, will return meta tag by name
+    * @param bool $httpEquiv Whether the tag is http-equiv
+    * @return BViewHead
+    */
     public function meta($name=BNULL, $content=BNULL, $httpEquiv=false)
     {
         if (BNULL===$name) {
@@ -2251,7 +2967,19 @@ class BViewHead extends BView
         return $this;
     }
 
-    protected function _externalResource($type, $name, $args)
+    /**
+    * Add external resource (JS or CSS), or return tag(s)
+    * 
+    * @param string $type 'js' or 'css'
+    * @param string $name name of the resource, if ommited, return all tags
+    * @param array $args Resource arguments, if ommited, return tag by name
+    *   - tag: Optional, tag template
+    *   - file: resource file src or href
+    *   - module_name: Optional: module where the resource is declared
+    *   - if: IE <!--[if]--> context
+    * @return BViewHead|array|string
+    */
+    protected function _externalResource($type, $name=BNULL, $args=BNULL)
     {
         if (BNULL===$name) {
             if (empty($this->_elements[$type])) {
@@ -2293,23 +3021,50 @@ class BViewHead extends BView
         return $this;
     }
 
+    /**
+    * Add or return JS resources
+    * 
+    * @param string $name If ommited, return all JS tags
+    * @param array $args If ommited, return tag by $name
+    * @return BViewHead|array|string
+    */
     public function js($name=BNULL, $args=BNULL)
     {
         return $this->_externalResource('js', $name, $args);
     }
 
+    /**
+    * Add or return CSS resources
+    * 
+    * @param string $name If ommited, return all CSS tags
+    * @param array $args If ommited, return tag by $name
+    * @return BViewHead|array|string
+    */
     public function css($name=BNULL, $args=BNULL)
     {
         return $this->_externalResource('css', $name, $args);
     }
 
+    /**
+    * Start/Stop IE if context
+    * 
+    * @param mixed $context
+    */
     public function ifContext($context=null)
     {
         $this->_currentIfContext = $context;
         return $this;
     }
 
-    public function render($args=array())
+    /**
+    * Render the view
+    * 
+    * If param['template'] is not specified, return meta+css+js tags
+    * 
+    * @param array $args
+    * @return string
+    */
+    public function render(array $args=array())
     {
         if (!$this->param('template')) {
             return $this->meta()."\n".$this->css()."\n".$this->js();
@@ -2318,14 +3073,40 @@ class BViewHead extends BView
     }
 }
 
+/**
+* View subclass to store and render lists of views
+*/
 class BViewList extends BView
 {
+    /**
+    * Default view class name
+    * 
+    * @var mixed
+    */
     static protected $_defaultClass = __CLASS__;
 
+    /**
+    * Child blocks
+    * 
+    * @var array
+    */
     protected $_children = array();
+    
+    /**
+    * Last registered position to sort children
+    * 
+    * @var int
+    */
     protected $_lastPosition = 0;
 
-    public function append($viewname, $params=array())
+    /**
+    * Append block to the list
+    * 
+    * @param string|array $viewname array or comma separated list of view names
+    * @param array $params
+    * @return BViewList
+    */
+    public function append($viewname, array $params=array())
     {
         if (is_string($viewname)) {
             $viewname = explode(',', $viewname);
@@ -2341,6 +3122,14 @@ class BViewList extends BView
         return $this;
     }
 
+    /**
+    * Append plain text to the list
+    * 
+    * A new view object will be created for each text entry with random name
+    * 
+    * @param string $text
+    * @return BViewList
+    */
     public function appendText($text)
     {
         $layout = BLayout::i();
@@ -2350,6 +3139,14 @@ class BViewList extends BView
         return $this;
     }
 
+    /**
+    * Find child view by its content
+    * 
+    * May be slow, use sparringly
+    * 
+    * @param string $content
+    * @return BView|null
+    */
     public function find($content)
     {
         foreach ($this->_children as $i=>$child) {
@@ -2361,6 +3158,12 @@ class BViewList extends BView
         return null;
     }
 
+    /**
+    * Remove child view from the list
+    * 
+    * @param string $viewname
+    * @return BViewList
+    */
     public function remove($viewname)
     {
         if (true===$viewname) {
@@ -2376,7 +3179,13 @@ class BViewList extends BView
         return $this;
     }
 
-    public function render($args=array())
+    /**
+    * Render the children views
+    * 
+    * @param array $args
+    * @return string
+    */
+    public function render(array $args=array())
     {
         $output = array();
         uasort($this->_children, array($this, 'sortChildren'));
@@ -2391,21 +3200,49 @@ class BViewList extends BView
         return join('', $output);
     }
 
+    /**
+    * Sort child views by their position
+    * 
+    * @param mixed $a
+    * @param mixed $b
+    */
     public function sortChildren($a, $b)
     {
         return $a['position']<$b['position'] ? -1 : ($a['position']>$b['position'] ? 1 : 0);
     }
 }
 
+/**
+* Facility to handle session state
+*/
 class BSession extends BClass
 {
+    /**
+    * Session data, specific to the application namespace
+    * 
+    * @var array
+    */
     public $data = null;
 
-    protected $_company;
-    protected $_location;
-
+    /**
+    * Current sesison ID
+    * 
+    * @var string
+    */
     protected $_sessionId;
+    
+    /**
+    * Whether PHP session is currently open
+    * 
+    * @var bool
+    */
     protected $_open = false;
+    
+    /**
+    * Whether any session variable was changed since last session save
+    * 
+    * @var bool
+    */
     protected $_dirty = false;
 
     /**
@@ -2418,6 +3255,12 @@ class BSession extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Open session
+    * 
+    * @param string|null $id Optional session ID
+    * @param bool $close Close and unlock PHP session immediately
+    */
     public function open($id=null, $close=true)
     {
         if ($this->_open) {
@@ -2457,9 +3300,15 @@ class BSession extends BClass
         return $this;
     }
 
-    public function dirty($flag=null)
+    /**
+    * Set or retrieve dirty session flag
+    * 
+    * @param bool $flag
+    * @return bool
+    */
+    public function dirty($flag=BNULL)
     {
-        if (is_null($flag)) {
+        if (BNULL===$flag) {
             return $this->_dirty;
         }
         $this->open();
@@ -2467,7 +3316,14 @@ class BSession extends BClass
         return $this;
     }
 
-    public function data($key=null, $value=null)
+    /**
+    * Set or retrieve session variable
+    * 
+    * @param string $key If ommited, return all session data
+    * @param mixed $value If ommited, return data by $key
+    * @return mixed|BSession
+    */
+    public function data($key=BNULL, $value=BNULL)
     {
         $this->open();
         if (is_null($key)) {
@@ -2483,6 +3339,11 @@ class BSession extends BClass
         return $this;
     }
 
+    /**
+    * Get reference to session data and set dirty flag true
+    * 
+    * @return array
+    */
     public function &dataToUpdate()
     {
         $this->open();
@@ -2490,6 +3351,11 @@ class BSession extends BClass
         return $this->data;
     }
 
+    /**
+    * Write session variable changes and close PHP session
+    * 
+    * @return BSession
+    */
     public function close()
     {
         if (!$this->dirty()) {
@@ -2506,12 +3372,20 @@ class BSession extends BClass
         return $this;
     }
 
+    /**
+    * Get session ID
+    * 
+    * @return string
+    */
     public function sessionId()
     {
         return $this->_sessionId;
     }
 }
 
+/**
+* Stub for cache class
+*/
 class BCache extends BClass
 {
     /**
@@ -2524,16 +3398,40 @@ class BCache extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Stub
+    * 
+    */
     public function init()
     {
 
     }
 }
 
+/**
+* Facility to handle l10n and i18n
+*/
 class BLocale extends BClass
 {
+    /**
+    * Default timezone
+    * 
+    * @var string
+    */
     protected $_defaultTz = 'America/Los_Angeles';
+    
+    /**
+    * Default locale
+    * 
+    * @var string
+    */
     protected $_defaultLocale = 'en_US';
+    
+    /**
+    * Cache for DateTimeZone objects
+    * 
+    * @var DateTimeZone
+    */
     protected $_tzCache = array();
 
     /**
@@ -2546,6 +3444,10 @@ class BLocale extends BClass
         return self::instance($new, $args, __CLASS__);
     }
 
+    /**
+    * Constructor, set default timezone and locale
+    * 
+    */
     public function __construct()
     {
         date_default_timezone_set($this->_defaultTz);
@@ -2553,16 +3455,34 @@ class BLocale extends BClass
         $this->_tzCache['GMT'] = new DateTimeZone('GMT');
     }
 
-    public function t($string, $args)
+    /**
+    * Translate a string and inject optionally named arguments
+    * 
+    * @param string $string
+    * @param array $args
+    * @return string|false
+    */
+    public function t($string, array $args=array())
     {
         return BParser::i()->sprintfn($string, $args);
     }
 
+    /**
+    * Get server timezone
+    * 
+    * @return string
+    */
     public function serverTz()
     {
         return date('e'); // Examples: UTC, GMT, Atlantic/Azores
     }
-
+    
+    /**
+    * Get timezone offset in seconds
+    * 
+    * @param stirng|null $tz If null, return server timezone offset
+    * @return int
+    */
     public function tzOffset($tz=null)
     {
         if (is_null($tz)) { // Server timezone
@@ -2574,11 +3494,24 @@ class BLocale extends BClass
         return $this->_tzCache[$tz]->getOffset($this->_tzCache['GMT']);
     }
 
+    /**
+    * Convert local datetime to DB (GMT)
+    * 
+    * @param string $value
+    * @return string
+    */
     public function datetimeLocalToDb($value)
     {
         return gmstrftime('%F %T', strtotime($value));
     }
 
+    /**
+    * Convert DB datetime (GMT) to local 
+    * 
+    * @param string $value
+    * @param bool $full Full format or short
+    * @return string
+    */
     public function datetimeDbToLocal($value, $full=false)
     {
         return strftime($full ? '%c' : '%x', strtotime($value));

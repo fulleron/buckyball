@@ -548,7 +548,7 @@ class BParser extends BClass
     public function validateSaltedHash($string, $storedHash)
     {
         list($algo, $hash, $salt) = explode(':', $storedHash);
-        return $hash==$this->saltedHash($string, $salt, $algo);
+        return $hash===$this->saltedHash($string, $salt, $algo);
     }
 }
 
@@ -2896,6 +2896,10 @@ class BView extends BClass
     */
     public function q($str)
     {
+        if (!is_string($str)) {
+            var_dump($str);
+            return ' ** ERROR ** ';
+        }
         return htmlspecialchars($str);
     }
 }
@@ -3263,7 +3267,7 @@ class BSession extends BClass
     */
     public function open($id=null, $close=true)
     {
-        if ($this->_open) {
+        if ($this->data) {
             return $this;
         }
         $config = BConfig::i()->get('cookie');
@@ -3326,10 +3330,10 @@ class BSession extends BClass
     public function data($key=BNULL, $value=BNULL)
     {
         $this->open();
-        if (is_null($key)) {
+        if (BNULL===$key) {
             return $this->data;
         }
-        if (is_null($value)) {
+        if (BNULL===$value) {
             return isset($this->data[$key]) ? $this->data[$key] : null;
         }
         if (!isset($this->data[$key]) || $this->data[$key]!==$value) {
@@ -3462,7 +3466,7 @@ class BLocale extends BClass
     * @param array $args
     * @return string|false
     */
-    public function t($string, array $args=array())
+    public function t($string, $args=array())
     {
         return BParser::i()->sprintfn($string, $args);
     }

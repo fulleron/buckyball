@@ -416,28 +416,28 @@ class BParser extends BClass
      *
      * @see http://us3.php.net/manual/en/function.array-merge-recursive.php#96201
      **/
-    public function arrayMerge() {
-      $arrays = func_get_args();
-      $base = array_shift($arrays);
-      if(!is_array($base)) $base = empty($base) ? array() : array($base);
-      foreach($arrays as $append) {
-        if(!is_array($append)) $append = array($append);
-        foreach($append as $key => $value) {
-          if(!array_key_exists($key, $base) and !is_numeric($key)) {
-            $base[$key] = $append[$key];
-            continue;
-          }
-          if(is_array($value) or is_array($base[$key])) {
-            $base[$key] = $this->arrayMerge($base[$key], $append[$key]);
-          } else if(is_numeric($key)) {
-            if(!in_array($value, $base)) $base[] = $value;
-          } else {
-            $base[$key] = $value;
-          }
-        }
-      }
-      return $base;
-    }
+     public function arrayMerge() {
+         $arrays = func_get_args();
+         $base = array_shift($arrays);
+         if(!is_array($base)) $base = empty($base) ? array() : array($base);
+         foreach($arrays as $append) {
+             if(!is_array($append)) $append = array($append);
+             foreach($append as $key => $value) {
+                 if(!array_key_exists($key, $base) and !is_numeric($key)) {
+                     $base[$key] = $append[$key];
+                     continue;
+                 }
+                 if(is_array($value) or is_array($base[$key])) {
+                     $base[$key] = $this->arrayMerge($base[$key], $append[$key]);
+                 } else if(is_numeric($key)) {
+                         if(!in_array($value, $base)) $base[] = $value;
+                 } else {
+                     $base[$key] = $value;
+                 }
+             }
+         }
+         return $base;
+     }
 
     /**
     * Compare 2 arrays recursively
@@ -687,17 +687,47 @@ class BModel extends Model
     }
 
     /**
-    * Set few object properties in the same call
+    * Optionally set model properties and save
     *
     * @param array $arr
-    * @return BModel
+    * @return bool
     */
-    public function setFew(array $arr)
+    public function save(array $arr=array())
     {
         foreach ($arr as $k=>$v) {
             $this->set($k, $v);
         }
-        return $this;
+        return parent::save();
+    }
+    
+    /**
+    * Create new singleton or instance of the class
+    *
+    * @param bool $new
+    * @param string $class
+    */
+    static public function instance($new=false, array $args=array(), $class=__CLASS__)
+    {
+        $registry = BClassRegistry::i();
+        return $new ? $registry->getInstance($class, $args) : $registry->getSingleton($class, $args);
+    }
+
+    /**
+    * Fallback singleton/instance factory
+    *
+    * Works correctly only in PHP 5.3.0
+    * With PHP 5.2.0 will always return instance of BModel and should be overridden in child classes
+    *
+    * @param bool $new if true returns a new instance, otherwise singleton
+    * @param array $args
+    * @return BClass
+    */
+    public static function i($new=false, array $args=array())
+    {
+        if (function_exists('get_called_class')) {
+            $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        }
+        return self::instance($new, $args, $class);
     }
 }
 
@@ -811,7 +841,45 @@ class BClassRegistry extends BClass
     */
     public function overrideMethod($class, $method, $callback, $static=false)
     {
-        $this->_methods[$class][$static ? 1 : 0][$method] = array(
+        $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
+            'module_name' => BModuleRegistry::i()->currentModule(),
+            'callback' => $callback,
+        );
+        return $this;
+    }
+    
+    /**
+    * Dynamically augment class method result
+    * 
+    * Allows to change result of a method for every invokation.
+    * Syntax similar to overrideMethod()
+    * 
+    * Callback method example (original method had 2 arguments):
+    * 
+    * class MyClass {
+    *   static public function someMethod($result, $origObject, $arg1, $arg2)
+    *   {
+    *       // augment $result of previous object method call
+    *       $result['additional_info'] = 'foo';
+    *
+    *       return $result;
+    *   }
+    * }
+    * 
+    * A difference between overrideModule and augmentModule is that 
+    * you can override only with one another method, but augment multiple times.
+    * 
+    * If augmented multiple times, each consequetive callback will receive result
+    * changed by previous callback.
+    * 
+    * @param mixed $class
+    * @param mixed $method
+    * @param mixed $callback
+    * @param mixed $static
+    */
+    public function augmentMethod($class, $method, $callback, $static=false)
+    {
+        $this->_methods[$class][$static ? 1 : 0][$method]['augment'][] = array(
             'module_name' => BModuleRegistry::i()->currentModule(),
             'callback' => $callback,
         );
@@ -830,13 +898,23 @@ class BClassRegistry extends BClass
     {
         $class = get_class($origObject);
 
-        $callback = !empty($this->_methods[$class][0][$method])
-            ? $this->_methods[$class][0][$method]['callback']
+        $callback = !empty($this->_methods[$class][0][$method]['override'])
+            ? $this->_methods[$class][0][$method]['override']['callback']
             : array($origObject, $method);
 
         array_unshift($origObject, $args);
 
-        return call_user_func_array($callback, $args);
+        $result = call_user_func_array($callback, $args);
+        
+        if (!empty($this->_methods[$class][0][$method]['augment'])) {
+            array_unshift($result, $args);
+            foreach ($this->_methods[$class][0][$method]['augment'] as $augment) {
+                $result = call_user_func_array($augment['callback'], $args);
+                $args[0] = $result;
+            }
+        }
+        
+        return $result;
     }
 
     /**
@@ -853,10 +931,20 @@ class BClassRegistry extends BClass
     public function callStaticMethod($class, $method, array $args=array())
     {
         $callback = !empty($this->_methods[$class][1][$method])
-            ? $this->_methods[$class][1][$method]['callback']
+            ? $this->_methods[$class][1][$method]['override']['callback']
             : array($class, $method);
 
-        return call_user_func_array($callback, $args);
+        $result = call_user_func_array($callback, $args);
+        
+        if (!empty($this->_methods[$class][1][$method]['augment'])) {
+            array_unshift($result, $args);
+            foreach ($this->_methods[$class][1][$method]['augment'] as $augment) {
+                $result = call_user_func_array($augment['callback'], $args);
+                $args[0] = $result;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -1197,7 +1285,7 @@ class BModuleRegistry extends BClass
         foreach ($this->_moduleDepends as $depName=>&$depends) {
             if (empty($this->_modules[$depName])) {
                 foreach ($depends as $modName=>&$dep) {
-                    if ($dep['action']!='ignore') {
+                    if (empty($dep['action']) || $dep['action']!='ignore') {
                         $dep['error'] = array('type'=>'missing');
                     }
                 }

@@ -1,6 +1,6 @@
 <?php
-$config = $this->grid['config'];
 $data = $this->gridData();
+$config = $this->grid['config'];
 $s = $data['state'];
 #var_dump($data['state']);
 #echo $data['query'];
@@ -66,7 +66,7 @@ $s = $data['state'];
 <?php endif ?>
 </thead>
 <tbody>
-<?php foreach ($data['rows'] as $rowId=>$row): ?>
+<?php foreach ($data['out'] as $rowId=>$row): ?>
     <tr class="<?php echo $rowId%2 ? 'odd' : 'even' ?>">
 <?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array(); ?>
         <td>
@@ -75,7 +75,7 @@ $s = $data['state'];
             <a href="<?php echo $cell['href'] ?>"><?php echo $this->cellData($cell) ?></a>
 <?php break; case 'actions': ?>
             <?php foreach ($this->rowActions($row) as $a): ?>
-                <a href="<?php echo $a['href'] ?>"><?php echo $a['title']?></a>
+                <a href="<?php echo $a['href'] ?>"><?php echo $a['value']?></a>
             <?php endforeach ?>
 <?php break; default: echo $this->cellData($cell) ?>
 <?php endswitch ?>

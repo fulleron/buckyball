@@ -35,30 +35,59 @@ class BViewGrid extends BView
         }
         $cell = $this->grid['data']['rows'][$rowId][$colId];
         */
-        return $this->q(isset($cell['title']) ? $cell['title'] : (!empty($cell['value']) ? $cell['value'] : ''));
+        return $this->q(!empty($cell['value']) ? $cell['value'] : '');
     }
-
-    public function rowActions($row)
+    
+    public function gridPrepareConfig($c)
     {
-        return array();
+        if (empty($c['pageSizeOptions'])) {
+            $c['pageSizeOptions'] = array(25,50,100);
+        }
+        if (empty($c['pageSize'])) {
+            $c['pageSize'] = $c['pageSizeOptions'][0];
+        }
+        if (empty($c['search'])) {
+            $c['search'] = new stdClass;
+        }
+        if (!isset($c['sort'])) {
+            $c['sort'] = '';
+        }
+        if (!isset($c['sortDir'])) {
+            $c['sortDir'] = 'asc';
+        }
+        if (empty($c['fields'])) {
+            $c['fields'] = $c['columns'];
+            foreach ($c['columns'] as $cId=>$col) {
+                $c['columns'][$cId]['fields'] = array($cId);
+            }
+        }
+        foreach ($c['columns'] as $cId=>$col) {
+            if (!empty($col['fields'])) {
+                foreach ($col['fields'] as $fId) {
+                    $c['fields'][$fId]['col'] = $cId;
+                }
+            }
+        }
+        return $c;
     }
 
-    public function gridData()
+    public function gridData(array $options=array())
     {
         $parser = BParser::i();
         // fetch grid configuration
-        $config = $this->grid['config'];
-        if (!empty($this->grid['server_config'])) {
-            $config = array_merge_recursive($config, $this->grid['server_config']);
+        $grid = $this->grid;
+        $config =& $grid['config'];
+        if (!empty($grid['serverConfig'])) {
+            $config = $parser->arrayMerge($config, $grid['serverConfig']);
         }
 
+        $config = $this->gridPrepareConfig($config);
+
         // fetch request parameters
-        if (empty($this->grid['request'])) {
-            $grid = $this->grid;
+        if (empty($grid['request'])) {
             $grid['request'] = BRequest::i()->get();
-            $this->grid = $grid;
         }
-        $p = BRequest::i()->sanitize($this->grid['request'], array(
+        $p = BRequest::i()->sanitize($grid['request'], array(
             'page' => array('int', !empty($config['page']) ? $config['page'] : 1),
             'pageSize' => array('int', !empty($config['pageSize']) ? $config['pageSize'] : $config['pageSizeOptions'][0]),
             'sort' => array('alnum|lower', !empty($config['sort']) ? $config['sort'] : null),
@@ -68,7 +97,10 @@ class BViewGrid extends BView
 
         // create collection factory
         #$orm = AModel::factory($config['model']);
-        $orm = ORM::for_table($config['main_table']);
+        $mainTable = $config['table'];
+        $orm = ORM::for_table($mainTable);
+
+        BEventRegistry::i()->dispatch('BViewGrid::gridData.initORM: '.$config['id'], array('orm'=>$orm, 'grid'=>$grid));
 
         $mapColumns = array();
 
@@ -85,76 +117,60 @@ class BViewGrid extends BView
         $p['toRow'] = min($p['fromRow']+$p['pageSize']-1, $p['totalRows']);
 
         $this->_processGridJoins($config, $mapColumns, $orm, 'after_count');
-
+        
         // add columns to select
-        foreach ($config['columns'] as $colName=>$col) {
-            if (empty($col['virtual'])) {
-                if (isset($col['expr'])) {
-                    $orm->select_expr($col['expr'], $colName);
-                } else {
-                    $orm->select($config['main_table'].'.'.(isset($col['field']) ? $col['field'] : $colName));
-                }
+        foreach ($config['select'] as $k=>$f) {
+            if ($f[0]==='(') {
+                $orm->select_expr(str_replace('{t}', $mainTable, $f), $k);
+                continue;
             }
-            if (!empty($col['map'])) {
-                foreach ($col['map'] as $propName=>$expr) {
-                    $mapAlias = '_alias_'.$colName.'_'.$propName;
-                    $mapColumns[$colName][$propName] = $mapAlias;
-                    if (is_array($expr)) {
-                        $orm->select_expr($expr[0], $mapAlias);
-                    } else {
-                        $orm->select($config['main_table'].'.'.$expr, $mapAlias);
-                    }
-                }
-            }
+            $orm->select((strpos($f, '.')===false ? $mainTable.'.' : '').$f, !is_int($k) ? $k : null);
         }
 
         // add sorting
         if ($p['sort']) {
+            if (!empty($config['columns'][$p['sort']]['sort_by'])) {
+                $p['sort'] = $config['columns'][$p['sort']]['sort_by'];
+            }
             $orderBy = $p['sortDir']=='desc' ? 'order_by_desc' : 'order_by_asc';
             $orm->$orderBy($p['sort']);
         }
 #var_dump($orm);
         // run query
-        $models = $orm->offset($p['fromRow']-1)->limit($p['pageSize'])->find_many();
+        try {
+            $models = $orm->offset($p['fromRow']-1)->limit($p['pageSize'])->find_many();
+        } catch (PDOException $e) {
+            echo $e->getMessage()."\n<hr>\n".$orm->get_last_query()."\n";
+            exit;
+        }
 #echo $orm->get_last_query();
 
         // init result
-        $result = array('state' => $p, 'rows' => array(), 'query'=>ORM::get_last_query());
+        $grid['result'] = array('state'=>$p, 'raw'=>array(), 'out'=>array()/*, 'query'=>ORM::get_last_query()*/);
 
         // format rows
-        foreach ($models as $model) {
+        foreach ($models as $i=>$model) {
             $r = $model->as_array();
-
-            foreach ($config['columns'] as $k=>$col) {
-                $a = array('value'=>isset($r[$k]) ? $r[$k] : null);
-                if (!empty($mapColumns[$k])) {
-                    foreach ($mapColumns[$k] as $propName=>$propField) {
-                        if (!is_null($r[$propField])) $a[$propName] = $r[$propField];
-                    }
-                }
-                if (!empty($col['type'])) {
-                    switch ($col['type']) {
-                        case 'row_checkbox': continue 2;
-                        case 'link': $a['href'] = $parser->injectVars($col['href'], $r); break;
-                        case 'actions': $a = call_user_func($col['callback'], $row); break;
-                        default: if (!empty($this->grid['data_formatters'][$col['type']])) {
-                            $fmt = $this->grid['data_formatters'][$col['type']];
-                            $a = call_user_func($fmt['callback'], $r, $col);
-                        } else {
-                            #throw new Exception('Invalid column type: '.$col['type']);
-                        }
-                    }
-                }
-                $row[$k] = $a;
+            if (empty($options['no_raw'])) {
+                $grid['result']['raw'][$i] = $r;
             }
-            $result['rows'][] = $row;
+            if (empty($options['no_out'])) {
+                foreach ($config['fields'] as $k=>$f) {
+                    $field = !empty($f['field']) ? $f['field'] : $k;
+                    $grid['result']['out'][$i][$k]['raw'] = isset($r[$field]) ? $r[$field] : null;
+                    $value = isset($r[$field]) ? $r[$field] : (isset($f['default']) ? $f['default'] : '');
+                    if (!empty($f['options'][$value])) $value = $f['options'][$value];
+                    $grid['result']['out'][$i][$k]['value'] = $value;
+                    if (!empty($f['href'])) {
+                        $grid['result']['out'][$i][$k]['href'] = $parser->injectVars($f['href'], $r);
+                    }
+                }
+            }
         }
-
-        $grid = $this->grid;
-        $grid['data'] = $result;
+        BEventRegistry::i()->dispatch('BGridView::gridData.after: '.$config['id'], array('grid'=>&$grid));
+        
         $this->grid = $grid;
-
-        return $result;
+        return $grid;
     }
 
     protected function _processGridJoins(&$config, &$mapColumns, $orm, $when='before_acount')
@@ -171,12 +187,12 @@ class BViewGrid extends BView
             }
 
             $table = (!empty($j['db']) ? $j['db'].'.' : '').$j['table'];
-            $tableAlias = isset($j['alias']) ? $j['alias'] : '_join_'.$j['table'];
+            $tableAlias = isset($j['alias']) ? $j['alias'] : $j['table'];
 
-            $localKey = $j['lk'];
-            $foreignKey = isset($j['fk']) ? $j['fk'] : $localKey;
+            $localKey = isset($j['lk']) ? $j['lk'] : 'id';
+            $foreignKey = isset($j['fk']) ? $j['fk'] : 'id';
 
-            $localKey = (strpos($localKey, '.')===false ? $config['main_table'].'.' : '').$localKey;
+            $localKey = (strpos($localKey, '.')===false ? $config['table'].'.' : '').$localKey;
             $foreignKey = (strpos($foreignKey, '.')===false ? $tableAlias.'.' : '').$foreignKey;
 
             $op = isset($j['op']) ? $j['op'] : '=';
@@ -184,22 +200,19 @@ class BViewGrid extends BView
 
             $joinMethod = (isset($j['type']) ? $j['type'].'_' : '').'join';
 
-            $where = isset($j['where']) ? str_replace(array('{lk}', '{fk}'), array($localKey, $foreignKey), $j['where'])
-                                        : array($foreignKey, $op, $localKey);
+            $where = isset($j['where']) ? str_replace(array('{lk}', '{fk}', '{lt}', '{ft}'), array($localKey, $foreignKey, $config['table'], $tableAlias), $j['where']) : array($foreignKey, $op, $localKey);
 
             $orm->$joinMethod($table, $where, $tableAlias);
 
-            if (!empty($j['map'])) {
-                foreach ($j['map'] as $jm) {
-                    $fieldAlias = !empty($jm['alias']) ? $jm['alias'] : $tableAlias.'_'.$jm['col'].'_'.$jm['prop'];
-                    if (isset($jm['col']) && isset($jm['prop'])) {
-                        $mapColumns[$jm['col']][$jm['prop']] = $fieldAlias;
-                    }
-
+            /*
+            if (!empty($j['select'])) {
+                list($localTable, ) = explode('.', $localKey);
+                foreach ($j['select'] as $jm) {
+                    $fieldAlias = !empty($jm['alias']) ? $jm['alias'] : null;
                     if (isset($jm['field'])) {
                         $orm->select($tableAlias.'.'.$jm['field'], $fieldAlias);
                     } elseif (isset($jm['expr'])) {
-                        $expr = str_replace('{ft}', $tableAlias, $jm['expr']);
+                        $expr = str_replace(array('{lt}', '{ft}'), array($localTable, $tableAlias), $jm['expr']);
                         $orm->select_expr($expr, $fieldAlias);
                     }
                 }
@@ -208,6 +221,7 @@ class BViewGrid extends BView
             if (!empty($j['where'])) {
                 $orm->where_raw($j['where'][0], $j['where'][1]);
             }
+            */
         }
     }
 

@@ -650,12 +650,18 @@ class BDb extends BClass
     public function init()
     {
         $config = BConfig::i();
-        if (($dsn = $config->get('db/dsn'))) {
-            ORM::configure($dsn);
-            ORM::configure('username', $config->get('db/username'));
-            ORM::configure('password', $config->get('db/password'));
-            ORM::configure('logging', $config->get('db/logging'));
+        switch (($engine = $config->get('db/engine'))) {
+            case "mysql": 
+                $dsn = "mysql:host={$config->get('db/host')};dbname={$config->get('db/dbname')}";
+                break;
+                
+            default:
+                throw new BException(BApp::t('Invalid DB engine: %s', $engine));
         }
+        ORM::configure($dsn);
+        ORM::configure('username', $config->get('db/username'));
+        ORM::configure('password', $config->get('db/password'));
+        ORM::configure('logging', $config->get('db/logging'));
     }
 
     /**
@@ -666,6 +672,53 @@ class BDb extends BClass
     static public function now()
     {
         return gmstrftime('%F %T');
+    }
+    
+    public function dbName()
+    {
+        return BConfig::i()->get('db/dbname');
+    }
+    
+    public function ddlClearCache()
+    {
+        $this->_tables = null;
+        return $this;
+    }
+    
+    public function ddlTableExists($fullTableName)
+    {
+        $a = explode('.', $fullTableName);
+        if (sizeof($a)===1) {
+            $dbName = $this->dbName();
+            $tableName = $fullTableName;
+        } else {
+            $dbName = $a[0];
+            $tableName = $a[1];
+        }
+        if (!isset($this->_tables[$dbName])) {
+            $tables = ORM::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
+            foreach ($tables as $t) {
+                $this->_tables[$dbName][$t["Tables_in_{$dbName}"]] = array();
+            }
+        }
+        return isset($this->_tables[$dbName][$tableName]);
+    }
+    
+    public function ddlFieldInfo($fullFieldName)
+    {
+        $a = explode('.', $fullFieldName);
+        $dbName = sizeof($a)<3 ? $this->dbName() : array_shift($a);
+        $tableName = $a[0];
+        $fieldName = $a[1];
+        if (!$this->ddlTableExists($dbName.'.'.$tableName)) {
+            throw new BException(BApp::t('Invalid table name: %s.%s', array($dbName, $tableName)));
+        }
+        $tableFields =& $this->_tables[$dbName][$tableName]['fields'];
+        $fields = ORM::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
+        foreach ($fields as $f) {
+            $tableFields[$f['Field']] = $f;
+        }
+        return isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null;
     }
 }
 
@@ -2647,6 +2700,7 @@ class BLayout extends BClass
                 $files = array_merge($files, $add);
             }
         }
+
         foreach ($files as $file) {
             if (preg_match('#^('.preg_quote($rootDir.'/', '#').')(.*)(\.php)$#', $file, $m)) {
                 $this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
@@ -2765,6 +2819,13 @@ class BLayout extends BClass
         $this->dispatch('render.after', $routeName, $args);
 
         return $result;
+    }
+    
+    public function debugPrintViews()
+    {
+        foreach ($this->_views as $viewname=>$view) {
+            echo $viewname.':<pre>'; print_r($view); echo '</pre><hr>';
+        }
     }
 }
 

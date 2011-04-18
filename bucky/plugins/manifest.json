@@ -7,6 +7,10 @@
         "buckyball.ui": {
             "bootstrap": {"file":"ui/ui_main.php", "callback":"BuckyUI::init"},
             "version": "0.0.1"
+        },
+        "buckyball.modadmin": {
+            "bootstrap": {"file":"modadmin/modadmin_main.php", "callback":"BuckyModAdmin::init"},
+            "version": "0.0.1"
         }
     }
 }

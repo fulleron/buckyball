@@ -27,18 +27,6 @@ include_once('lib/paris.php');
 class BClass
 {
     /**
-    * Create new singleton or instance of the class
-    *
-    * @param bool $new
-    * @param string $class
-    */
-    static public function instance($new=false, array $args=array(), $class=__CLASS__)
-    {
-        $registry = BClassRegistry::i();
-        return $new ? $registry->getInstance($class, $args) : $registry->getSingleton($class, $args);
-    }
-
-    /**
     * Fallback singleton/instance factory
     *
     * Works correctly only in PHP 5.3.0
@@ -53,7 +41,7 @@ class BClass
         if (function_exists('get_called_class')) {
             $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
         }
-        return self::instance($new, $args, $class);
+        return BClassRegistry::i()->instance($class, $args, !$new);
     }
 }
 
@@ -73,7 +61,7 @@ class BApp extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -235,7 +223,7 @@ class BDebug extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -284,7 +272,7 @@ class BParser extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -571,7 +559,7 @@ class BConfig extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -640,7 +628,7 @@ class BDb extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -651,10 +639,10 @@ class BDb extends BClass
     {
         $config = BConfig::i();
         switch (($engine = $config->get('db/engine'))) {
-            case "mysql": 
+            case "mysql":
                 $dsn = "mysql:host={$config->get('db/host')};dbname={$config->get('db/dbname')}";
                 break;
-                
+
             default:
                 throw new BException(BApp::t('Invalid DB engine: %s', $engine));
         }
@@ -673,18 +661,18 @@ class BDb extends BClass
     {
         return gmstrftime('%F %T');
     }
-    
+
     public function dbName()
     {
         return BConfig::i()->get('db/dbname');
     }
-    
+
     public function ddlClearCache()
     {
         $this->_tables = null;
         return $this;
     }
-    
+
     public function ddlTableExists($fullTableName)
     {
         $a = explode('.', $fullTableName);
@@ -703,7 +691,7 @@ class BDb extends BClass
         }
         return isset($this->_tables[$dbName][$tableName]);
     }
-    
+
     public function ddlFieldInfo($fullFieldName)
     {
         $a = explode('.', $fullFieldName);
@@ -752,18 +740,6 @@ class BModel extends Model
         }
         return parent::save();
     }
-    
-    /**
-    * Create new singleton or instance of the class
-    *
-    * @param bool $new
-    * @param string $class
-    */
-    static public function instance($new=false, array $args=array(), $class=__CLASS__)
-    {
-        $registry = BClassRegistry::i();
-        return $new ? $registry->getInstance($class, $args) : $registry->getSingleton($class, $args);
-    }
 
     /**
     * Fallback singleton/instance factory
@@ -780,7 +756,7 @@ class BModel extends Model
         if (function_exists('get_called_class')) {
             $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
         }
-        return self::instance($new, $args, $class);
+        return BClassRegistry::instance($class, $args, !$new);
     }
 }
 
@@ -820,15 +796,21 @@ class BClassRegistry extends BClass
     /**
     * Shortcut to help with IDE autocompletion
     *
+    * @param bool $new
+    * @param array $args
+    * @param bool $forceRefresh force the recreation of singleton
     * @return BClassRegistry
     */
-    public static function i($new=false, array $args=array())
+    public static function i($new=false, array $args=array(), $forceRefresh=false)
     {
         if (!self::$_instance) {
             self::$_instance = new BClassRegistry;
         }
+        if (!$new && !$forceRefresh) {
+            return self::$_instance;
+        }
         $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
-        return $new ? self::$_instance->getInstance($class) : self::$_instance->getSingleton($class);
+        return self::$_instance->instance($class, $args, !$new);
     }
 
     /**
@@ -850,7 +832,7 @@ class BClassRegistry extends BClass
             'module_name' => BModuleRegistry::i()->currentModule(),
         );
         if ($replaceSingleton && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
-            $this->_singletons[$class] = $this->getInstance($newClass);
+            $this->_singletons[$class] = $this->instance($newClass);
         }
         return $this;
     }
@@ -863,8 +845,7 @@ class BClassRegistry extends BClass
     * Usage: BClassRegistry::i()->overrideMethod('BaseClass', 'someMethod', array('MyClass', 'someMethod'));
     *
     * Overridden class should be called one of the following ways:
-    * - BClassRegistry::i()->getInstance('BaseClass')
-    * - BClassRegistry::i()->getSingleton('BaseClass')
+    * - BClassRegistry::i()->instance('BaseClass')
     * - BaseClass:i() -- if it extends BClass or has the shortcut defined
     *
     * Callback method example (original method had 2 arguments):
@@ -900,15 +881,15 @@ class BClassRegistry extends BClass
         );
         return $this;
     }
-    
+
     /**
     * Dynamically augment class method result
-    * 
+    *
     * Allows to change result of a method for every invokation.
     * Syntax similar to overrideMethod()
-    * 
+    *
     * Callback method example (original method had 2 arguments):
-    * 
+    *
     * class MyClass {
     *   static public function someMethod($result, $origObject, $arg1, $arg2)
     *   {
@@ -918,13 +899,13 @@ class BClassRegistry extends BClass
     *       return $result;
     *   }
     * }
-    * 
-    * A difference between overrideModule and augmentModule is that 
+    *
+    * A difference between overrideModule and augmentModule is that
     * you can override only with one another method, but augment multiple times.
-    * 
+    *
     * If augmented multiple times, each consequetive callback will receive result
     * changed by previous callback.
-    * 
+    *
     * @param mixed $class
     * @param mixed $method
     * @param mixed $callback
@@ -958,7 +939,7 @@ class BClassRegistry extends BClass
         array_unshift($origObject, $args);
 
         $result = call_user_func_array($callback, $args);
-        
+
         if (!empty($this->_methods[$class][0][$method]['augment'])) {
             array_unshift($result, $args);
             foreach ($this->_methods[$class][0][$method]['augment'] as $augment) {
@@ -966,7 +947,7 @@ class BClassRegistry extends BClass
                 $args[0] = $result;
             }
         }
-        
+
         return $result;
     }
 
@@ -988,7 +969,7 @@ class BClassRegistry extends BClass
             : array($class, $method);
 
         $result = call_user_func_array($callback, $args);
-        
+
         if (!empty($this->_methods[$class][1][$method]['augment'])) {
             array_unshift($result, $args);
             foreach ($this->_methods[$class][1][$method]['augment'] as $augment) {
@@ -1012,41 +993,37 @@ class BClassRegistry extends BClass
     }
 
     /**
-    * Get a new instance of a class
+    * Get a new instance or a singleton of a class
     *
     * If at least one method of the class if overridden, returns decorator
     *
     * @param string $class
     * @param array $args
+    * @param bool $singleton
     * @return object
     */
-    public function getInstance($class, array $args=array())
+    public function instance($class, array $args=array(), $singleton=false)
     {
+        // if singleton is requested and already exists, return the singleton
+        if ($singleton && !empty($this->_singletons[$class])) {
+            return $this->_singletons[$class];
+        }
+
+        // get original or overridden class instance
         $className = $this->className($class);
         $instance = new $className($args);
 
-        // if no methods are overridden, just return the instance
-        if (empty($this->_methods[$class])) {
-            return $instance;
+        // if any methods are overridden or augmented, get decorator
+        if (!empty($this->_methods[$class])) {
+            $instance = $this->instance('BClassDecorator', array($instance));
         }
 
-        // otherwise return decorator
-        return $this->getInstance('BClassDecorator', array($instance));
-    }
-
-    /**
-    * Get a class singleton
-    *
-    * @param string $class
-    * @param array $args
-    * @return object
-    */
-    public function getSingleton($class, array $args=array())
-    {
-        if (empty($this->_singletons[$class])) {
-            $this->_singletons[$class] = $class===__CLASS__ ? self::$_instance : $this->getInstance($class, $args);
+        // if singleton is requested, save
+        if ($singleton) {
+            $this->_singletons[$class] = $instance;
         }
-        return $this->_singletons[$class];
+
+        return $instance;
     }
 }
 
@@ -1065,16 +1042,6 @@ class BClassDecorator extends BClass
     protected $_decoratedComponent;
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BClassDecorator
-    */
-    public static function i($new=false, array $args=array())
-    {
-        return self::instance($new, $args, __CLASS__);
-    }
-
-    /**
     * Decorator constructor, creates an instance of decorated class
     *
     * @param object|string $class
@@ -1082,7 +1049,7 @@ class BClassDecorator extends BClass
     */
     public function __construct($class)
     {
-        $this->_decoratedComponent = is_string($class) ? BClassRegistry::instance($class) : $class;
+        $this->_decoratedComponent = is_string($class) ? BClassRegistry::i()->instance($class) : $class;
     }
 
     /**
@@ -1131,7 +1098,7 @@ class BEventRegistry extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -1213,7 +1180,7 @@ class BEventRegistry extends BClass
                     $args = array_merge($observer['args'], $args);
                 }
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
-                    $observer['callback'][0] = BClassRegistry::i()->getSingleton($observer['callback'][0]);
+                    $observer['callback'][0] = BClassRegistry::i()->instance($observer['callback'][0], array(), true);
                 }
                 // Set current module to be used in observer callback
                 BModuleRegistry::i()->currentModule(!empty($observer['module_name']) ? $observer['module_name'] : null);
@@ -1264,7 +1231,7 @@ class BModuleRegistry extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
@@ -1315,7 +1282,7 @@ class BModuleRegistry extends BClass
 
     /**
     * Check module dependencies
-    * 
+    *
     * @return BModuleRegistry
     */
     public function checkDepends()
@@ -1373,7 +1340,7 @@ class BModuleRegistry extends BClass
 
     /**
     * Propagate dependencies into submodules recursively
-    * 
+    *
     * @param string $modName
     * @param BModule $dep
     * @return BModuleRegistry
@@ -1394,7 +1361,7 @@ class BModuleRegistry extends BClass
 
     /**
     * Run modules bootstrap callbacks
-    * 
+    *
     * @return BModuleRegistry
     */
     public function bootstrap()
@@ -1415,7 +1382,7 @@ class BModuleRegistry extends BClass
 
     /**
     * Sort modules by dependencies
-    * 
+    *
     * @param BModule $mod
     * @param BModule $dep
     * @return int
@@ -1433,7 +1400,7 @@ class BModuleRegistry extends BClass
 
     /**
     * Return module object based on module name
-    * 
+    *
     * @param string $name
     * @return BModule
     */
@@ -1444,11 +1411,11 @@ class BModuleRegistry extends BClass
 
     /**
     * Set or return current module context
-    * 
+    *
     * If $name is specified, set current module, otherwise retrieve one
-    * 
+    *
     * Used in context of bootstrap, event observer, view
-    * 
+    *
     * @param string|empty $name
     * @return BModule|BModuleRegistry
     */
@@ -1469,7 +1436,7 @@ class BModule extends BClass
 {
     /**
     * Module manifest and properties
-    * 
+    *
     * @var mixed
     */
     protected $_params;
@@ -1481,12 +1448,12 @@ class BModule extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Constructor
-    * 
+    *
     * @param array $params
     * @return BModule
     */
@@ -1497,7 +1464,7 @@ class BModule extends BClass
 
     /**
     * Magic getter
-    * 
+    *
     * @param string $name
     * @return mixed
     */
@@ -1508,7 +1475,7 @@ class BModule extends BClass
 
     /**
     * Magic setter
-    * 
+    *
     * @param string $name
     * @param mixed $value
     */
@@ -1519,11 +1486,11 @@ class BModule extends BClass
 
     /**
     * Retrieve or set parameters
-    * 
+    *
     * If $key is not specified, return all parameters as array
     * If $value is not specified, return $key value
     * If $value specified set $key=$value and return BModule for chaining
-    * 
+    *
     * @param string $key
     * @param mixed $value
     * @return mixed
@@ -1554,35 +1521,35 @@ class BFrontController extends BClass
 {
     /**
     * Array of routes
-    * 
+    *
     * @var array
     */
     protected $_routes = array();
-    
+
     /**
     * Default routes if route not found in tree
-    * 
+    *
     * @var array
     */
     protected $_defaultRoutes = array('default'=>array('callback'=>array('BActionController', 'noroute')));
 
     /**
     * Tree of routes
-    * 
+    *
     * @var array
     */
     protected $_routeTree = array();
-    
+
     /**
     * Templates to generate URLs based on routes
-    * 
+    *
     * @var array
     */
     protected $_urlTemplates = array();
 
     /**
     * Current controller name
-    * 
+    *
     * @var string
     */
     protected $_controllerName;
@@ -1594,12 +1561,12 @@ class BFrontController extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Save RESTful route in tree
-    * 
+    *
     * @param array $tree reference to tree where to save the route
     * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
     * @param mixed $callback PHP callback
@@ -1639,7 +1606,7 @@ class BFrontController extends BClass
 
     /**
     * Find a route in the tree
-    * 
+    *
     * @param array $tree Reference to the route tree
     * @param string $route RESTful route
     * @return array|null Route node or null if not found
@@ -1693,7 +1660,7 @@ class BFrontController extends BClass
 
     /**
     * Declare RESTful route
-    * 
+    *
     * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
     * @param mixed $callback PHP callback
     * @param array $args Route arguments
@@ -1720,7 +1687,7 @@ class BFrontController extends BClass
 
     /**
     * Set default route
-    * 
+    *
     * @param mixed $callback PHP callback
     * @param mixed $args Route arguments
     * @param mixed $name optional route name
@@ -1739,7 +1706,7 @@ class BFrontController extends BClass
 
     /**
     * Retrieve current route node
-    * 
+    *
     */
     public function currentRoute()
     {
@@ -1748,7 +1715,7 @@ class BFrontController extends BClass
 
     /**
     * Dispatch current route
-    * 
+    *
     * @param string $route optional route for explicit route dispatch
     * @return BFrontController
     */
@@ -1782,7 +1749,7 @@ class BFrontController extends BClass
                 }
             }
             $request->initParams($params);
-            $controller = BClassRegistry::i()->getSingleton($controllerName);
+            $controller = BClassRegistry::i()->instance($controllerName, array(), true);
             $controller->dispatch($actionName, $args);
         } while ((++$attempts<100) && $controller->forward());
 
@@ -1793,7 +1760,7 @@ class BFrontController extends BClass
 
     /**
     * Generate URL based on route template
-    * 
+    *
     * @todo implement whenever needed
     * @param string $name
     * @param array $params
@@ -1811,35 +1778,35 @@ class BActionController extends BClass
 {
     /**
     * Action parameters
-    * 
+    *
     * @var array
     */
     public $params = array();
 
     /**
     * Current action name
-    * 
+    *
     * @var string
     */
     protected $_action;
-    
+
     /**
     * Forward location. If set the dispatch will loop and forward to next action
-    * 
+    *
     * @var string|null
     */
     protected $_forward;
-    
+
     /**
     * Prefix for action methods
-    * 
+    *
     * @var string
     */
     protected $_actionMethodPrefix = 'action_';
 
     /**
     * Shortcut for fetching layout views
-    * 
+    *
     * @param string $viewname
     * @return BView
     */
@@ -1850,7 +1817,7 @@ class BActionController extends BClass
 
     /**
     * Dispatch action within the action controller class
-    * 
+    *
     * @param string $actionName
     * @param array $args Action arguments
     */
@@ -1873,7 +1840,7 @@ class BActionController extends BClass
 
     /**
     * Try to dispatch action and catch exception if any
-    * 
+    *
     * @param string $actionName
     * @param array $args
     */
@@ -1894,7 +1861,7 @@ class BActionController extends BClass
 
     /**
     * Forward to another action or retrieve current forward
-    * 
+    *
     * @param string $actionName
     * @param string $controllerName
     * @param array $params
@@ -1911,9 +1878,9 @@ class BActionController extends BClass
 
     /**
     * Authorize logic for current action controller, based on arguments
-    * 
+    *
     * Use $this->_action to fetch current action
-    * 
+    *
     * @param array $args
     */
     public function authorize($args=array())
@@ -1924,7 +1891,7 @@ class BActionController extends BClass
     /**
     * Execute before dispatch and return resutl
     * If false, do not dispatch action, and either forward or default
-    * 
+    *
     * @return bool
     */
     public function beforeDispatch()
@@ -1934,7 +1901,7 @@ class BActionController extends BClass
 
     /**
     * Execute after dispatch
-    * 
+    *
     */
     public function afterDispatch()
     {
@@ -1943,7 +1910,7 @@ class BActionController extends BClass
 
     /**
     * Send error to the browser
-    * 
+    *
     * @param string $message to be in response
     * @return exit
     */
@@ -1954,7 +1921,7 @@ class BActionController extends BClass
 
     /**
     * Default unauthorized action
-    * 
+    *
     */
     public function action_unauthorized()
     {
@@ -1963,7 +1930,7 @@ class BActionController extends BClass
 
     /**
     * Default not found action
-    * 
+    *
     */
     public function action_noroute()
     {
@@ -1972,7 +1939,7 @@ class BActionController extends BClass
 
     /**
     * Render output
-    * 
+    *
     * Final method to be called in standard action method
     */
     public function renderOutput()
@@ -1988,22 +1955,22 @@ class BJsonActionController extends BActionController
 {
     /**
     * Holds object from JSON POST request
-    * 
+    *
     * @var object|array
     */
     public $request = false;
-    
+
     /**
     * Response to be returned to the client as JSON
-    * 
+    *
     * @var object|array
     */
     public $result = array();
 
     /**
-    * Before dispatch set content type to JSON, fetch request 
+    * Before dispatch set content type to JSON, fetch request
     * and set default status success
-    * 
+    *
     */
     public function beforeDispatch()
     {
@@ -2015,7 +1982,7 @@ class BJsonActionController extends BActionController
 
     /**
     * After dispatch output result as JSON
-    * 
+    *
     */
     public function afterDispatch()
     {
@@ -2024,7 +1991,7 @@ class BJsonActionController extends BActionController
 
     /**
     * On error return status error and message
-    * 
+    *
     * @param string $message
     */
     public function sendError($message)
@@ -2038,7 +2005,7 @@ class BJsonActionController extends BActionController
 
     /**
     * On no route return JSON error
-    * 
+    *
     */
     public function action_noroute()
     {
@@ -2057,12 +2024,12 @@ class BRequest extends BClass
 {
     /**
     * Route parameters
-    * 
-    * Taken from route, ex: 
+    *
+    * Taken from route, ex:
     * Route: /part1/:param1/part2/:param2
     * Request: /part1/test1/param2/test2
     * $_params: array('param1'=>'test1', 'param2'=>'test2')
-    * 
+    *
     * @var array
     */
     protected $_params = array();
@@ -2074,12 +2041,12 @@ class BRequest extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * On first invokation strip magic quotes in case magic_quotes_gpc = on
-    * 
+    *
     * @return BRequest
     */
     public function __construct()
@@ -2089,7 +2056,7 @@ class BRequest extends BClass
 
     /**
     * Client remote IP
-    * 
+    *
     * @return string
     */
     public function ip()
@@ -2099,7 +2066,7 @@ class BRequest extends BClass
 
     /**
     * Server local IP
-    * 
+    *
     * @return string
     */
     public function serverIp()
@@ -2109,7 +2076,7 @@ class BRequest extends BClass
 
     /**
     * Server host name
-    * 
+    *
     * @return string
     */
     public function serverName()
@@ -2119,7 +2086,7 @@ class BRequest extends BClass
 
     /**
     * Whether request is SSL
-    * 
+    *
     * @return bool
     */
     public function https()
@@ -2129,7 +2096,7 @@ class BRequest extends BClass
 
     /**
     * Whether request is AJAX
-    * 
+    *
     * @return bool
     */
     public function xhr()
@@ -2139,19 +2106,19 @@ class BRequest extends BClass
 
     /**
     * Request method:
-    * 
+    *
     * @return string GET|POST|HEAD|PUT|DELETE
     */
     public function method()
     {
         return !empty($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
     }
-    
+
     /**
     * Web root path for current application
-    * 
+    *
     * If request is /folder1/folder2/index.php, return /folder1/folder2/
-    * 
+    *
     * @return string
     */
     public function webRoot()
@@ -2161,7 +2128,7 @@ class BRequest extends BClass
 
     /**
     * Full base URL, including scheme and domain name
-    * 
+    *
     * @return string
     */
     public function baseUrl()
@@ -2171,7 +2138,7 @@ class BRequest extends BClass
 
     /**
     * Full request path, one part or slice of path
-    * 
+    *
     * @param int $offset
     * @param int $length
     * @return string
@@ -2190,7 +2157,7 @@ class BRequest extends BClass
 
     /**
     * Raw path string
-    * 
+    *
     * @return string
     */
     public function rawPath()
@@ -2200,7 +2167,7 @@ class BRequest extends BClass
 
     /**
     * Request query variables
-    * 
+    *
     * @param string $key
     * @return array|string|null
     */
@@ -2211,7 +2178,7 @@ class BRequest extends BClass
 
     /**
     * Request query as string
-    * 
+    *
     * @return string
     */
     public function rawGet()
@@ -2221,7 +2188,7 @@ class BRequest extends BClass
 
     /**
     * Request POST variables
-    * 
+    *
     * @param string|null $key
     * @return array|string|null
     */
@@ -2232,7 +2199,7 @@ class BRequest extends BClass
 
     /**
     * Request raw POST text
-    * 
+    *
     * @param bool $json Receive request as JSON
     * @param bool $asObject Return as object vs array
     * @return object|array|string
@@ -2245,10 +2212,10 @@ class BRequest extends BClass
         }
         return $post;
     }
-    
+
     /**
     * Request variable (GET|POST|COOKIE)
-    * 
+    *
     * @param string|null $key
     * @return array|string|null
     */
@@ -2259,7 +2226,7 @@ class BRequest extends BClass
 
     /**
     * Set or retrieve cookie value
-    * 
+    *
     * @param string $name Cookie name
     * @param string $value Cookie value to be set
     * @param int $lifespan Optional lifespan, default from config
@@ -2298,7 +2265,7 @@ class BRequest extends BClass
 
     /**
     * Initialize route parameters
-    * 
+    *
     * @param array $params
     */
     public function initParams(array $params)
@@ -2309,7 +2276,7 @@ class BRequest extends BClass
 
     /**
     * Return route parameter by name or all parameters as array
-    * 
+    *
     * @param string $key
     * @return array|string|null
     */
@@ -2320,13 +2287,13 @@ class BRequest extends BClass
 
     /**
     * Sanitize input and assign default values
-    * 
+    *
     * Syntax: BRequest::i()->sanitize($post, array(
     *   'var1' => 'alnum', // return only alphanumeric components, default null
     *   'var2' => array('trim|ucwords', 'default'), // trim and capitalize, default 'default'
     *   'var3' => array('regex:/[^0-9.]/', '0'), // remove anything not number or .
     * ));
-    * 
+    *
     * @param array $data Array to be sanitized
     * @param array $config Configuration for sanitizing
     * @param bool $trim Whether to return only variables specified in config
@@ -2352,8 +2319,8 @@ class BRequest extends BClass
 
     /**
     * Sanitize one variable based on specified filter(s)
-    * 
-    * Filters: 
+    *
+    * Filters:
     * - int
     * - positive
     * - float
@@ -2372,7 +2339,7 @@ class BRequest extends BClass
     * - datetime
     * - gmdate
     * - gmdatetime
-    * 
+    *
     * @param string $v Value to be sanitized
     * @param array|string $filter Filters as array or string separated by |
     * @return string Sanitized value
@@ -2421,7 +2388,7 @@ class BRequest extends BClass
 
     /**
     * String magic quotes in case magic_quotes_gpc = on
-    * 
+    *
     * @return BRequest
     */
     public function stripMagicQuotes()
@@ -2454,14 +2421,14 @@ class BResponse extends BClass
 {
     /**
     * Response content MIME type
-    * 
+    *
     * @var string
     */
     protected $_contentType = 'text/html';
-    
+
     /**
     * Content to be returned to client
-    * 
+    *
     * @var mixed
     */
     protected $_content;
@@ -2473,12 +2440,12 @@ class BResponse extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Alias for BRequest::i()->cookie()
-    * 
+    *
     * @param string $name
     * @param string $value
     * @param int $lifespan
@@ -2494,7 +2461,7 @@ class BResponse extends BClass
 
     /**
     * Set response content
-    * 
+    *
     * @param mixed $content
     */
     public function set($content)
@@ -2505,7 +2472,7 @@ class BResponse extends BClass
 
     /**
     * Add content to response
-    * 
+    *
     * @param mixed $content
     */
     public function add($content)
@@ -2516,7 +2483,7 @@ class BResponse extends BClass
 
     /**
     * Set or retrieve response content MIME type
-    * 
+    *
     * @param string $type 'json' will expand to 'application/json'
     * @return BResponse|string
     */
@@ -2534,7 +2501,7 @@ class BResponse extends BClass
 
     /**
     * Send file download to client
-    * 
+    *
     * @param string $filename
     * @return exit
     */
@@ -2552,12 +2519,12 @@ class BResponse extends BClass
         while (!feof($fs)) fwrite($fd, fread($fs, 8192));
         fclose($fs);
         fclose($fd);
-        exit;
+        $this->shutdown(__METHOD__);
     }
 
     /**
     * Send status response to client
-    * 
+    *
     * @param int $status Status code number
     * @param string $message Message to be sent to client
     * @param bool $output Proceed to output content and exit
@@ -2586,7 +2553,7 @@ class BResponse extends BClass
 
     /**
     * Output the response to client
-    * 
+    *
     * @param string $type Optional content type
     * @return exit
     */
@@ -2604,15 +2571,16 @@ class BResponse extends BClass
         }
 
         print_r($this->_content);
-        if ($this->_contentType=='text/html') {
+
+        if ($this->_contentType=='text/html' && !BRequest::i()->xhr()) {
             echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
         }
-        exit;
+        $this->shutdown(__METHOD__);
     }
 
     /**
     * Alias for output
-    * 
+    *
     */
     public function render()
     {
@@ -2621,7 +2589,7 @@ class BResponse extends BClass
 
     /**
     * Redirect browser to another URL
-    * 
+    *
     * @param string $url URL to redirect
     * @param int $status Default 302, another possible value 301
     */
@@ -2630,6 +2598,12 @@ class BResponse extends BClass
         BSession::i()->close();
         $this->status($status, null, false);
         header("Location: {$url}");
+        $this->shutdown(__METHOD__);
+    }
+
+    public function shutdown($lastMethod=null)
+    {
+        BEventRegistry::i()->dispatch('BResponse::shutdown', array('last_method'=>$lastMethod));
         exit;
     }
 }
@@ -2641,18 +2615,18 @@ class BLayout extends BClass
 {
     /**
     * View objects registry
-    * 
+    *
     * @var array
     */
     protected $_views = array();
-    
+
     /**
     * Main (root) view to be rendered first
-    * 
+    *
     * @var BView
     */
     protected $_mainViewName = 'main';
-    
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -2660,12 +2634,12 @@ class BLayout extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Set root dir for view templates, relative to current module root
-    * 
+    *
     * @param string $rootDir
     * @return BLayout
     */
@@ -2676,12 +2650,12 @@ class BLayout extends BClass
         $module->view_root_dir = $isAbsPath ? $rootDir : $module->root_dir.'/'.$rootDir;
         return $this;
     }
-    
+
     /**
     * Find and register all templates within a folder as view objects
-    * 
+    *
     * View objects will be named by template file paths, stripped of extension (.php)
-    * 
+    *
     * @param string $rootDir Folder with view templates, relative to current module root
     * @param string $prefix Optional: add prefix to view names
     * @return BLayout
@@ -2711,7 +2685,7 @@ class BLayout extends BClass
 
     /**
     * Register or retrieve a view object
-    * 
+    *
     * @param string $viewname
     * @param array $params View parameters
     *   - template: optional, for templated views
@@ -2749,7 +2723,7 @@ class BLayout extends BClass
 
     /**
     * Set or retrieve main (root) view object
-    * 
+    *
     * @param string $viewname
     * @return BView|BLayout
     */
@@ -2767,11 +2741,11 @@ class BLayout extends BClass
 
     /**
     * Dispatch layout event, for both general observers and route specific observers
-    * 
+    *
     * Observers should watch for these events:
     * - BLayout::{event}
     * - BLayout::{event}: GET {route}
-    * 
+    *
     * @param mixed $eventName
     * @param mixed $routeName
     * @param mixed $args
@@ -2800,7 +2774,7 @@ class BLayout extends BClass
 
     /**
     * Render layout starting with main (root) view
-    * 
+    *
     * @param string $routeName Optional: render a specific route, default current route
     * @param BView|BLayout $args Render arguments
     * @return mixed
@@ -2820,7 +2794,7 @@ class BLayout extends BClass
 
         return $result;
     }
-    
+
     public function debugPrintViews()
     {
         foreach ($this->_views as $viewname=>$view) {
@@ -2836,25 +2810,25 @@ class BView extends BClass
 {
     /**
     * Default class for the view, overridden in child classes
-    * 
+    *
     * @var string
     */
     static protected $_defaultClass = __CLASS__;
-    
+
     /**
     * View parameters
     * - view_class
     * - template
     * - module_name
-    * - args 
-    * 
+    * - args
+    *
     * @var array
     */
     protected $_params;
 
     /**
     * Factory to generate view instances
-    * 
+    *
     * @param string $viewname
     * @param array $params
     */
@@ -2862,13 +2836,13 @@ class BView extends BClass
     {
         $params['viewname'] = $viewname;
         $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
-        $view = BClassRegistry::i()->getInstance($className, $params);
+        $view = BClassRegistry::i()->instance($className, $params);
         return $view;
     }
-    
+
     /**
     * Constructor, set initial view parameters
-    * 
+    *
     * @param array $params
     * @return BView
     */
@@ -2879,10 +2853,10 @@ class BView extends BClass
 
     /**
     * Set or retrieve view parameters
-    * 
-    * 
-    * 
-    * @param string $key 
+    *
+    *
+    *
+    * @param string $key
     * @param string $value
     * @return mixed|BView
     */
@@ -2906,7 +2880,7 @@ class BView extends BClass
 
     /**
     * Magic method to retrieve argument, accessible from view/template as $this->var
-    * 
+    *
     * @param string $name
     * @return mixed
     */
@@ -2917,7 +2891,7 @@ class BView extends BClass
 
     /**
     * Magic method to set argument, stored in params['args']
-    * 
+    *
     * @param string $name
     * @param mixed $value
     */
@@ -2928,7 +2902,7 @@ class BView extends BClass
 
     /**
     * Magic method to check if argument is set
-    * 
+    *
     * @param string $name
     */
     public function __isset($name)
@@ -2938,7 +2912,7 @@ class BView extends BClass
 
     /**
     * Magic method to unset argument
-    * 
+    *
     * @param string $name
     */
     public function __unset($name)
@@ -2947,8 +2921,8 @@ class BView extends BClass
     }
 
     /**
-    * Retrieve view object 
-    * 
+    * Retrieve view object
+    *
     * @param string $viewname
     * @return BModule
     */
@@ -2960,10 +2934,10 @@ class BView extends BClass
 
         return BLayout::i()->view($viewname);
     }
-    
+
     /**
     * View class specific rendering
-    * 
+    *
     * @return string
     */
     protected function _render()
@@ -2978,7 +2952,7 @@ class BView extends BClass
 
     /**
     * General render public method
-    * 
+    *
     * @param array $args
     * @return string
     */
@@ -3002,7 +2976,7 @@ class BView extends BClass
 
     /**
     * Clear parameters to avoid circular reference memory leaks
-    * 
+    *
     */
     public function clear()
     {
@@ -3011,7 +2985,7 @@ class BView extends BClass
 
     /**
     * Clear params on destruct
-    * 
+    *
     */
     public function __destruct()
     {
@@ -3020,9 +2994,9 @@ class BView extends BClass
 
     /**
     * Render as string
-    * 
+    *
     * If there's exception during render, output as string as well
-    * 
+    *
     * @return string
     */
     public function __toString()
@@ -3039,7 +3013,7 @@ class BView extends BClass
 
     /**
     * Escape HTML
-    * 
+    *
     * @param string $str
     * @return string
     */
@@ -3060,45 +3034,45 @@ class BViewHead extends BView
 {
     /**
     * Default view class name
-    * 
+    *
     * @var string
     */
     static protected $_defaultClass = __CLASS__;
 
     /**
     * Meta tags
-    * 
+    *
     * @var array
     */
     protected $_meta = array();
-    
+
     /**
     * External resources (JS and CSS)
-    * 
+    *
     * @var array
     */
     protected $_elements = array();
-    
+
     /**
     * Default tag templates for JS and CSS resources
-    * 
+    *
     * @var array
     */
     protected $_defaultTag = array(
         'js' => '<script type="text/javascript" src="%s"></script>',
         'css' => '<link rel="stylesheet" type="text/css" href="%s"/>',
     );
-    
+
     /**
     * Current IE <!--[if]--> context
-    * 
+    *
     * @var string
     */
     protected $_currentIfContext = null;
 
     /**
     * Add meta tag, or return meta tag(s)
-    * 
+    *
     * @param string $name If not specified, will return all meta tags as string
     * @param string $content If not specified, will return meta tag by name
     * @param bool $httpEquiv Whether the tag is http-equiv
@@ -3122,7 +3096,7 @@ class BViewHead extends BView
 
     /**
     * Add external resource (JS or CSS), or return tag(s)
-    * 
+    *
     * @param string $type 'js' or 'css'
     * @param string $name name of the resource, if ommited, return all tags
     * @param array $args Resource arguments, if ommited, return tag by name
@@ -3176,7 +3150,7 @@ class BViewHead extends BView
 
     /**
     * Add or return JS resources
-    * 
+    *
     * @param string $name If ommited, return all JS tags
     * @param array $args If ommited, return tag by $name
     * @return BViewHead|array|string
@@ -3188,7 +3162,7 @@ class BViewHead extends BView
 
     /**
     * Add or return CSS resources
-    * 
+    *
     * @param string $name If ommited, return all CSS tags
     * @param array $args If ommited, return tag by $name
     * @return BViewHead|array|string
@@ -3200,7 +3174,7 @@ class BViewHead extends BView
 
     /**
     * Start/Stop IE if context
-    * 
+    *
     * @param mixed $context
     */
     public function ifContext($context=null)
@@ -3211,9 +3185,9 @@ class BViewHead extends BView
 
     /**
     * Render the view
-    * 
+    *
     * If param['template'] is not specified, return meta+css+js tags
-    * 
+    *
     * @param array $args
     * @return string
     */
@@ -3233,28 +3207,28 @@ class BViewList extends BView
 {
     /**
     * Default view class name
-    * 
+    *
     * @var mixed
     */
     static protected $_defaultClass = __CLASS__;
 
     /**
     * Child blocks
-    * 
+    *
     * @var array
     */
     protected $_children = array();
-    
+
     /**
     * Last registered position to sort children
-    * 
+    *
     * @var int
     */
     protected $_lastPosition = 0;
 
     /**
     * Append block to the list
-    * 
+    *
     * @param string|array $viewname array or comma separated list of view names
     * @param array $params
     * @return BViewList
@@ -3277,9 +3251,9 @@ class BViewList extends BView
 
     /**
     * Append plain text to the list
-    * 
+    *
     * A new view object will be created for each text entry with random name
-    * 
+    *
     * @param string $text
     * @return BViewList
     */
@@ -3294,9 +3268,9 @@ class BViewList extends BView
 
     /**
     * Find child view by its content
-    * 
+    *
     * May be slow, use sparringly
-    * 
+    *
     * @param string $content
     * @return BView|null
     */
@@ -3313,7 +3287,7 @@ class BViewList extends BView
 
     /**
     * Remove child view from the list
-    * 
+    *
     * @param string $viewname
     * @return BViewList
     */
@@ -3334,7 +3308,7 @@ class BViewList extends BView
 
     /**
     * Render the children views
-    * 
+    *
     * @param array $args
     * @return string
     */
@@ -3355,7 +3329,7 @@ class BViewList extends BView
 
     /**
     * Sort child views by their position
-    * 
+    *
     * @param mixed $a
     * @param mixed $b
     */
@@ -3372,28 +3346,28 @@ class BSession extends BClass
 {
     /**
     * Session data, specific to the application namespace
-    * 
+    *
     * @var array
     */
     public $data = null;
 
     /**
     * Current sesison ID
-    * 
+    *
     * @var string
     */
     protected $_sessionId;
-    
+
     /**
     * Whether PHP session is currently open
-    * 
+    *
     * @var bool
     */
     protected $_open = false;
-    
+
     /**
     * Whether any session variable was changed since last session save
-    * 
+    *
     * @var bool
     */
     protected $_dirty = false;
@@ -3405,12 +3379,12 @@ class BSession extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Open session
-    * 
+    *
     * @param string|null $id Optional session ID
     * @param bool $close Close and unlock PHP session immediately
     */
@@ -3455,7 +3429,7 @@ class BSession extends BClass
 
     /**
     * Set or retrieve dirty session flag
-    * 
+    *
     * @param bool $flag
     * @return bool
     */
@@ -3471,7 +3445,7 @@ class BSession extends BClass
 
     /**
     * Set or retrieve session variable
-    * 
+    *
     * @param string $key If ommited, return all session data
     * @param mixed $value If ommited, return data by $key
     * @return mixed|BSession
@@ -3494,7 +3468,7 @@ class BSession extends BClass
 
     /**
     * Get reference to session data and set dirty flag true
-    * 
+    *
     * @return array
     */
     public function &dataToUpdate()
@@ -3506,7 +3480,7 @@ class BSession extends BClass
 
     /**
     * Write session variable changes and close PHP session
-    * 
+    *
     * @return BSession
     */
     public function close()
@@ -3527,7 +3501,7 @@ class BSession extends BClass
 
     /**
     * Get session ID
-    * 
+    *
     * @return string
     */
     public function sessionId()
@@ -3548,12 +3522,12 @@ class BCache extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Stub
-    * 
+    *
     */
     public function init()
     {
@@ -3568,21 +3542,21 @@ class BLocale extends BClass
 {
     /**
     * Default timezone
-    * 
+    *
     * @var string
     */
     protected $_defaultTz = 'America/Los_Angeles';
-    
+
     /**
     * Default locale
-    * 
+    *
     * @var string
     */
     protected $_defaultLocale = 'en_US';
-    
+
     /**
     * Cache for DateTimeZone objects
-    * 
+    *
     * @var DateTimeZone
     */
     protected $_tzCache = array();
@@ -3594,12 +3568,12 @@ class BLocale extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     /**
     * Constructor, set default timezone and locale
-    * 
+    *
     */
     public function __construct()
     {
@@ -3610,7 +3584,7 @@ class BLocale extends BClass
 
     /**
     * Translate a string and inject optionally named arguments
-    * 
+    *
     * @param string $string
     * @param array $args
     * @return string|false
@@ -3622,17 +3596,17 @@ class BLocale extends BClass
 
     /**
     * Get server timezone
-    * 
+    *
     * @return string
     */
     public function serverTz()
     {
         return date('e'); // Examples: UTC, GMT, Atlantic/Azores
     }
-    
+
     /**
     * Get timezone offset in seconds
-    * 
+    *
     * @param stirng|null $tz If null, return server timezone offset
     * @return int
     */
@@ -3649,7 +3623,7 @@ class BLocale extends BClass
 
     /**
     * Convert local datetime to DB (GMT)
-    * 
+    *
     * @param string $value
     * @return string
     */
@@ -3659,8 +3633,8 @@ class BLocale extends BClass
     }
 
     /**
-    * Convert DB datetime (GMT) to local 
-    * 
+    * Convert DB datetime (GMT) to local
+    *
     * @param string $value
     * @param bool $full Full format or short
     * @return string
@@ -3682,7 +3656,7 @@ class BUnit extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     public function test($methods)

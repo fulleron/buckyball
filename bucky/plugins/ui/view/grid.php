@@ -1,8 +1,8 @@
 <?php
 $data = $this->gridData();
 $config = $this->grid['config'];
-$s = $data['state'];
-#var_dump($data['state']);
+$s = $data['result']['state'];
+#var_dump($data);
 #echo $data['query'];
 ?>
 
@@ -66,7 +66,7 @@ $s = $data['state'];
 <?php endif ?>
 </thead>
 <tbody>
-<?php foreach ($data['out'] as $rowId=>$row): ?>
+<?php foreach ($data['result']['out'] as $rowId=>$row): ?>
     <tr class="<?php echo $rowId%2 ? 'odd' : 'even' ?>">
 <?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array(); ?>
         <td>

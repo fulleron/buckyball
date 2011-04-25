@@ -7,10 +7,10 @@ class BuckyModAdmin extends BClass
         BFrontController::i()
             ->route('GET /modadmin', array('BuckyModAdmin_Controller', 'index'))
         ;
-        
+
         BLayout::i()->allViews('modadmin/view', 'modadmin.');
     }
-    
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -18,7 +18,7 @@ class BuckyModAdmin extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 }
 

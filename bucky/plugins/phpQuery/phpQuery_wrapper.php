@@ -23,7 +23,7 @@ class BphpQuery extends BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return self::instance($new, $args, __CLASS__);
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
     public function observer_layout_render_after($args)

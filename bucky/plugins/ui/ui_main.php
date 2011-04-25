@@ -37,7 +37,7 @@ class BViewGrid extends BView
         */
         return $this->q(!empty($cell['value']) ? $cell['value'] : '');
     }
-    
+
     public function gridPrepareConfig($c)
     {
         if (empty($c['pageSizeOptions'])) {
@@ -68,6 +68,7 @@ class BViewGrid extends BView
                 }
             }
         }
+        BEventRegistry::i()->dispatch('BViewGrid::gridPrepareConfig.after', array('config'=>&$c));
         return $c;
     }
 
@@ -97,8 +98,25 @@ class BViewGrid extends BView
 
         // create collection factory
         #$orm = AModel::factory($config['model']);
-        $mainTable = $config['table'];
-        $orm = ORM::for_table($mainTable);
+        $table = $config['table'];
+        $orm = ORM::for_table($table);
+        if (!empty($config['table_alias'])) {
+            $orm->table_alias($config['table_alias']);
+            $tableAlias = $config['table_alias'];
+        } else {
+            $tableAlias = $config['table'];
+        }
+
+        if (!empty($config['where'])) {
+            foreach ($config['where'] as $where) {
+                if (!empty($where['raw'])) {
+                    $orm->where_raw($where['raw'], isset($where['args']) ? (array)$where['args'] : array());
+                } else {
+                    $method = isset($where['op']) ? 'where_'.$where['op'] : 'where';
+                    $orm->$method($where['field'], isset($where['value']) ? $where['value'] : null);
+                }
+            }
+        }
 
         BEventRegistry::i()->dispatch('BViewGrid::gridData.initORM: '.$config['id'], array('orm'=>$orm, 'grid'=>$grid));
 
@@ -117,14 +135,14 @@ class BViewGrid extends BView
         $p['toRow'] = min($p['fromRow']+$p['pageSize']-1, $p['totalRows']);
 
         $this->_processGridJoins($config, $mapColumns, $orm, 'after_count');
-        
+
         // add columns to select
         foreach ($config['select'] as $k=>$f) {
             if ($f[0]==='(') {
-                $orm->select_expr(str_replace('{t}', $mainTable, $f), $k);
+                $orm->select_expr(str_replace('{t}', $tableAlias, $f), $k);
                 continue;
             }
-            $orm->select((strpos($f, '.')===false ? $mainTable.'.' : '').$f, !is_int($k) ? $k : null);
+            $orm->select((strpos($f, '.')===false ? $tableAlias.'.' : '').$f, !is_int($k) ? $k : null);
         }
 
         // add sorting
@@ -168,7 +186,7 @@ class BViewGrid extends BView
             }
         }
         BEventRegistry::i()->dispatch('BGridView::gridData.after: '.$config['id'], array('grid'=>&$grid));
-        
+
         $this->grid = $grid;
         return $grid;
     }
@@ -178,6 +196,7 @@ class BViewGrid extends BView
         if (empty($config['join'])) {
             return;
         }
+        $mainTableAlias = !empty($config['table_alias']) ? $config['table_alias'] : $config['table'];
         foreach ($config['join'] as $j) {
             if (empty($j['when'])) {
                 $j['when'] = 'before_count';
@@ -192,7 +211,7 @@ class BViewGrid extends BView
             $localKey = isset($j['lk']) ? $j['lk'] : 'id';
             $foreignKey = isset($j['fk']) ? $j['fk'] : 'id';
 
-            $localKey = (strpos($localKey, '.')===false ? $config['table'].'.' : '').$localKey;
+            $localKey = (strpos($localKey, '.')===false ? $mainTableAlias.'.' : '').$localKey;
             $foreignKey = (strpos($foreignKey, '.')===false ? $tableAlias.'.' : '').$foreignKey;
 
             $op = isset($j['op']) ? $j['op'] : '=';
@@ -200,7 +219,7 @@ class BViewGrid extends BView
 
             $joinMethod = (isset($j['type']) ? $j['type'].'_' : '').'join';
 
-            $where = isset($j['where']) ? str_replace(array('{lk}', '{fk}', '{lt}', '{ft}'), array($localKey, $foreignKey, $config['table'], $tableAlias), $j['where']) : array($foreignKey, $op, $localKey);
+            $where = isset($j['where']) ? str_replace(array('{lk}', '{fk}', '{lt}', '{ft}'), array($localKey, $foreignKey, $mainTableAlias, $tableAlias), $j['where']) : array($foreignKey, $op, $localKey);
 
             $orm->$joinMethod($table, $where, $tableAlias);
 

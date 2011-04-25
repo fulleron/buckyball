@@ -1,7 +1,9 @@
 {
     "devmode": true,
     "db": {
-        "dsn": "mysql:host=localhost;dbname=buckyball",
+        "engine": "mysql",
+        "host": "localhost",
+        "dbname": "buckyball",
         "username": "web",
         "password": "",
         "logging": true

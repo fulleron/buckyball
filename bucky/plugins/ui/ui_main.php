@@ -96,6 +96,12 @@ class BViewGrid extends BView
             'search' => array('', array()),
         ));
 
+        foreach ($p['search'] as $k=>$s) {
+            if ($s==='') {
+                unset($p['search'][$k]);
+            }
+        }
+
         // create collection factory
         #$orm = AModel::factory($config['model']);
         $table = $config['table'];
@@ -164,9 +170,9 @@ class BViewGrid extends BView
 #echo $orm->get_last_query();
 
         // init result
+        $p['description'] = $this->stateDescription($p);
         $grid['result'] = array('state'=>$p, 'raw'=>array(), 'out'=>array()/*, 'query'=>ORM::get_last_query()*/);
 
-        // format rows
         foreach ($models as $i=>$model) {
             $r = $model->as_array();
             if (empty($options['no_raw'])) {
@@ -181,6 +187,17 @@ class BViewGrid extends BView
                     $grid['result']['out'][$i][$k]['value'] = $value;
                     if (!empty($f['href'])) {
                         $grid['result']['out'][$i][$k]['href'] = $parser->injectVars($f['href'], $r);
+                    }
+                }
+                if (!empty($config['map'])) {
+                    foreach ($config['map'] as $m) {
+                        $value = $r[$m['value']];
+                        if (!empty($m['format'])) {
+                            switch ($m['format']) {
+                                case 'boolean': $value = !!$value; break;
+                            }
+                        }
+                        $grid['result']['out'][$i][$m['field']][$m['prop']] = $value;
                     }
                 }
             }
@@ -304,4 +321,48 @@ class BViewGrid extends BView
         }
     }
 
+    public function stateDescription($params)
+    {
+        $descrArr = array();
+        if (!empty($params['search'])) {
+            $descr = "Filtered by: ";
+            foreach ($params['search'] as $k=>$s) {
+                if ($k==='_quick') {
+                    $filter = array('type'=>'quick');
+                    $descr .= '<b>Quick search</b>';
+                } else {
+                    $filter = $this->grid['config']['filters'][$k];
+                    $descr .= '<b>'.$filter['label'].'</b>';
+                }
+                switch ($filter['type']) {
+                case 'multiselect':
+                    $opts = array();
+                    $os = explode(',', $s);
+                    if (sizeof($os)==1) {
+                        $descr .= ' is <u>'.$filter['options'][$os[0]].'</u>';
+                    } else {
+                        foreach ($os as $o) {
+                            $opts[] = $filter['options'][$o];
+                        }
+                        $descr .= ' is one of <u>'.join(', ', $opts).'</u>';
+                    }
+                    break;
+
+                case 'text-range': case 'date-range':
+                    $descr .= ' is between <u>'.BResponse::q($s['from']).'</u> and <u>'.BResponse::q($s['to']).'</u>';
+                    break;
+
+                case 'quick':
+                    $descr .= ' by <u>'.BResponse::q($s).'</u>';
+                    break;
+
+                default:
+                    $descr .= ' contains <u>'.BResponse::q($s).'</u>';
+                }
+                $descr .= '; ';
+            }
+            $descrArr[] = $descr;
+        }
+        return $descrArr ? join("; ", $descrArr) : '';
+    }
 }

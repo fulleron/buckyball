@@ -47,6 +47,10 @@ So, yada yada.
 - chmod 777 storage
 - Browse to http://server.com/buckyball/
 
+## Wiki ##
+
+(http://unirgy.com/wiki/buckyball)
+
 ## Concepts ##
 
 ### Application ###

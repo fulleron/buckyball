@@ -235,8 +235,8 @@ class BDebug extends BClass
     public function log($event)
     {
         $event['ts'] = microtime(true);
-        if (($module = BModuleRegistry::i()->currentModule())) {
-            $event['module'] = $module->name;
+        if (($moduleName = BModuleRegistry::currentModuleName())) {
+            $event['module'] = $moduleName;
         }
         $this->_events[] = $event;
         return $this;
@@ -816,7 +816,7 @@ class BClassRegistry extends BClass
     /**
     * Override a class
     *
-    * Usage: BClassRegistry::i()->override('BaseClass', 'MyClass');
+    * Usage: BClassRegistry::i()->overrideClass('BaseClass', 'MyClass');
     *
     * Remembering the module that overrode the class for debugging
     *
@@ -825,11 +825,11 @@ class BClassRegistry extends BClass
     * @param bool $replaceSingleton If there's already singleton of overridden class, replace with new one
     * @return BClassRegistry
     */
-    public function override($class, $newClass, $replaceSingleton=false)
+    public function overrideClass($class, $newClass, $replaceSingleton=false)
     {
         $this->_classes[$class] = array(
             'class_name' => $newClass,
-            'module_name' => BModuleRegistry::i()->currentModule(),
+            'module_name' => BModuleRegistry::currentModuleName(),
         );
         if ($replaceSingleton && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
             $this->_singletons[$class] = $this->instance($newClass);
@@ -876,7 +876,7 @@ class BClassRegistry extends BClass
     public function overrideMethod($class, $method, $callback, $static=false)
     {
         $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
-            'module_name' => BModuleRegistry::i()->currentModule(),
+            'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
         return $this;
@@ -914,7 +914,7 @@ class BClassRegistry extends BClass
     public function augmentMethod($class, $method, $callback, $static=false)
     {
         $this->_methods[$class][$static ? 1 : 0][$method]['augment'][] = array(
-            'module_name' => BModuleRegistry::i()->currentModule(),
+            'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
         return $this;
@@ -1032,7 +1032,7 @@ class BClassRegistry extends BClass
 * Decorator class to allow easy method overrides
 *
 */
-class BClassDecorator extends BClass
+class BClassDecorator
 {
     /**
     * Contains the decorated (original) object
@@ -1140,8 +1140,8 @@ class BEventRegistry extends BClass
             return $this;
         }
         $observer = array('callback'=>$callback, 'args'=>$args);
-        if (($module = BModuleRegistry::i()->currentModule())) {
-            $observer['module_name'] = $module->name;
+        if (($moduleName = BModuleRegistry::currentModuleName())) {
+            $observer['module_name'] = $moduleName;
         }
         $this->_events[$eventName]['observers'][] = $observer;
         return $this;
@@ -1222,7 +1222,7 @@ class BModuleRegistry extends BClass
     *
     * @var string
     */
-    protected $_currentModuleName = BNULL;
+    protected static $_currentModuleName = BNULL;
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -1422,10 +1422,15 @@ class BModuleRegistry extends BClass
     public function currentModule($name=BNULL)
     {
         if (BNULL===$name) {
-            return $this->_currentModuleName ? $this->module($this->_currentModuleName) : false;
+            return self::$_currentModuleName ? $this->module(self::$_currentModuleName) : false;
         }
-        $this->_currentModuleName = $name;
+        self::$_currentModuleName = $name;
         return $this;
+    }
+
+    static public function currentModuleName()
+    {
+        return self::$_currentModuleName;
     }
 }
 
@@ -1588,8 +1593,8 @@ class BFrontController extends BClass
             }
         }
         $observer = array('callback'=>$callback);
-        if (($module = BModuleRegistry::i()->currentModule())) {
-            $observer['module_name'] = $module->name;
+        if (($moduleName = BModuleRegistry::currentModuleName())) {
+            $observer['module_name'] = $moduleName;
         }
         if (!empty($args)) {
             $observer['args'] = $args;
@@ -2444,6 +2449,21 @@ class BResponse extends BClass
     }
 
     /**
+    * Escape HTML
+    *
+    * @param string $str
+    * @return string
+    */
+    public static function q($str)
+    {
+        if (!is_string($str)) {
+            var_dump($str);
+            return ' ** ERROR ** ';
+        }
+        return htmlspecialchars($str);
+    }
+
+    /**
     * Alias for BRequest::i()->cookie()
     *
     * @param string $name
@@ -2710,8 +2730,8 @@ class BLayout extends BClass
             }
             return $this->_views[$viewname];
         }
-        if (empty($params['module_name']) && ($module = BModuleRegistry::i()->currentModule())) {
-            $params['module_name'] = $module->name;
+        if (empty($params['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
+            $params['module_name'] = $moduleName;
         }
         if (!isset($this->_views[$viewname]) || !empty($params['view_class'])) {
             $this->_views[$viewname] = BView::factory($viewname, $params);
@@ -2923,6 +2943,7 @@ class BView extends BClass
     /**
     * Retrieve view object
     *
+    * @todo detect multi-level circular references
     * @param string $viewname
     * @return BModule
     */
@@ -3138,8 +3159,8 @@ class BViewHead extends BView
         } elseif (!is_array($args)) {
             throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }
-        if (($module = BModuleRegistry::i()->currentModule())) {
-            $args['module_name'] = $module->name;
+        if (($moduleName = BModuleRegistry::currentModuleName())) {
+            $args['module_name'] = $moduleName;
         }
         if ($this->_currentIfContext) {
             $args['if'] = $this->_currentIfContext;

@@ -79,7 +79,7 @@ class Blog_Public extends BActionController
     {
         $layout = BLayout::i();
         $layout->view('body')->append('index');
-        $layout->view('index')->posts = BlogPost::f()
+        $layout->view('index')->posts = BlogPost::factory()
             ->select('id')->select('title')->select('preview')->select('posted_at')
             ->select_expr('(select count(*) from blog_post_comment where post_id=blog_post.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
@@ -91,12 +91,12 @@ class Blog_Public extends BActionController
     public function action_post()
     {
         $postId = BRequest::i()->params('post_id');
-        $post = BlogPost::f()->find_one($postId);
+        $post = BlogPost::factory()->find_one($postId);
         if (!$post) {
             Blog::redirect('/', 'error', "Post not found!");
             #$this->forward('noroute');
         }
-        $commentsORM = BlogPostComment::f()
+        $commentsORM = BlogPostComment::factory()
             ->select('id')->select('name')->select('body')->select('posted_at')->select('approved')
             ->where('post_id', $postId)
             ->order_by_asc('posted_at');
@@ -117,14 +117,14 @@ class Blog_Public extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::f()->find_one($request->params('post_id'));
+            $post = BlogPost::factory()->find_one($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post");
             }
             if (!$request->post('name') || !$request->post('body')) {
                 throw new Exception("Not enough information for comment!");
             }
-            $comment = BlogPostComment::f()->create(array(
+            $comment = BlogPostComment::factory()->create(array(
                 'post_id'   => $post->id,
                 'name'      => $request->post('name'),
                 'body'      => $request->post('body'),
@@ -182,7 +182,7 @@ class Blog_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
 
-            $post = BlogPost::f()->create(array(
+            $post = BlogPost::factory()->create(array(
                 'title' => $request->post('title'),
                 'preview' => $request->post('preview'),
                 'body' => $request->post('body'),
@@ -204,7 +204,7 @@ class Blog_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
 
-            $post = BlogPost::f()->find_one($request->params('post_id'));
+            $post = BlogPost::factory()->find_one($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
@@ -227,11 +227,11 @@ class Blog_Admin extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::f()->find_one($request->params('post_id'));
+            $post = BlogPost::factory()->find_one($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
-            $comment = BlogPostComment::f()->find_one($request->params('com_id'));
+            $comment = BlogPostComment::factory()->find_one($request->params('com_id'));
             if (!$comment || $comment->post_id != $post->id) {
                 throw new Exception("Invalid comment ID");
             }
@@ -249,26 +249,10 @@ class Blog_Admin extends BActionController
     }
 }
 
-class BlogPost extends Model
+class BlogPost extends BModel
 {
-    /**
-    * IDE friendly shortcut
-    *
-    * @return BlogPost
-    */
-    public static function f() {
-        return self::factory(__CLASS__);
-    }
 }
 
-class BlogPostComment extends Model
+class BlogPostComment extends BModel
 {
-    /**
-    * IDE friendly shortcut
-    *
-    * @return BlogPostComment
-    */
-    public static function f() {
-        return self::factory(__CLASS__);
-    }
 }

@@ -734,19 +734,12 @@ class BModel extends Model
     /**
     * Model instance factory
     *
-    * For IDE friendly shortcut create this method in child models
-    * with relevant phpdoc:
-    *
-    * public static function f()
-    * {
-    *     return self::factory(__CLASS__);
-    * }
-    *
-    * @param string $class_name
+    * @param string|null $class_name automatic class name (null) works only in PHP 5.3.0
     * @return ORMWrapper
     */
-    public static function factory($class_name)
+    public static function factory($class_name=null)
     {
+        if (is_null($class_name)) $class_name = get_called_class();
         $class_name = BClassRegistry::i()->className($class_name);
         return parent::factory($class_name);
     }

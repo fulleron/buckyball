@@ -1575,18 +1575,17 @@ class BFrontController extends BClass
     /**
     * Save RESTful route in tree
     *
-    * @param array $tree reference to tree where to save the route
     * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
     * @param mixed $callback PHP callback
     * @param array $args Route arguments
     * @param mixed $multiple Allow multiple callbacks for the same route
     */
-    public function saveRoute(&$tree, $route, $callback=null, $args=null, $multiple=false)
+    public function saveRoute($route, $callback=null, $args=null, $multiple=false)
     {
         list($method, $route) = explode(' ', $route, 2);
         $route = ltrim($route, '/');
 
-        $node =& $tree[$method];
+        $node =& $this->_routeTree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
             if ($r!=='' && $r[0]===':') {
@@ -1615,11 +1614,10 @@ class BFrontController extends BClass
     /**
     * Find a route in the tree
     *
-    * @param array $tree Reference to the route tree
     * @param string $route RESTful route
     * @return array|null Route node or null if not found
     */
-    public function findRoute(&$tree, $route=null)
+    public function findRoute($route=null)
     {
         if (is_null($route)) {
             $route = BRequest::i()->rawPath();
@@ -1629,11 +1627,11 @@ class BFrontController extends BClass
         } else {
             list($method, $route) = explode(' ', $route, 2);
         }
-        if (empty($tree[$method])) {
+        if (empty($this->_routeTree[$method])) {
             return null;
         }
         $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
-        $routeNode = $tree[$method];
+        $routeNode = $this->_routeTree[$method];
         $routeName = array($method.' ');
         $params = array();
         foreach ($requestArr as $i=>$r) {
@@ -1684,7 +1682,7 @@ class BFrontController extends BClass
             return;
         }
 
-        $this->saveRoute($this->_routeTree, $route, $callback, $args, false);
+        $this->saveRoute($route, $callback, $args, false);
 
         $this->_routes[$route] = $callback;
         if (!is_null($name)) {
@@ -1729,7 +1727,7 @@ class BFrontController extends BClass
     */
     public function dispatch($route=null)
     {
-        $routeNode = $this->findRoute($this->_routeTree, $route);
+        $routeNode = $this->findRoute($route);
 
         $this->_currentRoute = $routeNode;
 

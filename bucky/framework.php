@@ -718,6 +718,14 @@ class BModel extends Model
     /**
     * Model instance factory
     *
+    * For IDE friendly shortcut create this method in child models
+    * with relevant phpdoc:
+    *
+    * public static function f()
+    * {
+    *     return self::factory(__CLASS__);
+    * }
+    *
     * @param string $class_name
     * @return ORMWrapper
     */
@@ -725,20 +733,6 @@ class BModel extends Model
     {
         $class_name = BClassRegistry::i()->className($class_name);
         return parent::factory($class_name);
-    }
-
-    /**
-    * Optionally set model properties and save
-    *
-    * @param array $arr
-    * @return bool
-    */
-    public function save(array $arr=array())
-    {
-        foreach ($arr as $k=>$v) {
-            $this->set($k, $v);
-        }
-        return parent::save();
     }
 
     /**

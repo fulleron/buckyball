@@ -46,7 +46,6 @@ class BClass
     * Fallback singleton/instance factory
     *
     * Works correctly only in PHP 5.3.0
-    * With PHP 5.2.0 will always return instance of BClass and should be overridden in child classes
     *
     * @param bool $new if true returns a new instance, otherwise singleton
     * @param array $args
@@ -167,9 +166,6 @@ class BApp extends BClass
     */
     public function run()
     {
-        // initialize database connections
-        BDb::i()->init();
-
         // load session variables
         BSession::i()->open();
 
@@ -670,6 +666,27 @@ class BConfig extends BClass
 class BDb extends BClass
 {
     /**
+    * Collection of cached named DB connections
+    *
+    * @var array
+    */
+    protected static $_namedDbs = array();
+
+    /**
+    * Default DB connection name
+    *
+    * @var string
+    */
+    protected static $_defaultDbName = 'DEFAULT';
+
+    /**
+    * DB name which is currently referenced in self::$_db
+    *
+    * @var string
+    */
+    protected static $_currentDbName;
+
+    /**
     * Shortcut to help with IDE autocompletion
     *
     * @return BDb
@@ -680,24 +697,48 @@ class BDb extends BClass
     }
 
     /**
-    * Initialize main DB connection
+    * Switch current DB to a named connection from global configuration
     *
+    * @param string $name
     */
-    public function init()
+    public static function connect($name=null)
     {
-        $config = BConfig::i();
-        switch (($engine = $config->get('db/engine'))) {
-            case "mysql":
-                $dsn = "mysql:host={$config->get('db/host')};dbname={$config->get('db/dbname')}";
-                break;
-
-            default:
-                throw new BException(BApp::t('Invalid DB engine: %s', $engine));
+        if (is_null($name)) {
+            $name = self::$_defaultDbName;
         }
-        ORM::configure($dsn);
-        ORM::configure('username', $config->get('db/username'));
-        ORM::configure('password', $config->get('db/password'));
-        ORM::configure('logging', $config->get('db/logging'));
+        if ($name===self::$_currentDbName) {
+            return;
+        }
+        if (!empty(self::$_namedDbs[$name])) {
+            self::$_currentDbName = $name;
+            self::$_db = self::$_namedDbs[$name];
+            return;
+        }
+        $config = BConfig::i()->get($name===self::$_defaultDbName ? 'db' : 'db/named/'.$name);
+        if (!$config) {
+            throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
+        }
+        if (!empty($config['dsn'])) {
+            $dsn = $config['dsn'];
+        } else {
+            switch (($engine = $config['engine'])) {
+                case "mysql":
+                    $dsn = "mysql:host={$config['host']};dbname={$config['dbname']}";
+                    break;
+
+                default:
+                    throw new BException(BApp::t('Invalid DB engine: %s', $engine));
+            }
+        }
+        self::$_currentDbName = $name;
+
+        BORM::configure($dsn);
+        BORM::configure('username', $config['username']);
+        BORM::configure('password', $config['password']);
+        BORM::configure('logging', $config['logging']);
+        BORM::set_db(null);
+        BORM::setup_db();
+        self::$_namedDbs[$name] = BORM::get_db();
     }
 
     /**
@@ -732,7 +773,7 @@ class BDb extends BClass
             $tableName = $a[1];
         }
         if (!isset($this->_tables[$dbName])) {
-            $tables = ORM::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
+            $tables = BORMWrapper::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
             foreach ($tables as $t) {
                 $this->_tables[$dbName][$t["Tables_in_{$dbName}"]] = array();
             }
@@ -750,7 +791,7 @@ class BDb extends BClass
             throw new BException(BApp::t('Invalid table name: %s.%s', array($dbName, $tableName)));
         }
         $tableFields =& $this->_tables[$dbName][$tableName]['fields'];
-        $fields = ORM::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
+        $fields = BORMWrapper::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
         foreach ($fields as $f) {
             $tableFields[$f['Field']] = $f;
         }
@@ -761,22 +802,8 @@ class BDb extends BClass
 /**
 * Enhanced ORMWrapper to support multiple database connections
 */
-class BORMWrapper extends ORMWrapper
+class BORM extends ORMWrapper
 {
-    /**
-    * Collection of cached named DB connections
-    *
-    * @var array
-    */
-    protected static $_namedDbs = array();
-
-    /**
-    * DB name which is currently referenced in self::$_db
-    *
-    * @var string
-    */
-    protected static $_currentDbName = 'DEFAULT';
-
     /**
     * Read DB connection for selects (replication slave)
     *
@@ -795,33 +822,18 @@ class BORMWrapper extends ORMWrapper
      * Factory method, return an instance of this
      * class bound to the supplied table name.
      */
-    public static function for_table($table_name) {
+    public static function for_table($table_name)
+    {
         self::_setup_db();
-        return new BORMWrapper($table_name); //CHANGED
+        return new BORM($table_name); // Create BORM instance
     }
 
     /**
-    * Switch current DB to a named connection from global configuration
-    *
-    * @param string $name
+    * Public alias for _setup_db
     */
-    public static function switch_db($name)
+    public static function setup_db()
     {
-        if (!empty(self::$_namedDbs[$name])) {
-            self::$_db = self::$_namedDbs[$name];
-            return;
-        }
-        if (empty(self::$_namedDbs[self::$_currentDbName])) {
-            self::$_namedDbs[self::$_currentDbName] = self::$_db;
-        }
-        self::$_config = BConfig::get('db/'.$name);
-        if (!self::$_config) {
-            throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
-        }
-        self::$_db = null;
         self::_setup_db();
-        self::$_namedDbs[$name] = self::$_db;
-        self::$_currentDbName = $name;
     }
 
     /**
@@ -848,7 +860,7 @@ class BORMWrapper extends ORMWrapper
     */
     protected function _run()
     {
-        if ($this->_readDbName) $this->switch_db($this->_readDbName);
+        BDb::connect($this->_readDbName);
         return parent::_run();
     }
 
@@ -862,7 +874,7 @@ class BORMWrapper extends ORMWrapper
      */
     public function save()
     {
-        if ($this->_writeDbName) $this->switch_db($this->_writeDbName);
+        BDb::connect($this->_writeDbName);
         return parent::save();
     }
 
@@ -875,7 +887,7 @@ class BORMWrapper extends ORMWrapper
      */
     public function delete()
     {
-        if ($this->_writeDbName) $this->switch_db($this->_writeDbName);
+        BDb::connect($this->_writeDbName);
         return parent::delete();
     }
 
@@ -892,10 +904,10 @@ class BORMWrapper extends ORMWrapper
      */
     public function raw_query($query, $parameters)
     {
-        if ($this->_readDbName && preg_match('#^\s*(SELECT|SHOW)#i', $query)) {
-            $this->switch_db($this->_readDbName);
-        } elseif ($this->_writeDbName) {
-            $this->switch_db($this->_writeDbName);
+        if (preg_match('#^\s*(SELECT|SHOW)#i', $query)) {
+            BDb::connect($this->_readDbName);
+        } else {
+            BDb::connect($this->_writeDbName);
         }
         return parent::raw_query($query, $parameters);
     }
@@ -937,7 +949,7 @@ class BModel extends Model
         $class_name = BClassRegistry::i()->className($class_name); // ADDED
 
         $table_name = self::_get_table_name($class_name);
-        $wrapper = BORMWrapper::for_table($table_name); // CHANGED
+        $wrapper = BORM::for_table($table_name); // CHANGED
         $wrapper->set_class_name($class_name);
         $wrapper->use_id_column(self::_get_id_column_name($class_name));
         $wrapper->set_rw_db_names(self::$_readDbName, self::$_writeDbName); // ADDED
@@ -948,7 +960,6 @@ class BModel extends Model
     * Fallback singleton/instance factory
     *
     * Works correctly only in PHP 5.3.0
-    * With PHP 5.2.0 will always return instance of BModel and should be overridden in child classes
     *
     * @param bool $new if true returns a new instance, otherwise singleton
     * @param array $args

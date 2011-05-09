@@ -54,10 +54,10 @@ class BClass
     */
     public static function i($new=false, array $args=array())
     {
-        if (function_exists('get_called_class')) {
-            $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        if (!BApp::compat('PHP5.3')) {
+            throw new BException(BApp::t('Implicit instance generation is not supported before PHP 5.3.0. Please add i() method to your class'));
         }
-        return BClassRegistry::i()->instance($class, $args, !$new);
+        return BClassRegistry::i()->instance(get_called_class(), $args, !$new);
     }
 }
 
@@ -67,6 +67,38 @@ class BClass
 */
 class BApp extends BClass
 {
+    /**
+    * Registry of supported features
+    *
+    * @var array
+    */
+    protected static $_compat = array();
+
+    /**
+    * Verify if a feature is currently supported. Features:
+    *
+    * - PHP5.3
+    *
+    * @param mixed $feature
+    * @return boolean
+    */
+    public static function compat($feature)
+    {
+        if (!empty(self::$_compat[$feature])) {
+            return self::$_compat[$feature];
+        }
+        switch ($feature) {
+        case 'PHP5.3':
+            $compat = version_compare(phpversion(), '5.3.0', '>=');
+            break;
+
+        default:
+            throw new BException(BApp::t('Unknown feature: %s', $feature));
+        }
+        self::$_compat[$feature] = $compat;
+        return $compat;
+    }
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -727,10 +759,167 @@ class BDb extends BClass
 }
 
 /**
+* Enhanced ORMWrapper to support multiple database connections
+*/
+class BORMWrapper extends ORMWrapper
+{
+    /**
+    * Collection of cached named DB connections
+    *
+    * @var array
+    */
+    protected static $_namedDbs = array();
+
+    /**
+    * DB name which is currently referenced in self::$_db
+    *
+    * @var string
+    */
+    protected static $_currentDbName = 'DEFAULT';
+
+    /**
+    * Read DB connection for selects (replication slave)
+    *
+    * @var string|null
+    */
+    protected $_readDbName;
+
+    /**
+    * Write DB connection for updates (master)
+    *
+    * @var string|null
+    */
+    protected $_writeDbName;
+
+    /**
+     * Factory method, return an instance of this
+     * class bound to the supplied table name.
+     */
+    public static function for_table($table_name) {
+        self::_setup_db();
+        return new BORMWrapper($table_name); //CHANGED
+    }
+
+    /**
+    * Switch current DB to a named connection from global configuration
+    *
+    * @param string $name
+    */
+    public static function switch_db($name)
+    {
+        if (!empty(self::$_namedDbs[$name])) {
+            self::$_db = self::$_namedDbs[$name];
+            return;
+        }
+        if (empty(self::$_namedDbs[self::$_currentDbName])) {
+            self::$_namedDbs[self::$_currentDbName] = self::$_db;
+        }
+        self::$_config = BConfig::get('db/'.$name);
+        if (!self::$_config) {
+            throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
+        }
+        self::$_db = null;
+        self::_setup_db();
+        self::$_namedDbs[$name] = self::$_db;
+        self::$_currentDbName = $name;
+    }
+
+    /**
+    * Set read/write DB connection names from model
+    *
+    * @param string $read
+    * @param string $write
+    * @return BORMWrapper
+    */
+    public function set_rw_db_names($read, $write)
+    {
+        $this->_readDbName = $read;
+        $this->_writeDbName = $write;
+        return $this;
+    }
+
+    /**
+    * Execute the SELECT query that has been built up by chaining methods
+    * on this class. Return an array of rows as associative arrays.
+    *
+    * Connection will be switched to read, if set
+    *
+    * @return array
+    */
+    protected function _run()
+    {
+        if ($this->_readDbName) $this->switch_db($this->_readDbName);
+        return parent::_run();
+    }
+
+    /**
+     * Save any fields which have been modified on this object
+     * to the database.
+     *
+     * Connection will be switched to write, if set
+     *
+     * @return boolean
+     */
+    public function save()
+    {
+        if ($this->_writeDbName) $this->switch_db($this->_writeDbName);
+        return parent::save();
+    }
+
+    /**
+     * Delete this record from the database
+     *
+     * Connection will be switched to write, if set
+     *
+     * @return boolean
+     */
+    public function delete()
+    {
+        if ($this->_writeDbName) $this->switch_db($this->_writeDbName);
+        return parent::delete();
+    }
+
+    /**
+     * Perform a raw query. The query should contain placeholders,
+     * in either named or question mark style, and the parameters
+     * should be an array of values which will be bound to the
+     * placeholders in the query. If this method is called, all
+     * other query building methods will be ignored.
+     *
+     * Connection will be set to write, if query is not SELECT or SHOW
+     *
+     * @return BORMWrapper
+     */
+    public function raw_query($query, $parameters)
+    {
+        if ($this->_readDbName && preg_match('#^\s*(SELECT|SHOW)#i', $query)) {
+            $this->switch_db($this->_readDbName);
+        } elseif ($this->_writeDbName) {
+            $this->switch_db($this->_writeDbName);
+        }
+        return parent::raw_query($query, $parameters);
+    }
+}
+
+/**
 * ORM model base class
 */
 class BModel extends Model
 {
+    /**
+    * DB name for reads. Set in class declaration
+    *
+    * @var string|null
+    */
+    protected static $_readDbName;
+
+    /**
+    * DB name for writes. Set in class declaration
+    *
+    * @var string|null
+    */
+    protected static $_writeDbName;
+
     /**
     * Model instance factory
     *
@@ -739,9 +928,20 @@ class BModel extends Model
     */
     public static function factory($class_name=null)
     {
-        if (is_null($class_name)) $class_name = get_called_class();
-        $class_name = BClassRegistry::i()->className($class_name);
-        return parent::factory($class_name);
+        if (is_null($class_name)) { // ADDED
+            if (!BApp::compat('PHP5.3')) {
+                throw new BException(BApp::t('Empty class name supported only for PHP 5.3.0'));
+            }
+            $class_name = get_called_class();
+        }
+        $class_name = BClassRegistry::i()->className($class_name); // ADDED
+
+        $table_name = self::_get_table_name($class_name);
+        $wrapper = BORMWrapper::for_table($table_name); // CHANGED
+        $wrapper->set_class_name($class_name);
+        $wrapper->use_id_column(self::_get_id_column_name($class_name));
+        $wrapper->set_rw_db_names(self::$_readDbName, self::$_writeDbName); // ADDED
+        return $wrapper;
     }
 
     /**
@@ -756,10 +956,29 @@ class BModel extends Model
     */
     public static function i($new=false, array $args=array())
     {
-        if (function_exists('get_called_class')) {
-            $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        if (!BApp::compat('PHP5.3')) {
+            throw new BException(BApp::t('Implicit instance generation is not supported before PHP 5.3.0. Please add i() method to your class'));
         }
-        return BClassRegistry::instance($class, $args, !$new);
+        return BClassRegistry::instance(get_called_class(), $args, !$new);
+    }
+
+    /**
+    * Enhanced set method, allowing to set multiple values, and returning $this for chaining
+    *
+    * @param string|array $key
+    * @param mixed $value
+    * @return BModel
+    */
+    public function set($key, $value=null)
+    {
+        if (is_array($key)) {
+            foreach ($key as $k=>$v) {
+                parent::set($k, $v);
+            }
+        } else {
+            parent::set($key, $value);
+        }
+        return $this;
     }
 }
 
@@ -812,7 +1031,7 @@ class BClassRegistry extends BClass
         if (!$new && !$forceRefresh) {
             return self::$_instance;
         }
-        $class = function_exists('get_called_class') ? get_called_class() : __CLASS__;
+        $class = BApp::compat('PHP5.3') ? get_called_class() : __CLASS__;
         return self::$_instance->instance($class, $args, !$new);
     }
 
@@ -2432,6 +2651,10 @@ class BResponse extends BClass
     */
     protected $_contentType = 'text/html';
 
+    protected $_contentPrefix;
+
+    protected $_contentSuffix;
+
     /**
     * Content to be returned to client
     *
@@ -2457,7 +2680,7 @@ class BResponse extends BClass
     */
     public static function q($str)
     {
-        if (!is_string($str)) {
+        if (!is_scalar($str)) {
             var_dump($str);
             return ' ** ERROR ** ';
         }
@@ -2508,15 +2731,45 @@ class BResponse extends BClass
     * @param string $type 'json' will expand to 'application/json'
     * @return BResponse|string
     */
-    public function contentType($type=null)
+    public function contentType($type=BNULL)
     {
-        if (is_null($type)) {
+        if (BNULL===$type) {
             return $this->_contentType;
         }
         if ($type=='json') {
             $type = 'application/json';
         }
         $this->_contentType = $type;
+        return $this;
+    }
+
+    /**
+    * Set or retrieve response content prefix string
+    *
+    * @param string $string
+    * @return BResponse|string
+    */
+    public function contentPrefix($string=BNULL)
+    {
+        if (BNULL===$string) {
+            return $this->_contentPrefix;
+        }
+        $this->_contentPrefix = $string;
+        return $this;
+    }
+
+    /**
+    * Set or retrieve response content suffix string
+    *
+    * @param string $string
+    * @return BResponse|string
+    */
+    public function contentSuffix($string=BNULL)
+    {
+        if (BNULL===$string) {
+            return $this->_contentSuffix;
+        }
+        $this->_contentSuffix = $string;
         return $this;
     }
 
@@ -2591,7 +2844,9 @@ class BResponse extends BClass
             $this->_content = BLayout::i()->render();
         }
 
+        echo $this->_contentPrefix;
         print_r($this->_content);
+        echo $this->_contentSuffix;
 
         if ($this->_contentType=='text/html' && !BRequest::i()->xhr()) {
             echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
@@ -2712,7 +2967,7 @@ class BLayout extends BClass
     *   - template: optional, for templated views
     *   - view_class: optional, for custom views
     *   - module_name: optional, to use template from a specific module
-    * @return BModule|BModuleRegistry
+    * @return BView|BLayout
     */
     public function view($viewname, $params=BNULL)
     {

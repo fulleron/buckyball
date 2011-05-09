@@ -697,7 +697,28 @@ class BDb extends BClass
     }
 
     /**
-    * Switch current DB to a named connection from global configuration
+    * Connect to DB using default or a named connection from global configuration
+    *
+    * Connections are cached for reuse when switching.
+    *
+    * Structure in configuration:
+    *
+    * {
+    *   db: {
+    *     dsn: 'mysql:host=127.0.0.1;dbname=buckyball',  - optional: replaces engine, host, dbname
+    *     engine: 'mysql',                               - optional if dsn exists, default: mysql
+    *     host: '127.0.0.1',                             - optional if dsn exists, default: 127.0.0.1
+    *     dbname: 'buckyball',                           - optional if dsn exists, required otherwise
+    *     username: 'dbuser',                            - default: root
+    *     password: 'password',                          - default: (empty)
+    *     logging: false,                                - default: false
+    *     named: {
+    *       read: {<db-connection-structure>},           - same structure as default connection
+    *       write: {
+    *         use: 'read'                                - optional, reuse another connection
+    *       }
+    *     }
+    *  }
     *
     * @param string $name
     */
@@ -718,12 +739,21 @@ class BDb extends BClass
         if (!$config) {
             throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
         }
+        if (!empty($config['use'])) { //TODO: Prevent circular reference
+            self::connect($config['use']);
+            return;
+        }
         if (!empty($config['dsn'])) {
             $dsn = $config['dsn'];
         } else {
-            switch (($engine = $config['engine'])) {
+            if (empty($config['dbname'])) {
+                throw new BException(BApp::t("dbname configuration value is required for '%s'", $name));
+            }
+            $engine = !empty($config['engine']) ? $config['engine'] : 'mysql';
+            $host = !empty($config['host']) ? $config['host'] : '127.0.0.1';
+            switch ($engine) {
                 case "mysql":
-                    $dsn = "mysql:host={$config['host']};dbname={$config['dbname']}";
+                    $dsn = "mysql:host={$host};dbname={$config['dbname']}";
                     break;
 
                 default:
@@ -733,9 +763,9 @@ class BDb extends BClass
         self::$_currentDbName = $name;
 
         BORM::configure($dsn);
-        BORM::configure('username', $config['username']);
-        BORM::configure('password', $config['password']);
-        BORM::configure('logging', $config['logging']);
+        BORM::configure('username', !empty($config['username']) ? $config['username'] : 'root');
+        BORM::configure('password', !empty($config['password']) ? $config['password'] : '');
+        BORM::configure('logging', !empty($config['logging']));
         BORM::set_db(null);
         BORM::setup_db();
         self::$_namedDbs[$name] = BORM::get_db();
@@ -773,7 +803,7 @@ class BDb extends BClass
             $tableName = $a[1];
         }
         if (!isset($this->_tables[$dbName])) {
-            $tables = BORMWrapper::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
+            $tables = BORM::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
             foreach ($tables as $t) {
                 $this->_tables[$dbName][$t["Tables_in_{$dbName}"]] = array();
             }
@@ -791,7 +821,7 @@ class BDb extends BClass
             throw new BException(BApp::t('Invalid table name: %s.%s', array($dbName, $tableName)));
         }
         $tableFields =& $this->_tables[$dbName][$tableName]['fields'];
-        $fields = BORMWrapper::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
+        $fields = BORM::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
         foreach ($fields as $f) {
             $tableFields[$f['Field']] = $f;
         }

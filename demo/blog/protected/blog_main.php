@@ -124,7 +124,7 @@ class Blog_Public extends BActionController
             if (!$request->post('name') || !$request->post('body')) {
                 throw new Exception("Not enough information for comment!");
             }
-            $comment = BlogPostComment::factory()->create(array(
+            $comment = BlogPostComment::create(array(
                 'post_id'   => $post->id,
                 'name'      => $request->post('name'),
                 'body'      => $request->post('body'),
@@ -182,7 +182,7 @@ class Blog_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
 
-            $post = BlogPost::factory()->create(array(
+            $post = BlogPost::create(array(
                 'title' => $request->post('title'),
                 'preview' => $request->post('preview'),
                 'body' => $request->post('body'),

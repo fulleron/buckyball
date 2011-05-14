@@ -1023,18 +1023,34 @@ class BModel extends Model
     }
 
     /**
-    * Load a model object based on ID or another field
+    * Create a new instance of the model
     *
-    * @param mixed $id
+    * @param null|array $data
+    */
+    public static function create($data=null)
+    {
+        return self::factory()->create($data);
+    }
+
+    /**
+    * Load a model object based on ID, another field or multiple fields
+    *
+    * @param int|string|array $id
     * @param string $field
     * @return BModel
     */
     public static function load($id, $field=null)
     {
-        if (is_null($field)) {
-            return self::factory()->find_one($id);
+        $orm = self::factory();
+        if (is_array($id)) {
+            foreach ($id as $k=>$v) {
+                $orm->where($k, $v);
+            }
+            return $orm->find_one();
+        } elseif (is_null($field)) {
+            return $orm->find_one($id);
         } else {
-            return self::factory()->where($field, $id)->find_one();
+            return $orm->where($field, $id)->find_one();
         }
     }
 

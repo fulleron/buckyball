@@ -91,7 +91,7 @@ class Blog_Public extends BActionController
     public function action_post()
     {
         $postId = BRequest::i()->params('post_id');
-        $post = BlogPost::factory()->find_one($postId);
+        $post = BlogPost::load($postId);
         if (!$post) {
             Blog::redirect('/', 'error', "Post not found!");
             #$this->forward('noroute');
@@ -117,7 +117,7 @@ class Blog_Public extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::factory()->find_one($request->params('post_id'));
+            $post = BlogPost::load($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post");
             }
@@ -204,7 +204,7 @@ class Blog_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
 
-            $post = BlogPost::factory()->find_one($request->params('post_id'));
+            $post = BlogPost::load($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
@@ -227,11 +227,11 @@ class Blog_Admin extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::factory()->find_one($request->params('post_id'));
+            $post = BlogPost::load($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
-            $comment = BlogPostComment::factory()->find_one($request->params('com_id'));
+            $comment = BlogPostComment::load($request->params('com_id'));
             if (!$comment || $comment->post_id != $post->id) {
                 throw new Exception("Invalid comment ID");
             }

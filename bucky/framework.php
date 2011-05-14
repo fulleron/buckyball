@@ -855,7 +855,7 @@ class BORM extends ORMWrapper
     public static function for_table($table_name)
     {
         self::_setup_db();
-        return new BORM($table_name); // Create BORM instance
+        return new self($table_name); // Create this class instance
     }
 
     /**
@@ -1019,6 +1019,33 @@ class BModel extends Model
         } else {
             parent::set($key, $value);
         }
+        return $this;
+    }
+
+    /**
+    * Load a model object based on ID or another field
+    *
+    * @param mixed $id
+    * @param string $field
+    * @return BModel
+    */
+    public static function load($id, $field=null)
+    {
+        if (is_null($field)) {
+            return self::factory()->find_one($id);
+        } else {
+            return self::factory()->where($field, $id)->find_one();
+        }
+    }
+
+    /**
+    * Save method returns the model object for chaining
+    *
+    * @return BModel
+    */
+    public function save()
+    {
+        parent::save();
         return $this;
     }
 }

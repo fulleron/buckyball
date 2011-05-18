@@ -295,6 +295,20 @@ class BDebug extends BClass
     {
         return microtime(true)-$this->_startTime;
     }
+
+    public static function dump($var)
+    {
+        if (is_array($var) && current($var) instanceof Model) {
+            foreach ($var as $k=>$v) {
+                echo '<hr>'.$k.':';
+                self::dump($v);
+            }
+        } elseif ($var instanceof Model) {
+            echo '<pre>'; print_r($var->as_array()); echo '</pre>';
+        } else {
+            echo '<pre>'; print_r($var); echo '</pre>';
+        }
+    }
 }
 
 /**
@@ -769,6 +783,7 @@ class BDb extends BClass
         BORM::set_db(null);
         BORM::setup_db();
         self::$_namedDbs[$name] = BORM::get_db();
+        return BORM::get_db();
     }
 
     /**
@@ -1064,6 +1079,27 @@ class BModel extends Model
         parent::save();
         return $this;
     }
+
+    /**
+    * Model data as array, recursively
+    *
+    * @param array|null $cols
+    * @return array
+    */
+    public function as_array()
+    {
+        $data = parent::as_array();
+        foreach ($data as $k=>$v) {
+            if ($v instanceof Model) {
+                $data[$k] = $v->as_array();
+            } elseif (is_array($v) && current($v) instanceof Model) {
+                foreach ($v as $k1=>$v1) {
+                    $data[$k][$k1] = $v1->as_array();
+                }
+            }
+        }
+        return $data;
+    }
 }
 
 /**
@@ -1238,16 +1274,22 @@ class BClassRegistry extends BClass
     {
         $class = get_class($origObject);
 
-        $callback = !empty($this->_methods[$class][0][$method]['override'])
-            ? $this->_methods[$class][0][$method]['override']['callback']
-            : array($origObject, $method);
-
-        array_unshift($origObject, $args);
+        if (!empty($this->_methods[$class][0][$method]['override'])) {
+            $overridden = true;
+            $callback = $this->_methods[$class][0][$method]['override']['callback'];
+            array_unshift($args, $origObject);
+        } else {
+            $overridden = false;
+            $callback = array($origObject, $method);
+        }
 
         $result = call_user_func_array($callback, $args);
 
         if (!empty($this->_methods[$class][0][$method]['augment'])) {
-            array_unshift($result, $args);
+            if (!$overridden) {
+                array_unshift($args, $origObject);
+            }
+            array_unshift($args, $result);
             foreach ($this->_methods[$class][0][$method]['augment'] as $augment) {
                 $result = call_user_func_array($augment['callback'], $args);
                 $args[0] = $result;
@@ -1277,7 +1319,7 @@ class BClassRegistry extends BClass
         $result = call_user_func_array($callback, $args);
 
         if (!empty($this->_methods[$class][1][$method]['augment'])) {
-            array_unshift($result, $args);
+            array_unshift($args, $result);
             foreach ($this->_methods[$class][1][$method]['augment'] as $augment) {
                 $result = call_user_func_array($augment['callback'], $args);
                 $args[0] = $result;
@@ -1304,7 +1346,7 @@ class BClassRegistry extends BClass
     * If at least one method of the class if overridden, returns decorator
     *
     * @param string $class
-    * @param array $args
+    * @param mixed $args
     * @param bool $singleton
     * @return object
     */
@@ -1353,8 +1395,10 @@ class BClassDecorator
     * @param object|string $class
     * @return BClassDecorator
     */
-    public function __construct($class)
+    public function __construct($args)
     {
+//echo '1: '; print_r($class);
+        $class = array_shift($args);
         $this->_decoratedComponent = is_string($class) ? BClassRegistry::i()->instance($class) : $class;
     }
 
@@ -3622,7 +3666,7 @@ class BViewList extends BView
     {
         $layout = BLayout::i();
         for ($viewname = md5(mt_rand()); $layout->view($viewname); );
-        $layout->view($viewname, array('raw_text'=>$text));
+        $layout->view($viewname, array('raw_text'=>(string)$text));
         $this->append($viewname);
         return $this;
     }

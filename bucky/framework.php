@@ -1122,11 +1122,18 @@ class BClassRegistry extends BClass
     protected $_classes = array();
 
     /**
-    * Method overrides
+    * Method overrides and augmentations
     *
     * @var array
     */
     protected $_methods = array();
+
+    /**
+    * Property setter/getter overrides and augmentations
+    *
+    * @var array
+    */
+    protected $_properties = array();
 
     /**
     * Registry of singletons
@@ -1248,10 +1255,11 @@ class BClassRegistry extends BClass
     * If augmented multiple times, each consequetive callback will receive result
     * changed by previous callback.
     *
-    * @param mixed $class
-    * @param mixed $method
+    * @param string $class
+    * @param string $method
     * @param mixed $callback
-    * @param mixed $static
+    * @param boolean $static
+    * @return BClassRegistry
     */
     public function augmentMethod($class, $method, $callback, $static=false)
     {
@@ -1259,6 +1267,51 @@ class BClassRegistry extends BClass
             'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
+        return $this;
+    }
+
+    /**
+    * Augment class property setter/getter
+    *
+    * BClassRegistry::i()->augmentProperty('SomeClass', 'foo', 'set', 'override', 'MyClass::newSetter');
+    * BClassRegistry::i()->augmentProperty('SomeClass', 'foo', 'get', 'after', 'MyClass::newGetter');
+    *
+    * class MyClass {
+    *   static public function newSetter($object, $property, $value)
+    *   {
+    *     $object->$property = myCustomProcess($value);
+    *   }
+    *
+    *   static public function newGetter($object, $property, $prevResult)
+    *   {
+    *     return $prevResult+5;
+    *   }
+    * }
+    *
+    * @param string $class
+    * @param string $property
+    * @param string $op {set|get}
+    * @param string $type {override|before|after} get_before is not implemented
+    * @param mixed $callback
+    * @return BClassRegistry
+    */
+    public function augmentProperty($class, $property, $op, $type, $callback)
+    {
+        if ($op!=='set' && $op!=='get') {
+            throw new BException(BApp::t('Invalid property augmentation operator: %s', $op));
+        }
+        if ($type!=='override' && $type!=='before' && $type!=='after') {
+            throw new BException(BApp::t('Invalid property augmentation type: %s', $type));
+        }
+        $entry = array(
+            'module_name' => BModuleRegistry::currentModuleName(),
+            'callback' => $callback,
+        );
+        if ($type==='override') {
+            $this->_properties[$class][$property][$op.'_'.$type] = $entry;
+        } else {
+            $this->_properties[$class][$property][$op.'_'.$type][] = $entry;
+        }
         return $this;
     }
 
@@ -1323,6 +1376,66 @@ class BClassRegistry extends BClass
             foreach ($this->_methods[$class][1][$method]['augment'] as $augment) {
                 $result = call_user_func_array($augment['callback'], $args);
                 $args[0] = $result;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+    * Call augmented property setter
+    *
+    * @param object $origObject
+    * @param string $property
+    * @param mixed $value
+    */
+    public function callSetter($origObject, $property, $value)
+    {
+        $class = get_class($origObject);
+
+        if (!empty($this->_properties[$class][$method]['set_before'])) {
+            foreach ($this->_properties[$class][$method]['set_before'] as $entry) {
+                call_user_func($entry['callback'], $origObject, $property, $value);
+            }
+        }
+
+        if (!empty($this->_properties[$class][$method]['set_override'])) {
+            $callback = $this->_properties[$class][$method]['set_override']['callback'];
+            call_user_func($callback, $origObject, $property, $value);
+        } else {
+            $origObject->$property = $value;
+        }
+
+        if (!empty($this->_properties[$class][$method]['set_after'])) {
+            foreach ($this->_properties[$class][$method]['set_after'] as $entry) {
+                call_user_func($entry['callback'], $origObject, $property, $value);
+            }
+        }
+    }
+
+    /**
+    * Call augmented property getter
+    *
+    * @param object $origObject
+    * @param string $property
+    * @return mixed
+    */
+    public function callGetter($origObject, $property)
+    {
+        $class = get_class($origObject);
+
+        // get_before does not make much sense, so is not implemented
+
+        if (!empty($this->_properties[$class][$method]['get_override'])) {
+            $callback = $this->_properties[$class][$method]['get_override']['callback'];
+            $result = call_user_func($callback, $origObject, $property);
+        } else {
+            $result = $origObject->$property;
+        }
+
+        if (!empty($this->_properties[$class][$method]['get_after'])) {
+            foreach ($this->_properties[$class][$method]['get_after'] as $entry) {
+                $result = call_user_func($entry['callback'], $origObject, $property, $result);
             }
         }
 
@@ -1399,7 +1512,7 @@ class BClassDecorator
     {
 //echo '1: '; print_r($class);
         $class = array_shift($args);
-        $this->_decoratedComponent = is_string($class) ? BClassRegistry::i()->instance($class) : $class;
+        $this->_decoratedComponent = is_string($class) ? BClassRegistry::i()->instance($class, $args) : $class;
     }
 
     /**
@@ -1426,6 +1539,96 @@ class BClassDecorator
     public static function __callStatic($name, array $args)
     {
         return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args);
+    }
+
+    /**
+    * Proxy to set decorated component property or a setter
+    *
+    * @param string $name
+    * @param mixed $value
+    */
+    public function __set($name, $value)
+    {
+        //$this->_decoratedComponent->$name = $value;
+        BClassRegistry::i()->callSetter($this->_decoratedComponent, $name, $value);
+    }
+
+    /**
+    * Proxy to get decorated component property or a getter
+    *
+    * @param string $name
+    * @return mixed
+    */
+    public function __get($name)
+    {
+        //return $this->_decoratedComponent->$name;
+        return BClassRegistry::i()->callGetter($this->_decoratedComponent, $name);
+    }
+
+    /**
+    * Proxy to unset decorated component property
+    *
+    * @param string $name
+    */
+    public function __unset($name)
+    {
+        unset($this->_decoratedComponent->$name);
+    }
+
+    /**
+    * Proxy to check whether decorated component property is set
+    *
+    * @param string $name
+    * @return boolean
+    */
+    public function __isset($name)
+    {
+        return isset($this->_decoratedComponent->$name);
+    }
+
+    /**
+    * Proxy to return decorated component as string
+    *
+    * @return string
+    */
+    public function __toString()
+    {
+        return (string)$this->_decoratedComponent;
+    }
+
+    /**
+    * Proxy method to serialize decorated component
+    *
+    */
+    public function __sleep()
+    {
+        if (method_exists($this->_decoratedComponent, '__sleep')) {
+            return $this->_decoratedComponent->__sleep();
+        }
+        return array();
+    }
+
+    /**
+    * Proxy method to perform for decorated component on unserializing
+    *
+    */
+    public function __wakeup()
+    {
+        if (method_exists($this->_decoratedComponent, '__wakeup')) {
+            $this->_decoratedComponent->__wakeup();
+        }
+    }
+
+    /**
+    * Proxy method to invoke decorated component as a method if it is callable
+    *
+    */
+    public function __invoke()
+    {
+        if (is_callable($this->_decoratedComponent)) {
+            return $this->_decoratedComponent(func_get_args());
+        }
+        return null;
     }
 }
 

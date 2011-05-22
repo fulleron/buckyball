@@ -742,12 +742,12 @@ class BDb extends BClass
             $name = self::$_defaultDbName;
         }
         if ($name===self::$_currentDbName) {
-            return;
+            return BORM::get_db();
         }
         if (!empty(self::$_namedDbs[$name])) {
             self::$_currentDbName = $name;
             self::$_db = self::$_namedDbs[$name];
-            return;
+            return BORM::get_db();
         }
         $config = BConfig::i()->get($name===self::$_defaultDbName ? 'db' : 'db/named/'.$name);
         if (!$config) {
@@ -882,6 +882,18 @@ class BORM extends ORMWrapper
     }
 
     /**
+     * Set the PDO object used by Idiorm to communicate with the database.
+     * This is public in case the ORM should use a ready-instantiated
+     * PDO object as its database connection.
+     */
+    public static function set_db($db) {
+        self::$_db = $db;
+        if (!is_null($db)) {
+            self::_setup_identifier_quote_character();
+        }
+    }
+
+    /**
     * Set read/write DB connection names from model
     *
     * @param string $read
@@ -968,14 +980,41 @@ class BModel extends Model
     *
     * @var string|null
     */
-    protected static $_readDbName;
+    protected static $_readDbName = 'DEFAULT';
 
     /**
     * DB name for writes. Set in class declaration
     *
     * @var string|null
     */
-    protected static $_writeDbName;
+    protected static $_writeDbName = 'DEFAULT';
+
+    /**
+    * Cache of instance level data values (related models)
+    *
+    * @var array
+    */
+    protected $_instanceCache = array();
+
+    /**
+    * PDO object of read DB connection
+    *
+    * @return PDO
+    */
+    public static function readDb()
+    {
+        return BDb::connect(self::$_readDbName);
+    }
+
+    /**
+    * PDO object of write DB connection
+    *
+    * @return PDO
+    */
+    public static function writeDb()
+    {
+        return BDb::connect(self::$_writeDbName);
+    }
 
     /**
     * Model instance factory
@@ -1099,6 +1138,38 @@ class BModel extends Model
             }
         }
         return $data;
+    }
+
+    /**
+    * Store instance data cache, such as related models
+    *
+    * @param string $key
+    * @param mixed $value
+    * @return mixed
+    */
+    public function instanceCache($key, $value=BNULL)
+    {
+        if (BNULL===$value) {
+            return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
+        }
+        $this->_instanceCache[$key] = $value;
+        return $this;
+    }
+
+    public function relatedModel($modelClass, $idValue, $foreignIdField='id')
+    {
+        $cacheKey = $modelClass;
+        $model = $this->instanceCache($cacheKey);
+        if (is_null($model)) {
+            $model = $modelClass::load($idValue, $foreignIdField);
+            $this->instanceCache($cacheKey, $model);
+        }
+        return $model;
+    }
+
+    public function __destruct()
+    {
+        unset($this->_instanceCache);
     }
 }
 

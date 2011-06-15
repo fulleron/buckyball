@@ -188,7 +188,7 @@ class BApp extends BClass
     * @param string|array $args arguments for message
     * @param array $data event variables
     */
-    public static function log($message, $args, $data=array())
+    public static function log($message, $args=array(), $data=array())
     {
         $data['message'] = self::t($message, $args);
         BDebug::i()->log($data);
@@ -282,6 +282,10 @@ class BDebug extends BClass
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
         }
+        if (class_exists('BFireLogger')) {
+            BFireLogger::channel('buckyball')->log('debug', $event);
+            return $this;
+        }
         $this->_events[] = $event;
         return $this;
     }
@@ -314,24 +318,14 @@ class BDebug extends BClass
 /**
 * Utility class to parse and construct strings and data structures
 */
-class BParser extends BClass
+class BUtil
 {
     /**
     * Default hash algorithm
     *
     * @var string default sha512 for strength and slowness
     */
-    protected $_hashAlgo = 'sha512';
-
-    /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BParser
-    */
-    public static function i($new=false, array $args=array())
-    {
-        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
-    }
+    protected static $_hashAlgo = 'sha512';
 
     /**
     * Convert any data to JSON
@@ -339,7 +333,7 @@ class BParser extends BClass
     * @param mixed $data
     * @return string
     */
-    public function toJson($data)
+    public static function toJson($data)
     {
         return json_encode($data);
     }
@@ -351,10 +345,10 @@ class BParser extends BClass
     * @param bool $asObject if false will attempt to convert to array,
     *                       otherwise standard combination of objects and arrays
     */
-    public function fromJson($json, $asObject=false)
+    public static function fromJson($json, $asObject=false)
     {
         $obj = json_decode($json);
-        return $asObject ? $obj : $this->objectToArray($obj);
+        return $asObject ? $obj : self::objectToArray($obj);
     }
 
     /**
@@ -363,13 +357,13 @@ class BParser extends BClass
     * @param object $d
     * @return array
     */
-    public function objectToArray($d)
+    public static function objectToArray($d)
     {
         if (is_object($d)) {
             $d = get_object_vars($d);
         }
         if (is_array($d)) {
-            return array_map(array($this, 'objectToArray'), $d);
+            return array_map('BUtil::objectToArray', $d);
         }
         return $d;
     }
@@ -380,10 +374,10 @@ class BParser extends BClass
     * @param mixed $d
     * @return object
     */
-    public function arrayToObject($d)
+    public static function arrayToObject($d)
     {
         if (is_array($d)) {
-            return (object) array_map(array($this, 'arrayToObject'), $d);
+            return (object) array_map('BUtil::objectToArray', $d);
         }
         return $d;
     }
@@ -403,7 +397,7 @@ class BParser extends BClass
      * @param array $args array of [ 'arg_name' => 'arg value', ... ] replacements to be made
      * @return string|false result of sprintf call, or bool false on error
      */
-    public function sprintfn($format, $args = array())
+    public static function sprintfn($format, $args = array())
     {
         $args = (array)$args;
 
@@ -433,14 +427,14 @@ class BParser extends BClass
     /**
     * Inject vars into string template
     *
-    * Ex: echo BParser::i()->injectVars('One :two :three', array('two'=>2, 'three'=>3))
+    * Ex: echo BUtil::injectVars('One :two :three', array('two'=>2, 'three'=>3))
     * Result: "One 2 3"
     *
     * @param string $str
     * @param array $vars
     * @return string
     */
-    public function injectVars($str, $vars)
+    public static function injectVars($str, $vars)
     {
         $from = array(); $to = array();
         foreach ($vars as $k=>$v) {
@@ -462,7 +456,7 @@ class BParser extends BClass
      *
      * @see http://us3.php.net/manual/en/function.array-merge-recursive.php#96201
      **/
-     public function arrayMerge() {
+     public static function arrayMerge() {
          $arrays = func_get_args();
          $base = array_shift($arrays);
          if(!is_array($base)) $base = empty($base) ? array() : array($base);
@@ -474,7 +468,7 @@ class BParser extends BClass
                      continue;
                  }
                  if(is_array($value) or is_array($base[$key])) {
-                     $base[$key] = $this->arrayMerge($base[$key], $append[$key]);
+                     $base[$key] = self::arrayMerge($base[$key], $append[$key]);
                  } else if(is_numeric($key)) {
                          if(!in_array($value, $base)) $base[] = $value;
                  } else {
@@ -491,7 +485,7 @@ class BParser extends BClass
     * @param array $array1
     * @param array $array2
     */
-    public function arrayCompare(array $array1, array $array2)
+    public static function arrayCompare(array $array1, array $array2)
     {
         $diff = false;
         // Left-to-right
@@ -503,7 +497,7 @@ class BParser extends BClass
                     $diff[0][$key] = $value;
                     $diff[1][$key] = $array2[$key];
                 } else {
-                    $new = $this->arrayCompare($value, $array2[$key]);
+                    $new = self::arrayCompare($value, $array2[$key]);
                     if ($new !== false) {
                         if (isset($new[0])) $diff[0][$key] = $new[0];
                         if (isset($new[1])) $diff[1][$key] = $new[1];
@@ -528,16 +522,14 @@ class BParser extends BClass
     /**
     * Set or retrieve current hash algorithm
     *
-    * @param string$algo
-    * @return BParser|string
+    * @param string $algo
     */
-    public function hashAlgo($algo=null)
+    public static function hashAlgo($algo=null)
     {
         if (is_null($algo)) {
-            return $this->_hashAlgo;
+            return self::$_hashAlgo;
         }
-        $this->_hashAlgo = $algo;
-        return $this;
+        self::$_hashAlgo = $algo;
     }
 
     /**
@@ -546,7 +538,7 @@ class BParser extends BClass
     * @param int $strLen length of resulting string
     * @param string $chars allowed characters to be used
     */
-    public function randomString($strLen=8, $chars='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789')
+    public static function randomString($strLen=8, $chars='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789')
     {
         $charsLen = strlen($chars)-1;
         $str = '';
@@ -564,9 +556,9 @@ class BParser extends BClass
     * @param mixed $algo
     * @return string
     */
-    public function saltedHash($string, $salt, $algo=null)
+    public static function saltedHash($string, $salt, $algo=null)
     {
-        return hash($algo ? $algo : $this->_hashAlgo, $salt.$string);
+        return hash($algo ? $algo : self::$_hashAlgo, $salt.$string);
     }
 
     /**
@@ -578,11 +570,11 @@ class BParser extends BClass
     * @param string $salt
     * @param string $algo
     */
-    public function fullSaltedHash($string, $salt=null, $algo=null)
+    public static function fullSaltedHash($string, $salt=null, $algo=null)
     {
-        $salt = !is_null($salt) ? $salt : $this->randomString();
-        $algo = !is_null($algo) ? $algo : $this->_hashAlgo;
-        return $algo.':'.$this->saltedHash($string, $salt).':'.$salt;
+        $salt = !is_null($salt) ? $salt : self::randomString();
+        $algo = !is_null($algo) ? $algo : self::$_hashAlgo;
+        return $algo.':'.self::saltedHash($string, $salt).':'.$salt;
     }
 
     /**
@@ -591,10 +583,10 @@ class BParser extends BClass
     * @param string $string original text
     * @param string $storedHash fully composed salted hash
     */
-    public function validateSaltedHash($string, $storedHash)
+    public static function validateSaltedHash($string, $storedHash)
     {
         list($algo, $hash, $salt) = explode(':', $storedHash);
-        return $hash===$this->saltedHash($string, $salt, $algo);
+        return $hash===self::saltedHash($string, $salt, $algo);
     }
 }
 
@@ -628,7 +620,7 @@ class BConfig extends BClass
     */
     public function add(array $config)
     {
-        $this->_config = BParser::i()->arrayMerge($this->_config, $config);
+        $this->_config = BUtil::arrayMerge($this->_config, $config);
         return $this;
     }
 
@@ -642,7 +634,7 @@ class BConfig extends BClass
         if (!is_readable($filename)) {
             throw new BException(BApp::t('Invalid configuration file name: %s', $filename));
         }
-        $config = BParser::i()->fromJson(file_get_contents($filename));
+        $config = BUtil::fromJson(file_get_contents($filename));
         if (!$config) {
             throw new BException(BApp::t('Invalid configuration contents: %s', $filename));
         }
@@ -849,6 +841,13 @@ class BDb extends BClass
 */
 class BORM extends ORMWrapper
 {
+    /**
+    * Default class name for direct ORM calls
+    *
+    * @var string
+    */
+    protected $_class_name = 'BModel';
+
     /**
     * Read DB connection for selects (replication slave)
     *
@@ -1878,10 +1877,9 @@ class BModuleRegistry extends BClass
         if (!$manifests) {
             return $this;
         }
-        $parser = BParser::i();
         foreach ($manifests as $file) {
             $json = file_get_contents($file);
-            $manifest = $parser->fromJson($json);
+            $manifest = BUtil::fromJson($json);
             if (empty($manifest['modules'])) {
                 throw new BException(BApp::t("Could not read manifest file: %s", $file));
             }
@@ -1913,51 +1911,38 @@ class BModuleRegistry extends BClass
     {
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
-            if (!empty($mod->depends['module'])) {
-                $depends = $mod->depends;
-                foreach ($depends['module'] as &$dep) {
+            if (!empty($mod->depends)) {
+                foreach ($mod->depends as &$dep) {
                     if (is_string($dep)) {
                         $dep = array('name'=>$dep);
                     }
-                    $this->_moduleDepends[$dep['name']][$modName] = $dep;
-                }
-                unset($dep);
-                $mod->depends = $depends;
-            }
-        }
-        // validate dependencies
-        foreach ($this->_moduleDepends as $depName=>&$depends) {
-            if (empty($this->_modules[$depName])) {
-                foreach ($depends as $modName=>&$dep) {
-                    if (empty($dep['action']) || $dep['action']!='ignore') {
+                    if (!empty($this->_modules[$dep['name']])) {
+                        if (!empty($dep['version'])) {
+                            $depVer = $dep['version'];
+                            if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
+                                || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
+                                || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
+                            ) {
+                                $dep['error'] = array('type'=>'version');
+                            }
+                        }
+                        $mod->parents[] = $dep['name'];
+                        $this->_modules[$dep['name']]->children[] = $modName;
+                    } else {
                         $dep['error'] = array('type'=>'missing');
                     }
                 }
                 unset($dep);
-                continue;
             }
-            $depMod = $this->_modules[$depName];
-            foreach ($depends as $modName=>&$dep) {
-                if (!empty($dep['version'])) {
-                    $depVer = $dep['version'];
-                    if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
-                        || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
-                        || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
-                    ) {
-                        $dep['error'] = array('type'=>'version');
-                    }
-                }
-            }
-            unset($dep);
         }
-        unset($depends);
         // propagate dependencies into subdependent modules
-        foreach ($this->_moduleDepends as $depName=>$depends) {
-            foreach ($depends as $modName=>$dep) {
+        foreach ($this->_modules as $modName=>$mod) {
+            foreach ($mod->depends as &$dep) {
                 if (!empty($dep['error']) && empty($dep['error']['propagated'])) {
                     $this->propagateDepends($modName, $dep);
                 }
             }
+            unset($dep);
         }
         return $this;
     }
@@ -1969,20 +1954,66 @@ class BModuleRegistry extends BClass
     * @param BModule $dep
     * @return BModuleRegistry
     */
-    public function propagateDepends($modName, $dep)
+    public function propagateDepends($modName, &$dep)
     {
         $this->_modules[$modName]->error = 'depends';
         $dep['error']['propagated'] = true;
-        if (!empty($this->_moduleDepends[$modName])) {
-            foreach ($this->_moduleDepends[$modName] as $depName=>&$subDep) {
-                $subDep['error'] = $dep['error'];
-                $this->propagateDepends($depName, $error);
+        if (!empty($this->_modules[$modName]->depends)) {
+            foreach ($this->_modules[$modName]->depends as &$subDep) {
+                if (empty($subDep['error'])) {
+                    $subDep['error'] = array('type'=>'parent');
+                    $this->propagateDepends($dep['name'], $subDep);
+                }
             }
-            unset($dep);
+            unset($subDep);
         }
         return $this;
     }
+    
+    /**
+    * Perform topological sorting for module dependencies
+    * 
+    * @return BModuleRegistry
+    */
+    public function sortDepends()
+    {
+        $modules = $this->_modules;
+        // get modules without dependencies
+        $rootModules = array();
+        foreach ($modules as $modName=>$mod) {
+            if (empty($mod->parents)) {
+                $rootModules[] = $mod;
+            }
+        }
+        // begin algorithm
+        $sorted = array();
+        while ($modules) {
+            // check for circular reference
+            if (!$rootModules) return false;
 
+            // remove this node from root modules and add it to the output
+            $n = array_pop($rootModules);
+            $sorted[$n->name] = $n;
+
+            // for each of its children: queue the new node, finally remove the original
+            for ($i=(count($n->children)-1); $i >= 0; $i--) {
+                // get child module
+                $childModule = $modules[$n->children[$i]];
+                // remove child modules from parent
+                unset($n->children[$i]);
+                // remove parent from child module
+                unset($childModule->parents[array_search($n->name, $childModule->parents)]);
+                // check if this child has other parents. if not, add it to the root modules list
+                if (!$childModule->parents) array_push($rootModules, $childModule);
+            }
+
+            // removed processed module from list
+            unset($modules[$n->name]);
+        }
+        $this->_modules = $sorted;
+        return $this;
+    }
+    
     /**
     * Run modules bootstrap callbacks
     *
@@ -1991,35 +2022,19 @@ class BModuleRegistry extends BClass
     public function bootstrap()
     {
         $this->checkDepends();
-        uasort($this->_modules, array($this, 'sortCallback'));
+        $this->sortDepends();
         foreach ($this->_modules as $mod) {
-            if (!empty($mod->errors)) {
+            if (!empty($mod->error)) {
                 continue;
             }
             $this->currentModule($mod->name);
             include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
+            BApp::log('Start bootstrap for %s', array($mod->name));
             call_user_func($mod->bootstrap['callback']);
+            BApp::log('End bootstrap for %s', array($mod->name));
         }
         BModuleRegistry::i()->currentModule(null);
         return $this;
-    }
-
-    /**
-    * Sort modules by dependencies
-    *
-    * @param BModule $mod
-    * @param BModule $dep
-    * @return int
-    */
-    public function sortCallback($mod, $dep)
-    {
-        if (!$mod->name || !$dep->name) {
-            return 0;
-            var_dump($mod); var_dump($dep);
-        }
-        if (!empty($this->_moduleDepends[$mod->name][$dep->name])) return -1;
-        elseif (!empty($this->_moduleDepends[$dep->name][$mod->name])) return 1;
-        return 0;
     }
 
     /**
@@ -2063,12 +2078,15 @@ class BModuleRegistry extends BClass
 */
 class BModule extends BClass
 {
-    /**
-    * Module manifest and properties
-    *
-    * @var mixed
-    */
-    protected $_params;
+    public $name;
+    public $bootstrap;
+    public $version;
+    public $root_dir;
+    public $view_root_dir;
+    public $base_url;
+    public $depends = array();
+    public $parents = array();
+    public $children = array();
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -2079,67 +2097,18 @@ class BModule extends BClass
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
-
+    
     /**
-    * Constructor
-    *
-    * @param array $params
+    * Assign arguments as module parameters
+    * 
+    * @param array $args
     * @return BModule
     */
-    public function __construct($params)
+    public function __construct(array $args)
     {
-        $this->_params = $params;
-    }
-
-    /**
-    * Magic getter
-    *
-    * @param string $name
-    * @return mixed
-    */
-    public function __get($name)
-    {
-        return isset($this->_params[$name]) ? $this->_params[$name] : null;
-    }
-
-    /**
-    * Magic setter
-    *
-    * @param string $name
-    * @param mixed $value
-    */
-    public function __set($name, $value)
-    {
-        $this->_params[$name] = $value;
-    }
-
-    /**
-    * Retrieve or set parameters
-    *
-    * If $key is not specified, return all parameters as array
-    * If $value is not specified, return $key value
-    * If $value specified set $key=$value and return BModule for chaining
-    *
-    * @param string $key
-    * @param mixed $value
-    * @return mixed
-    */
-    public function param($key=BNULL, $value=BNULL)
-    {
-        if (BNULL===$key) {
-            return $this->_params;
+        foreach ($args as $k=>$v) {
+            $this->$k = $v;
         }
-        if (is_array($key)) {
-            foreach ($key as $k=>$v) {
-                $this->param($k, $v);
-            }
-            return $this;
-        }
-        if (BNULL===$value) {
-            return isset($this->_params[$key]) ? $this->_params[$key] : null;
-        }
-        $this->_params[$key] = $value;
-        return $this;
     }
 }
 
@@ -2225,7 +2194,7 @@ class BFrontController extends BClass
         if ($multiple || empty($node['observers'])) {
             $node['observers'][] = $observer;
         } else {
-            $node['observers'][0] = BParser::i()->arrayMerge($node['observers'][0], $observer);
+            $node['observers'][0] = BUtil::arrayMerge($node['observers'][0], $observer);
         }
         unset($node);
 
@@ -2835,7 +2804,7 @@ class BRequest extends BClass
     {
         $post = file_get_contents('php://input');
         if ($post && $json) {
-            $post = BParser::i()->fromJson($post, $asObject);
+            $post = BUtil::fromJson($post, $asObject);
         }
         return $post;
     }
@@ -3199,6 +3168,25 @@ class BResponse extends BClass
     }
 
     /**
+    * Send text content as a file download to client
+    *
+    * @param string $content
+    * @return exit
+    */
+    public function sendContent($content, $filename='download.txt')
+    {
+        BSession::i()->close();
+        header('Pragma: public');
+        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . strlen($content));
+        header('Last-Modified: ' . date('r'));
+        header('Content-Disposition: attachment; filename=' . $filename);
+        echo $content;
+        $this->shutdown(__METHOD__);
+    }
+
+    /**
     * Send status response to client
     *
     * @param int $status Status code number
@@ -3235,13 +3223,14 @@ class BResponse extends BClass
     */
     public function output($type=null)
     {
+        BEventRegistry::i()->dispatch('BResponse::output.before');
         if (!is_null($type)) {
             $this->contentType($type);
         }
         BSession::i()->close();
         header('Content-Type: '.$this->_contentType);
         if ($this->_contentType=='application/json') {
-            $this->_content = is_string($this->_content) ? $this->_content : BParser::i()->toJson($this->_content);
+            $this->_content = is_string($this->_content) ? $this->_content : BUtil::toJson($this->_content);
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
@@ -3445,7 +3434,7 @@ class BLayout extends BClass
         foreach ($routes as $route) {
             $args['route_name'] = $route;
             $r2 = BEventRegistry::i()->dispatch("BLayout::{$eventName}: {$route}", $args);
-            $result = BParser::i()->arrayMerge($result, $r2);
+            $result = BUtil::arrayMerge($result, $r2);
         }
         return $result;
     }
@@ -3806,7 +3795,7 @@ class BViewHead extends BView
             $file = !empty($args['file']) ? $args['file'] : $name;
             if (strpos($file, 'http:')===false && strpos($file, 'https:')===false) {
                 $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;
-                $baseUrl = $module ? $module->param('base_url') : BApp::baseUrl();
+                $baseUrl = $module ? $module->base_url : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
             $result = str_replace('%s', htmlspecialchars($file), $tag);
@@ -4270,7 +4259,7 @@ class BLocale extends BClass
     */
     public function t($string, $args=array())
     {
-        return BParser::i()->sprintfn($string, $args);
+        return BUtil::sprintfn($string, $args);
     }
 
     /**

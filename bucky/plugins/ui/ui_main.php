@@ -28,7 +28,7 @@ class BViewGrid extends BView
     public function gridUrl($changeRequest=array())
     {
         $grid = $this->grid;
-        $grid['request'] = BParser::i()->arrayMerge($grid['request'], $changeRequest);
+        $grid['request'] = BUtil::arrayMerge($grid['request'], $changeRequest);
         return BApp::baseUrl().$grid['config']['gridUrl'].'?'.http_build_query($grid['request']);
     }
 
@@ -50,7 +50,7 @@ class BViewGrid extends BView
         }
         $cell = $this->grid['data']['rows'][$rowId][$colId];
         */
-        return $this->q(!empty($cell['value']) ? $cell['value'] : '');
+        return nl2br($this->q(!empty($cell['value']) ? $cell['value'] : ''));
     }
 
     public function gridPrepareConfig($c)
@@ -89,12 +89,11 @@ class BViewGrid extends BView
 
     public function gridData(array $options=array())
     {
-        $parser = BParser::i();
         // fetch grid configuration
         $grid = $this->grid;
         $config =& $grid['config'];
         if (!empty($grid['serverConfig'])) {
-            $config = $parser->arrayMerge($config, $grid['serverConfig']);
+            $config = BUtil::arrayMerge($config, $grid['serverConfig']);
         }
 
         $config = $this->gridPrepareConfig($config);
@@ -120,7 +119,7 @@ class BViewGrid extends BView
         // create collection factory
         #$orm = AModel::factory($config['model']);
         $table = $config['table'];
-        $orm = ORM::for_table($table);
+        $orm = BORM::for_table($table);
         if (!empty($config['table_alias'])) {
             $orm->table_alias($config['table_alias']);
             $tableAlias = $config['table_alias'];
@@ -199,18 +198,19 @@ class BViewGrid extends BView
                     $grid['result']['out'][$i][$k]['raw'] = isset($r[$field]) ? $r[$field] : null;
                     $value = isset($r[$field]) ? $r[$field] : (isset($f['default']) ? $f['default'] : '');
                     if (!empty($f['options'][$value])) $value = $f['options'][$value];
+                    if (!empty($f['format'])) {
+                        $value = $this->_formatGridValue($f['format'], $value);
+                    }
                     $grid['result']['out'][$i][$k]['value'] = $value;
                     if (!empty($f['href'])) {
-                        $grid['result']['out'][$i][$k]['href'] = $parser->injectVars($f['href'], $r);
+                        $grid['result']['out'][$i][$k]['href'] = BUtil::injectVars($f['href'], $r);
                     }
                 }
                 if (!empty($config['map'])) {
                     foreach ($config['map'] as $m) {
                         $value = $r[$m['value']];
                         if (!empty($m['format'])) {
-                            switch ($m['format']) {
-                                case 'boolean': $value = !!$value; break;
-                            }
+                            $value = $this->_formatGridValue($m['format'], $value);
                         }
                         $grid['result']['out'][$i][$m['field']][$m['prop']] = $value;
                     }
@@ -221,6 +221,18 @@ class BViewGrid extends BView
 
         $this->grid = $grid;
         return $grid;
+    }
+
+    protected function _formatGridValue($format, $value)
+    {
+        if (is_string($format)) {
+            switch ($format) {
+                case 'boolean': $value = !!$value; break;
+            }
+        } elseif (is_callable($format)) {
+            $value = $format($value);
+        }
+        return $value;
     }
 
     protected function _processGridJoins(&$config, &$mapColumns, $orm, $when='before_acount')

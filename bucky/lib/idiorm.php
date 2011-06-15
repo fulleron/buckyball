@@ -1139,4 +1139,3 @@
             return isset($this->_data[$key]);
         }
     }
-

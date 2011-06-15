@@ -11,6 +11,10 @@
         "buckyball.modadmin": {
             "bootstrap": {"file":"modadmin/modadmin_main.php", "callback":"BuckyModAdmin::init"},
             "version": "0.0.1"
+        },
+        "firelogger": {
+            "bootstrap": {"file":"firelogger/firelogger_wrapper.php", "callback":"BFireLogger::init"},
+            "version": "1.0.0"
         }
     }
 }

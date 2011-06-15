@@ -50,7 +50,11 @@ class Bucky_Base_Controller extends BActionController
 {
     public function action_home()
     {
-        $result = TestA::i()->test('foo');
+        $test = TestA::i();
+        $timer = microtime(true);
+        for ($i=0; $i<1000; $i++) 
+            $result = $test->test('foo');
+        $result = microtime(true)-$timer;
         BLayout::i()->view('body')->append('home')->appendText($result);
         BResponse::i()->output();
     }

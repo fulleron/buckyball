@@ -171,6 +171,10 @@ class BApp extends BClass
 
         // bootstrap modules
         BModuleRegistry::i()->bootstrap();
+ 
+        // run module migration scripts if neccessary
+        // TODO: only in development mode and on demand
+        BDb::i()->runMigrationScripts();
 
         // dispatch requested controller action
         BFrontController::i()->dispatch();
@@ -669,7 +673,7 @@ class BConfig extends BClass
 *
 * @see http://j4mie.github.com/idiormandparis/
 */
-class BDb extends BClass
+class BDb
 {
     /**
     * Collection of cached named DB connections
@@ -677,6 +681,13 @@ class BDb extends BClass
     * @var array
     */
     protected static $_namedDbs = array();
+    
+    /**
+    * Necessary configuration for each DB connection name
+    * 
+    * @var array
+    */
+    protected static $_namedDbConfig = array();
 
     /**
     * Default DB connection name
@@ -691,7 +702,35 @@ class BDb extends BClass
     * @var string
     */
     protected static $_currentDbName;
+    
+    /**
+    * Current DB configuration
+    * 
+    * @var array
+    */
+    protected static $_config = array('table_prefix'=>'');
+    
+    /**
+    * List of tables per connection
+    * 
+    * @var array
+    */
+    protected static $_tables = array();
 
+    /**
+    * List of migration scripts by module
+    * 
+    * @var array
+    */
+    protected static $_migration = array();
+    
+    /**
+    * List of uninstall scripts by module
+    * 
+    * @var array
+    */
+    protected static $_uninstall = array();
+    
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -739,6 +778,7 @@ class BDb extends BClass
         if (!empty(self::$_namedDbs[$name])) {
             self::$_currentDbName = $name;
             self::$_db = self::$_namedDbs[$name];
+            self::$_config = self::$_namedDbConfig[$name];
             return BORM::get_db();
         }
         $config = BConfig::i()->get($name===self::$_defaultDbName ? 'db' : 'db/named/'.$name);
@@ -751,6 +791,9 @@ class BDb extends BClass
         }
         if (!empty($config['dsn'])) {
             $dsn = $config['dsn'];
+            if (empty($config['dbname']) && preg_match('#dbname=(.*?)(;|$)#', $dsn, $m)) {
+                $config['dbname'] = $m[1];
+            }
         } else {
             if (empty($config['dbname'])) {
                 throw new BException(BApp::t("dbname configuration value is required for '%s'", $name));
@@ -775,6 +818,10 @@ class BDb extends BClass
         BORM::set_db(null);
         BORM::setup_db();
         self::$_namedDbs[$name] = BORM::get_db();
+        self::$_config = self::$_namedDbConfig[$name] = array(
+            'dbname' => !empty($config['dbname']) ? $config['dbname'] : null,
+            'table_prefix' => !empty($config['table_prefix']) ? $config['table_prefix'] : '',
+        );
         return BORM::get_db();
     }
 
@@ -783,56 +830,227 @@ class BDb extends BClass
     *
     * @return string
     */
-    static public function now()
+    public static function now()
     {
         return gmstrftime('%F %T');
     }
-
-    public function dbName()
+    
+    /**
+    * Shortcut to run queries from migrate scripts
+    * 
+    * @param string $query
+    * @param array $params
+    */
+    public static function run($query)
     {
-        return BConfig::i()->get('db/dbname');
+        return BORM::get_db()->query($query);
+    }
+    
+    /**
+    * Get db specific table name with pre-configured prefix for current connection
+    * 
+    * Can be used as both BDb::t() and $this->t() within migration script
+    * Convenient within strings and heredocs as {$this->t(...)}
+    * 
+    * @param string $tableName
+    */
+    public static function t($tableName)
+    {
+        $a = explode('.', $tableName);
+        $p = self::$_config['table_prefix'];
+        return !empty($a[1]) ? $a[0].'.'.$p.$a[1] : $p.$a[0];
     }
 
-    public function ddlClearCache()
+    /**
+    * Get database name for current connection
+    * 
+    */
+    public static function dbName()
     {
-        $this->_tables = null;
+        if (!self::$_config) {
+            throw new BException('No connection selected');
+        }
+        return self::$_config['dbname'];
+    }
+
+    public static function ddlClearCache()
+    {
+        self::$_tables = array();
         return $this;
     }
 
-    public function ddlTableExists($fullTableName)
+    public static function ddlTableExists($fullTableName)
     {
         $a = explode('.', $fullTableName);
         if (sizeof($a)===1) {
-            $dbName = $this->dbName();
+            $dbName = self::dbName();
             $tableName = $fullTableName;
         } else {
             $dbName = $a[0];
             $tableName = $a[1];
         }
-        if (!isset($this->_tables[$dbName])) {
-            $tables = BORM::raw_query("SHOW TABLES FROM `{$dbName}`")->find_many();
+        if (!isset(self::$_tables[$dbName])) {
+            $tables = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}`", array())->find_many();
+            $field = "Tables_in_{$dbName}";
             foreach ($tables as $t) {
-                $this->_tables[$dbName][$t["Tables_in_{$dbName}"]] = array();
+                self::$_tables[$dbName][$t->$field] = array();
             }
         }
-        return isset($this->_tables[$dbName][$tableName]);
+        return isset(self::$_tables[$dbName][$tableName]);
     }
 
     public function ddlFieldInfo($fullFieldName)
     {
         $a = explode('.', $fullFieldName);
-        $dbName = sizeof($a)<3 ? $this->dbName() : array_shift($a);
+        $dbName = sizeof($a)<3 ? self::dbName() : array_shift($a);
         $tableName = $a[0];
         $fieldName = $a[1];
         if (!$this->ddlTableExists($dbName.'.'.$tableName)) {
             throw new BException(BApp::t('Invalid table name: %s.%s', array($dbName, $tableName)));
         }
-        $tableFields =& $this->_tables[$dbName][$tableName]['fields'];
-        $fields = BORM::raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`")->find_many();
+        $tableFields =& self::$_tables[$dbName][$tableName]['fields'];
+        $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();
         foreach ($fields as $f) {
-            $tableFields[$f['Field']] = $f;
+            $tableFields[$f->Field] = $f;
         }
         return isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null;
+    }
+    
+    /**
+    * Declare DB Migration script for a module
+    * 
+    * @param string $script callback, script file name or directory
+    * @param string|null $moduleName if null, use current module
+    */
+    public static function migrate($script, $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::i()->currentModuleName();
+        }
+        self::$_migration[$moduleName]['script'] = $script;
+    }
+    
+    public static function uninstall($script, $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::i()->currentModuleName();
+        }
+        self::$_uninstall[$moduleName]['script'] = $script;
+    }
+    
+    public static function runMigrationScripts()
+    {
+        $modReg = BModuleRegistry::i();
+        // initialize module tables
+        BDbModule::init();
+        // find all installed modules
+        $dbModules = BDbModule::factory()->find_many();
+        // collect module code versions
+        foreach (self::$_migration as $modName=>&$m) {
+            $m['code_version'] = $modReg->module($modName)->version;
+        }
+        unset($m);
+        // collect module db schema versions
+        foreach ($dbModules as $m) {
+            self::$_migration[$m->module_name]['schema_version'] = $m->schema_version;
+        }
+        // run required migration scripts
+        foreach (self::$_migration as $moduleName=>$mod) {
+            $modReg->currentModule($moduleName);
+            $script = $mod['script'];
+            /*
+            try {
+                BORM::get_db()->beginTransaction();
+            */
+                if (is_callable($script)) {
+                    call_user_func($script);
+                } elseif (is_file($script)) {
+                    include_once($script);
+                } elseif (is_dir($script)) {
+                    //TODO: process directory of migration scripts
+                }
+            /*
+                BORM::get_db()->commit();
+            } catch (Exception $e) {
+                BORM::get_db()->rollback();
+                throw $e;
+            }
+            */
+        }
+        $modReg->currentModule(null);
+    }
+    
+    public static function install($version, $callback)
+    {
+        $modName = BModuleRegistry::i()->currentModuleName();
+        // if no code version set, return
+        if (empty(self::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if schema version exists, skip
+        if (!empty(self::$_migration[$modName]['schema_version'])) {
+            return true;
+        }
+        // creating module before running install, so the module configuration values can be created within script
+        $mod = BDbModule::create(array(
+            'module_name' => $modName,
+            'schema_version' => $version,
+            'last_upgrade' => BDb::now(),
+        ))->save();
+        // call install migration script
+        try {
+            call_user_func($callback);
+        } catch (Exception $e) {
+            // delete module schema record if unsuccessful
+            $mod->delete();
+            throw $e;
+        }
+        self::$_migration[$modName]['schema_version'] = $version;
+        return true;
+    }
+    
+    public static function upgrade($fromVersion, $toVersion, $callback)
+    {
+        $modName = BModuleRegistry::i()->currentModuleName();
+        // if no code version set, return
+        if (empty(self::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if schema doesn't exist, throw exception
+        if (empty(self::$_migration[$modName]['schema_version'])) {
+            throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::i()->currentModuleName()));
+        }
+        // if schema is newer than requested target version, skip
+        if (version_compare(self::$_migration[$modName]['code_version'], $fromVersion, '>=')) {
+            return true;
+        }
+        // call upgrade migration script
+        call_user_func($callback);
+        // update module schema version to new one
+        self::$_migration[$modName]['schema_version'] = $toVersion;
+        BDbModule::load($modName, 'module_name')->set(array(
+            'schema_version' => $toVersion,
+            'last_upgrade' => BDb::now(),
+        ))->save();
+        return true;
+    }
+    
+    public static function runUninstallScript($modName)
+    {
+        $modName = BModuleRegistry::i()->currentModuleName();
+        // if no code version set, return
+        if (empty(self::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if module schema doesn't exist, skip
+        if (empty(self::$_migration[$modName]['schema_version'])) {
+            return true;
+        }
+        // call uninstall migration script
+        call_user_func($callback);
+        // delete module schema version from db, related configuration entries will be deleted
+        BDbModule::load($modName, 'module_name')->delete();
+        return true;
     }
 }
 
@@ -841,6 +1059,13 @@ class BDb extends BClass
 */
 class BORM extends ORMWrapper
 {
+    /**
+    * Singleton instance
+    * 
+    * @var BORM
+    */
+    protected static $_instance;
+    
     /**
     * Default class name for direct ORM calls
     *
@@ -863,6 +1088,22 @@ class BORM extends ORMWrapper
     protected $_writeDbName;
 
     /**
+    * Shortcut factory for generic instance
+    *
+    * @return BConfig
+    */
+    public static function i($new=false)
+    {
+        if ($new) {
+            return new self('');
+        }
+        if (!self::$_instance) {
+            self::$_instance = new self('');
+        }
+        return self::$_instance;
+    }
+    
+    /**
      * Factory method, return an instance of this
      * class bound to the supplied table name.
      */
@@ -870,6 +1111,11 @@ class BORM extends ORMWrapper
     {
         self::_setup_db();
         return new self($table_name); // Create this class instance
+    }
+    
+    public static function get_config($key)
+    {
+        return !empty(self::$_config[$key]) ? self::$_config[$key] : null;
     }
 
     /**
@@ -967,6 +1213,11 @@ class BORM extends ORMWrapper
         }
         return parent::raw_query($query, $parameters);
     }
+    
+    protected static function _get_table_name($class_name) {
+        return BDb::t(parent::_get_table_name($class_name));
+    }
+
 }
 
 /**
@@ -1019,7 +1270,7 @@ class BModel extends Model
     * Model instance factory
     *
     * @param string|null $class_name automatic class name (null) works only in PHP 5.3.0
-    * @return ORMWrapper
+    * @return BORM
     */
     public static function factory($class_name=null)
     {
@@ -1169,6 +1420,52 @@ class BModel extends Model
     public function __destruct()
     {
         unset($this->_instanceCache);
+    }
+}
+
+class BDbModule extends BModel
+{
+    protected static $_table = 'buckyball_module';
+
+    public static function init()
+    {
+        $table = BDb::t(self::$_table);
+        BDb::connect();
+        if (!BDb::ddlTableExists($table)) {
+            BDb::run("
+CREATE TABLE {$table} (
+id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+module_name VARCHAR(100) NOT NULL,
+schema_version VARCHAR(20),
+last_upgrade DATETIME,
+UNIQUE (module_name)
+) ENGINE=INNODB;
+            ");
+        }
+        BDbModuleConfig::init();
+    }
+}
+
+class BDbModuleConfig extends BModel
+{
+    protected static $_table = 'buckyball_module_config';
+    
+    public static function init()
+    {
+        $table = BDb::t(self::$_table);
+        $modTable = BDb::t('buckyball_module');
+        if (!BDb::ddlTableExists($table)) {
+            BDb::run("
+CREATE TABLE {$table} (
+id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+module_id INT UNSIGNED NOT NULL,
+`key` VARCHAR(100),
+`value` TEXT,
+UNIQUE (module_id, `key`),
+CONSTRAINT `FK_{$modTable}` FOREIGN KEY (`module_id`) REFERENCES `{$modTable}` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=INNODB;
+            ");
+        }
     }
 }
 
@@ -1831,13 +2128,6 @@ class BModuleRegistry extends BClass
     protected $_modules = array();
 
     /**
-    * Module dependencies tree
-    *
-    * @var array
-    */
-    protected $_moduleDepends = array();
-
-    /**
     * Current module name, not BNULL when:
     * - In module bootstrap
     * - In observer
@@ -1990,13 +2280,11 @@ class BModuleRegistry extends BClass
         while ($modules) {
             // check for circular reference
             if (!$rootModules) return false;
-
             // remove this node from root modules and add it to the output
             $n = array_pop($rootModules);
             $sorted[$n->name] = $n;
-
             // for each of its children: queue the new node, finally remove the original
-            for ($i=(count($n->children)-1); $i >= 0; $i--) {
+            for ($i = count($n->children)-1; $i>=0; $i--) {
                 // get child module
                 $childModule = $modules[$n->children[$i]];
                 // remove child modules from parent
@@ -2006,7 +2294,6 @@ class BModuleRegistry extends BClass
                 // check if this child has other parents. if not, add it to the root modules list
                 if (!$childModule->parents) array_push($rootModules, $childModule);
             }
-
             // removed processed module from list
             unset($modules[$n->name]);
         }

@@ -41,26 +41,28 @@ class Blog
         ;
 
         BEventRegistry::i()
-            ->observe('BLayout::render.before', array('Blog', 'layout_render_before'))
+            ->observe('BLayout::render.before', 'Blog::layout_render_before')
         ;
+        
+        BDb::migrate('Blog::migrate');
     }
 
-    static public function user()
+    public static function user()
     {
         return BSession::i()->data('user');
     }
 
-    static public function redirect($url, $status, $msg, $msgArgs=array())
+    public static function redirect($url, $status, $msg, $msgArgs=array())
     {
         BResponse::i()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs)));
     }
 
-    static public function q($str)
+    public static function q($str)
     {
         return strip_tags($str, '<a><p><b><i><u><ul><ol><li><strong><em><br><img>');
     }
 
-    public function layout_render_before($args)
+    public static function layout_render_before($args)
     {
         $layout = BLayout::i();
         $layout->view('head')->css('css/common.css', array());
@@ -71,7 +73,45 @@ class Blog
             $layout->view('main')->message = $request->get('msg');
         }
     }
+    
+    public static function migrate()
+    {
+        BDb::install('0.1.0', function () {
+           BDb::run("
+CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post')."` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `title` text,
+  `preview` text,
+  `body` text,
+  `posted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `posted_at` (`posted_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
+
+CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post_comment')."` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `post_id` int(10) unsigned NOT NULL,
+  `name` varchar(255) DEFAULT NULL,
+  `body` text,
+  `posted_at` datetime DEFAULT NULL,
+  `approved` tinyint(4) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `post_id` (`post_id`,`approved`,`posted_at`),
+  CONSTRAINT `FK_".BDb::t('blog_post_comment')."_post` FOREIGN KEY (`post_id`) REFERENCES `".BDb::t('blog_post')."` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;
+            ");
+
+        });
+
+        BDb::upgrade('0.0.1', '0.0.2', function () {
+            echo 'UPGRADE'; exit;  
+        });
+    }
 }
+
+class BlogPost extends BModel {}
+
+class BlogPostComment extends BModel {}
 
 class Blog_Public extends BActionController
 {
@@ -79,9 +119,9 @@ class Blog_Public extends BActionController
     {
         $layout = BLayout::i();
         $layout->view('body')->append('index');
-        $layout->view('index')->posts = BlogPost::factory()
+        $layout->view('index')->posts = BlogPost::factory()->table_alias('b')
             ->select('id')->select('title')->select('preview')->select('posted_at')
-            ->select_expr('(select count(*) from blog_post_comment where post_id=blog_post.id and approved)', 'comment_count')
+            ->select_expr('(select count(*) from '.BDb::t('blog_post_comment').' where post_id=b.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
             ->find_many();
 
@@ -247,12 +287,4 @@ class Blog_Admin extends BActionController
             Blog::redirect('/', 'error', $e->getMessage());
         }
     }
-}
-
-class BlogPost extends BModel
-{
-}
-
-class BlogPostComment extends BModel
-{
 }

@@ -940,6 +940,9 @@ class BDb
     
     public static function runMigrationScripts()
     {
+        if (empty(self::$_migration)) {
+            return;
+        }
         $modReg = BModuleRegistry::i();
         // initialize module tables
         BDbModule::init();

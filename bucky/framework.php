@@ -925,7 +925,7 @@ class BDb
     public static function migrate($script, $moduleName=null)
     {
         if (is_null($moduleName)) {
-            $moduleName = BModuleRegistry::i()->currentModuleName();
+            $moduleName = BModuleRegistry::currentModuleName();
         }
         self::$_migration[$moduleName]['script'] = $script;
     }
@@ -933,7 +933,7 @@ class BDb
     public static function uninstall($script, $moduleName=null)
     {
         if (is_null($moduleName)) {
-            $moduleName = BModuleRegistry::i()->currentModuleName();
+            $moduleName = BModuleRegistry::currentModuleName();
         }
         self::$_uninstall[$moduleName]['script'] = $script;
     }
@@ -985,7 +985,7 @@ class BDb
     
     public static function install($version, $callback)
     {
-        $modName = BModuleRegistry::i()->currentModuleName();
+        $modName = BModuleRegistry::currentModuleName();
         // if no code version set, return
         if (empty(self::$_migration[$modName]['code_version'])) {
             return false;
@@ -1014,14 +1014,14 @@ class BDb
     
     public static function upgrade($fromVersion, $toVersion, $callback)
     {
-        $modName = BModuleRegistry::i()->currentModuleName();
+        $modName = BModuleRegistry::currentModuleName();
         // if no code version set, return
         if (empty(self::$_migration[$modName]['code_version'])) {
             return false;
         }
         // if schema doesn't exist, throw exception
         if (empty(self::$_migration[$modName]['schema_version'])) {
-            throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::i()->currentModuleName()));
+            throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
         // if schema is newer than requested target version, skip
         if (version_compare(self::$_migration[$modName]['code_version'], $fromVersion, '>=')) {
@@ -1040,7 +1040,7 @@ class BDb
     
     public static function runUninstallScript($modName)
     {
-        $modName = BModuleRegistry::i()->currentModuleName();
+        $modName = BModuleRegistry::currentModuleName();
         // if no code version set, return
         if (empty(self::$_migration[$modName]['code_version'])) {
             return false;

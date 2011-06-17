@@ -836,14 +836,25 @@ class BDb
     }
     
     /**
-    * Shortcut to run queries from migrate scripts
+    * Shortcut to run multiple queries from migrate scripts
     * 
-    * @param string $query
+    * @param string $sql
     * @param array $params
     */
-    public static function run($query)
+    public static function run($sql)
     {
-        return BORM::get_db()->query($query);
+        $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql); 
+        $results = array();
+        foreach ($queries as $query){ 
+           if (strlen(trim($query)) > 0) {
+                try {
+                    $results[] = BORM::get_db()->exec($query);
+                } catch (Exception $e) {
+                    var_dump($e); exit;
+                }
+           }
+        }
+        return $results;
     }
     
     /**
@@ -922,7 +933,7 @@ class BDb
     * @param string $script callback, script file name or directory
     * @param string|null $moduleName if null, use current module
     */
-    public static function migrate($script, $moduleName=null)
+    public static function migrate($script='migrate.php', $moduleName=null)
     {
         if (is_null($moduleName)) {
             $moduleName = BModuleRegistry::currentModuleName();
@@ -1002,7 +1013,11 @@ class BDb
         ))->save();
         // call install migration script
         try {
-            call_user_func($callback);
+            if (is_callable($callback)) {
+                call_user_func($callback);
+            } elseif (is_string($callback)) {
+                BDb::run($callback);
+            }
         } catch (Exception $e) {
             // delete module schema record if unsuccessful
             $mod->delete();
@@ -1024,11 +1039,15 @@ class BDb
             throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
         // if schema is newer than requested target version, skip
-        if (version_compare(self::$_migration[$modName]['code_version'], $fromVersion, '>=')) {
+        if (version_compare(self::$_migration[$modName]['schema_version'], $fromVersion, '>')) {
             return true;
         }
         // call upgrade migration script
-        call_user_func($callback);
+        if (is_callable($callback)) {
+            call_user_func($callback);
+        } elseif (is_string($callback)) {
+            BDb::run($callback);
+        }
         // update module schema version to new one
         self::$_migration[$modName]['schema_version'] = $toVersion;
         BDbModule::load($modName, 'module_name')->set(array(

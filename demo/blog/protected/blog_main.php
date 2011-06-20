@@ -43,7 +43,7 @@ class Blog
         BEventRegistry::i()
             ->observe('BLayout::render.before', 'Blog::layout_render_before')
         ;
-        
+
         BDb::migrate('Blog::migrate');
     }
 
@@ -73,11 +73,11 @@ class Blog
             $layout->view('main')->message = $request->get('msg');
         }
     }
-    
+
     public static function migrate()
     {
-        BDb::install('0.1.0', function () {
-           BDb::run("
+        BDb::install('0.1.0', "
+
 CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post')."` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `title` text,
@@ -99,13 +99,8 @@ CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post_comment')."` (
   KEY `post_id` (`post_id`,`approved`,`posted_at`),
   CONSTRAINT `FK_".BDb::t('blog_post_comment')."_post` FOREIGN KEY (`post_id`) REFERENCES `".BDb::t('blog_post')."` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;
-            ");
 
-        });
-
-        BDb::upgrade('0.0.1', '0.0.2', function () {
-            echo 'UPGRADE'; exit;  
-        });
+        ");
     }
 }
 

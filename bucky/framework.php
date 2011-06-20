@@ -74,6 +74,13 @@ class BApp extends BClass
     protected static $_compat = array();
 
     /**
+    * Global app vars registry
+    *
+    * @var array
+    */
+    protected $_vars = array();
+
+    /**
     * Verify if a feature is currently supported. Features:
     *
     * - PHP5.3
@@ -171,7 +178,7 @@ class BApp extends BClass
 
         // bootstrap modules
         BModuleRegistry::i()->bootstrap();
- 
+
         // run module migration scripts if neccessary
         // TODO: only in development mode and on demand
         BDb::i()->runMigrationScripts();
@@ -224,6 +231,17 @@ class BApp extends BClass
             $baseUrl[(int)$full] = $full ? $r->baseUrl() : $r->webRoot();
         }
         return $baseUrl[(int)$full];
+    }
+
+    public function set($key, $val)
+    {
+        $this->_vars[$key] = $val;
+        return $this;
+    }
+
+    public function get($key)
+    {
+        return isset($this->_vars[$key]) ? $this->_vars[$key] : null;
     }
 }
 
@@ -681,10 +699,10 @@ class BDb
     * @var array
     */
     protected static $_namedDbs = array();
-    
+
     /**
     * Necessary configuration for each DB connection name
-    * 
+    *
     * @var array
     */
     protected static $_namedDbConfig = array();
@@ -702,35 +720,35 @@ class BDb
     * @var string
     */
     protected static $_currentDbName;
-    
+
     /**
     * Current DB configuration
-    * 
+    *
     * @var array
     */
     protected static $_config = array('table_prefix'=>'');
-    
+
     /**
     * List of tables per connection
-    * 
+    *
     * @var array
     */
     protected static $_tables = array();
 
     /**
     * List of migration scripts by module
-    * 
+    *
     * @var array
     */
     protected static $_migration = array();
-    
+
     /**
     * List of uninstall scripts by module
-    * 
+    *
     * @var array
     */
     protected static $_uninstall = array();
-    
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -834,18 +852,18 @@ class BDb
     {
         return gmstrftime('%F %T');
     }
-    
+
     /**
     * Shortcut to run multiple queries from migrate scripts
-    * 
+    *
     * @param string $sql
     * @param array $params
     */
     public static function run($sql)
     {
-        $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql); 
+        $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql);
         $results = array();
-        foreach ($queries as $query){ 
+        foreach ($queries as $query){
            if (strlen(trim($query)) > 0) {
                 try {
                     $results[] = BORM::get_db()->exec($query);
@@ -856,13 +874,52 @@ class BDb
         }
         return $results;
     }
-    
+
+    /**
+    * Start transaction
+    *
+    * @param string $connectionName
+    */
+    public static function transaction($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->beginTransaction();
+    }
+
+    /**
+    * Commit transaction
+    *
+    * @param string $connectionName
+    */
+    public static function commit($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->commit();
+    }
+
+    /**
+    * Rollback transaction
+    *
+    * @param string $connectionName
+    */
+    public static function rollback($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->rollback();
+    }
+
     /**
     * Get db specific table name with pre-configured prefix for current connection
-    * 
+    *
     * Can be used as both BDb::t() and $this->t() within migration script
     * Convenient within strings and heredocs as {$this->t(...)}
-    * 
+    *
     * @param string $tableName
     */
     public static function t($tableName)
@@ -873,8 +930,75 @@ class BDb
     }
 
     /**
+    * Construct where statement (for delete or update)
+    *
+    * Examples:
+    * $w = BDb::where("f1 is null");
+    *
+    * // (f1='V1') AND (f2='V2')
+    * $w = BDb::where(array('f1'=>'V1', 'f2'=>'V2'));
+    *
+    * // (f1=5) AND (f2 LIKE '%text%'):
+    * $w = BDb::where(array('f1'=>5, array('f2 LIKE ?', '%text%')));
+    *
+    * // (NOT f1=5) OR f2 BETWEEN 10 AND 20:
+    * $w = BDb::where(array('OR'=>array('NOT'=>array('f1'=>5), array('f2 BETWEEN ? AND ?', 10, 20))));
+    *
+    * // (f1 IN (1,2,3)) AND ((f2 IS NULL) OR (f2=10))
+    * $w = BDb::where(array('f1'=>array(1,2,3)), 'OR'=>array("f2 IS NULL", 'f2'=>10))
+    *
+    * @param array $conds
+    * @param boolean $or
+    * @return array (query, params)
+    */
+    public static function where($conds, $or=false)
+    {
+        if (is_string($conds)) {
+            return array($conds, array());
+        }
+        $where = array();
+        $params = array();
+        if (is_array($conds)) {
+            foreach ($conds as $f=>$v) {
+                if (is_int($f)) {
+                    if (is_string($v)) {
+                        $where[] = '('.$v.')';
+                    } elseif (is_array($v)) {
+                        $where[] = array_shift($v);
+                        $params = array_merge($params, $v);
+                    } else {
+                        throw new BException('Invalid token: '.print_r($v,1));
+                    }
+                } elseif ('AND'===$f) {
+                    list($w, $p) = self::where($v);
+                    $where[] = '('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif ('OR'===$f) {
+                    list($w, $p) = self::where($v, true);
+                    $where[] = '('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif ('NOT'===$f) {
+                    list($w, $p) = self::where($v);
+                    $where[] = 'NOT ('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif (is_array($v)) {
+                    $where[] = "({$f} IN (".str_pad('', sizeof($v)*2-1, '?,')."))";
+                    $params = array_merge($params, $v);
+                } elseif (is_null($v)) {
+                    $where[] = "({$f} IS NULL)";
+                } else {
+                    $where[] = "({$f}=?)";
+                    $params[] = $v;
+                }
+            }
+            return array(join($or ? " OR " : " AND ", $where), $params);
+        }
+        throw new BException("Invalid where parameter");
+    }
+
+    /**
     * Get database name for current connection
-    * 
+    *
     */
     public static function dbName()
     {
@@ -884,12 +1008,22 @@ class BDb
         return self::$_config['dbname'];
     }
 
+    /**
+    * Clear DDL cache
+    *
+    */
     public static function ddlClearCache()
     {
         self::$_tables = array();
         return $this;
     }
 
+    /**
+    * Check whether table exists
+    *
+    * @param string $fullTableName
+    * @return BDb
+    */
     public static function ddlTableExists($fullTableName)
     {
         $a = explode('.', $fullTableName);
@@ -910,6 +1044,12 @@ class BDb
         return isset(self::$_tables[$dbName][$tableName]);
     }
 
+    /**
+    * Get table field info
+    *
+    * @param string $fullFieldName
+    * @return mixed
+    */
     public function ddlFieldInfo($fullFieldName)
     {
         $a = explode('.', $fullFieldName);
@@ -926,10 +1066,10 @@ class BDb
         }
         return isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null;
     }
-    
+
     /**
     * Declare DB Migration script for a module
-    * 
+    *
     * @param string $script callback, script file name or directory
     * @param string|null $moduleName if null, use current module
     */
@@ -940,7 +1080,13 @@ class BDb
         }
         self::$_migration[$moduleName]['script'] = $script;
     }
-    
+
+    /**
+    * Declare DB uninstallation script for a module
+    *
+    * @param mixed $script
+    * @param empty $moduleName
+    */
     public static function uninstall($script, $moduleName=null)
     {
         if (is_null($moduleName)) {
@@ -948,7 +1094,11 @@ class BDb
         }
         self::$_uninstall[$moduleName]['script'] = $script;
     }
-    
+
+    /**
+    * Run declared migration scripts to install or upgrade module DB scheme
+    *
+    */
     public static function runMigrationScripts()
     {
         if (empty(self::$_migration)) {
@@ -974,7 +1124,7 @@ class BDb
             $script = $mod['script'];
             /*
             try {
-                BORM::get_db()->beginTransaction();
+                BDb::transaction();
             */
                 if (is_callable($script)) {
                     call_user_func($script);
@@ -984,16 +1134,22 @@ class BDb
                     //TODO: process directory of migration scripts
                 }
             /*
-                BORM::get_db()->commit();
+                BDb::commit();
             } catch (Exception $e) {
-                BORM::get_db()->rollback();
+                BDb::rollback();
                 throw $e;
             }
             */
         }
         $modReg->currentModule(null);
     }
-    
+
+    /**
+    * Run module DB installation scripts and set module db scheme version
+    *
+    * @param string $version
+    * @param mixed $callback SQL string, callback or file name
+    */
     public static function install($version, $callback)
     {
         $modName = BModuleRegistry::currentModuleName();
@@ -1015,6 +1171,8 @@ class BDb
         try {
             if (is_callable($callback)) {
                 call_user_func($callback);
+            } elseif (is_file($callback)) {
+                include $callback;
             } elseif (is_string($callback)) {
                 BDb::run($callback);
             }
@@ -1026,7 +1184,14 @@ class BDb
         self::$_migration[$modName]['schema_version'] = $version;
         return true;
     }
-    
+
+    /**
+    * Run module DB upgrade scripts for specific version difference
+    *
+    * @param string $fromVersion
+    * @param string $toVersion
+    * @param mixed $callback SQL string, callback or file name
+    */
     public static function upgrade($fromVersion, $toVersion, $callback)
     {
         $modName = BModuleRegistry::currentModuleName();
@@ -1045,6 +1210,8 @@ class BDb
         // call upgrade migration script
         if (is_callable($callback)) {
             call_user_func($callback);
+        } elseif (is_file($callback)) {
+            include $callback;
         } elseif (is_string($callback)) {
             BDb::run($callback);
         }
@@ -1056,10 +1223,18 @@ class BDb
         ))->save();
         return true;
     }
-    
-    public static function runUninstallScript($modName)
+
+    /**
+    * Run declared uninstallation scripts on module uninstall
+    *
+    * @param string $modName
+    * @return boolean
+    */
+    public static function runUninstallScript($modName=null)
     {
-        $modName = BModuleRegistry::currentModuleName();
+        if (is_null($modName)) {
+            $modName = BModuleRegistry::currentModuleName();
+        }
         // if no code version set, return
         if (empty(self::$_migration[$modName]['code_version'])) {
             return false;
@@ -1069,7 +1244,13 @@ class BDb
             return true;
         }
         // call uninstall migration script
-        call_user_func($callback);
+        if (is_callable($callback)) {
+            call_user_func($callback);
+        } elseif (is_file($callback)) {
+            include $callback;
+        } elseif (is_string($callback)) {
+            BDb::run($callback);
+        }
         // delete module schema version from db, related configuration entries will be deleted
         BDbModule::load($modName, 'module_name')->delete();
         return true;
@@ -1083,11 +1264,11 @@ class BORM extends ORMWrapper
 {
     /**
     * Singleton instance
-    * 
+    *
     * @var BORM
     */
     protected static $_instance;
-    
+
     /**
     * Default class name for direct ORM calls
     *
@@ -1124,7 +1305,7 @@ class BORM extends ORMWrapper
         }
         return self::$_instance;
     }
-    
+
     /**
      * Factory method, return an instance of this
      * class bound to the supplied table name.
@@ -1134,7 +1315,7 @@ class BORM extends ORMWrapper
         self::_setup_db();
         return new self($table_name); // Create this class instance
     }
-    
+
     public static function get_config($key)
     {
         return !empty(self::$_config[$key]) ? self::$_config[$key] : null;
@@ -1235,7 +1416,13 @@ class BORM extends ORMWrapper
         }
         return parent::raw_query($query, $parameters);
     }
-    
+
+    /**
+    * Get table name with prefix, if configured
+    *
+    * @param string $class_name
+    * @return string
+    */
     protected static function _get_table_name($class_name) {
         return BDb::t(parent::_get_table_name($class_name));
     }
@@ -1336,13 +1523,16 @@ class BModel extends Model
     * @param mixed $value
     * @return BModel
     */
-    public function set($key, $value=null)
+    public function set($key, $value=null, $add=false)
     {
         if (is_array($key)) {
             foreach ($key as $k=>$v) {
                 parent::set($k, $v);
             }
         } else {
+            if ($add) {
+                $value += $this->get($key);
+            }
             parent::set($key, $value);
         }
         return $this;
@@ -1389,6 +1579,44 @@ class BModel extends Model
     {
         parent::save();
         return $this;
+    }
+
+    /**
+    * Update one or many records of the class
+    *
+    * @param array $data
+    * @param string|array $cond where conditions (@see BDb::where)
+    * @return boolean
+    */
+    public static function update_many(array $data, $cond)
+    {
+        $db = BDb::connect(self::$_writeDbName);
+        $table = BDb::t(self::_get_table_name(get_called_class()));
+        $update = array();
+        $params = array();
+        foreach ($data as $k=>$v) {
+            $update[] = "`{$k}`=?";
+            $params[] = $v;
+        }
+        list($where, $p) = BDb::where($conds);
+        $params = array_merge($params, $p);
+        $query = "UPDATE {$table} SET ".join(', ', $update)." WHERE {$where}";
+        return $db->prepare($query)->execute($params);
+    }
+
+    /**
+    * Delete one or many records of the class
+    *
+    * @param string|array $conds where conditions (@see BDb::where)
+    * @return boolean
+    */
+    public static function delete_many($conds)
+    {
+        $db = BDb::connect(self::$_writeDbName);
+        $table = BDb::t(self::_get_table_name(get_called_class()));
+        list($where, $params) = BDb::where($conds);
+        $query = "DELETE FROM {$table} WHERE {$where}";
+        return $db->prepare($query)->execute($params);
     }
 
     /**
@@ -1471,7 +1699,7 @@ UNIQUE (module_name)
 class BDbModuleConfig extends BModel
 {
     protected static $_table = 'buckyball_module_config';
-    
+
     public static function init()
     {
         $table = BDb::t(self::$_table);
@@ -2281,10 +2509,10 @@ class BModuleRegistry extends BClass
         }
         return $this;
     }
-    
+
     /**
     * Perform topological sorting for module dependencies
-    * 
+    *
     * @return BModuleRegistry
     */
     public function sortDepends()
@@ -2322,7 +2550,7 @@ class BModuleRegistry extends BClass
         $this->_modules = $sorted;
         return $this;
     }
-    
+
     /**
     * Run modules bootstrap callbacks
     *
@@ -2406,10 +2634,10 @@ class BModule extends BClass
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
-    
+
     /**
     * Assign arguments as module parameters
-    * 
+    *
     * @param array $args
     * @return BModule
     */

@@ -941,11 +941,11 @@ class BDb
     * // (f1=5) AND (f2 LIKE '%text%'):
     * $w = BDb::where(array('f1'=>5, array('f2 LIKE ?', '%text%')));
     *
-    * // (NOT f1=5) OR f2 BETWEEN 10 AND 20:
-    * $w = BDb::where(array('OR'=>array('NOT'=>array('f1'=>5), array('f2 BETWEEN ? AND ?', 10, 20))));
+    * // (f1!=5) OR f2 BETWEEN 10 AND 20:
+    * $w = BDb::where(array('OR'=>array(array('f1!=?', 5), array('f2 BETWEEN ? AND ?', 10, 20))));
     *
-    * // (f1 IN (1,2,3)) AND ((f2 IS NULL) OR (f2=10))
-    * $w = BDb::where(array('f1'=>array(1,2,3)), 'OR'=>array("f2 IS NULL", 'f2'=>10))
+    * // (f1 IN (1,2,3)) AND NOT ((f2 IS NULL) OR (f2=10))
+    * $w = BDb::where(array('f1'=>array(1,2,3)), 'NOT'=>array('OR'=>array("f2 IS NULL", 'f2'=>10)));
     *
     * @param array $conds
     * @param boolean $or
@@ -1203,8 +1203,9 @@ class BDb
         if (empty(self::$_migration[$modName]['schema_version'])) {
             throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
+        $schemaVersion = self::$_migration[$modName]['schema_version'];
         // if schema is newer than requested target version, skip
-        if (version_compare(self::$_migration[$modName]['schema_version'], $fromVersion, '>')) {
+        if (version_compare($schemaVersion, $fromVersion, '>=') || version_compare($schemaVersion, $toVersion, '>')) {
             return true;
         }
         // call upgrade migration script
@@ -1367,6 +1368,48 @@ class BORM extends ORMWrapper
     {
         BDb::connect($this->_readDbName);
         return parent::_run();
+    }
+
+    /**
+    * Add a column to the list of columns returned by the SELECT
+    * query. This defaults to '*'. The second optional argument is
+    * the alias to return the column as.
+    *
+    * @param string|array $column if array, select multiple columns
+    * @param string $alias optional alias, if $column is array, used as table name
+    * @return BORM
+    */
+    public function select($column, $alias=null)
+    {
+        if (is_array($column)) {
+            foreach ($column as $k=>$v) {
+                $col = (!is_null($alias) ? $alias.'.' : '').$v;
+                if (is_int($k)) {
+                    $this->select($col);
+                } else {
+                    $this->select($col, $k);
+                }
+            }
+            return $this;
+        }
+        return parent::select($column, $alias);
+    }
+
+    public function where_complex($conds, $or=false)
+    {
+        list($where, $params) = BDb::where($conds, $or);
+        return $this->where_raw($where, $params);
+    }
+
+    public function find_many_assoc($key=null)
+    {
+        $objects = $this->find_many();
+        $array = array();
+        $idColumn = !empty($key) ? $key : $this->_get_id_column_name();
+        foreach ($objects as $r) {
+            $array[$r->$idColumn] = $r;
+        }
+        return $array;
     }
 
     /**
@@ -2988,6 +3031,8 @@ class BActionController extends BClass
             $this->$actionMethod($args);
         } catch (DActionException $e) {
             $this->sendError($e->getMessage());
+        } catch (Exception $e) {
+echo "<pre>"; print_r($e); echo "</pre>";
         }
         return $this;
     }
@@ -3427,13 +3472,14 @@ class BRequest extends BClass
     *   'var3' => array('regex:/[^0-9.]/', '0'), // remove anything not number or .
     * ));
     *
-    * @param array $data Array to be sanitized
+    * @param array|object $data Array to be sanitized
     * @param array $config Configuration for sanitizing
     * @param bool $trim Whether to return only variables specified in config
     * @return array Sanitized result
     */
     public function sanitize($data, $config, $trim=true)
     {
+        $data = (array)$data;
         if ($trim) {
             $data = array_intersect_key($data, $config);
         }

@@ -347,7 +347,21 @@ class BUtil
     *
     * @var string default sha512 for strength and slowness
     */
-    protected static $_hashAlgo = 'sha512';
+    protected static $_hashAlgo = 'sha256';
+
+    /**
+    * Default number of hash iterations
+    *
+    * @var int
+    */
+    protected static $_hashIter = 3;
+
+    /**
+    * Default full hash string separator
+    *
+    * @var string
+    */
+    protected static $_hashSep = '$';
 
     /**
     * Convert any data to JSON
@@ -554,6 +568,14 @@ class BUtil
         self::$_hashAlgo = $algo;
     }
 
+    public static function hashIter($iter=null)
+    {
+        if (is_null($iter)) {
+            return self::$_hashIter;
+        }
+        self::$iter = $iter;
+    }
+
     /**
     * Generate random string
     *
@@ -580,23 +602,32 @@ class BUtil
     */
     public static function saltedHash($string, $salt, $algo=null)
     {
-        return hash($algo ? $algo : self::$_hashAlgo, $salt.$string);
+        $algo = !is_null($algo) ? $algo : self::$_hashAlgo;
+        return hash($algo, $salt.$string);
     }
 
     /**
     * Generate fully composed salted hash
     *
-    * Ex: sha512:<hashed-string-here>:<salt>
+    * Ex: $sha512$2$<salt1>$<salt2>$<double-hashed-string-here>
     *
     * @param string $string
     * @param string $salt
     * @param string $algo
+    * @param integer $iter
     */
-    public static function fullSaltedHash($string, $salt=null, $algo=null)
+    public static function fullSaltedHash($string, $salt=null, $algo=null, $iter=null)
     {
-        $salt = !is_null($salt) ? $salt : self::randomString();
         $algo = !is_null($algo) ? $algo : self::$_hashAlgo;
-        return $algo.':'.self::saltedHash($string, $salt).':'.$salt;
+        $iter = !is_null($iter) ? $iter : self::$_hashIter;
+        $s = self::$_hashSep;
+        $hash = $s.$algo.$s.$iter;
+        for ($i=0; $i<$iter; $i++) {
+            $salt1 = !is_null($salt) ? $salt : self::randomString();
+            $hash .= $s.$salt1;
+            $string = self::saltedHash($string, $salt1, $algo);
+        }
+        return $hash.$s.$string;
     }
 
     /**
@@ -607,8 +638,18 @@ class BUtil
     */
     public static function validateSaltedHash($string, $storedHash)
     {
-        list($algo, $hash, $salt) = explode(':', $storedHash);
-        return $hash===self::saltedHash($string, $salt, $algo);
+        $sep = $storedHash[0];
+        $arr = explode($sep, $storedHash);
+        array_shift($arr);
+        $algo = array_shift($arr);
+        $iter = array_shift($arr);
+        $verifyHash = $string;
+        for ($i=0; $i<$iter; $i++) {
+            $salt = array_shift($arr);
+            $verifyHash = self::saltedHash($verifyHash, $salt, $algo);
+        }
+        $knownHash = array_shift($arr);
+        return $verifyHash===$knownHash;
     }
 }
 
@@ -930,6 +971,21 @@ class BDb
     }
 
     /**
+    * Convert array collection of objects from find_many result to arrays
+    *
+    * @param array $rows result of ORM::find_many()
+    * @return array
+    */
+    public static function many_as_array($rows)
+    {
+        $res = array();
+        foreach ((array)$rows as $i=>$r) {
+            $res[$i] = $r->as_array();
+        }
+        return $res;
+    }
+
+    /**
     * Construct where statement (for delete or update)
     *
     * Examples:
@@ -1027,13 +1083,8 @@ class BDb
     public static function ddlTableExists($fullTableName)
     {
         $a = explode('.', $fullTableName);
-        if (sizeof($a)===1) {
-            $dbName = self::dbName();
-            $tableName = $fullTableName;
-        } else {
-            $dbName = $a[0];
-            $tableName = $a[1];
-        }
+        $dbName = empty($a[1]) ? self::dbName() : $a[0];
+        $tableName = empty($a[1]) ? $fullTableName : $a[1];
         if (!isset(self::$_tables[$dbName])) {
             $tables = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}`", array())->find_many();
             $field = "Tables_in_{$dbName}";
@@ -1050,21 +1101,40 @@ class BDb
     * @param string $fullFieldName
     * @return mixed
     */
-    public function ddlFieldInfo($fullFieldName)
+    public static function ddlFieldInfo($fullTableName, $fieldName)
     {
-        $a = explode('.', $fullFieldName);
-        $dbName = sizeof($a)<3 ? self::dbName() : array_shift($a);
-        $tableName = $a[0];
-        $fieldName = $a[1];
-        if (!$this->ddlTableExists($dbName.'.'.$tableName)) {
-            throw new BException(BApp::t('Invalid table name: %s.%s', array($dbName, $tableName)));
+        $a = explode('.', $fullTableName);
+        $dbName = empty($a[1]) ? self::dbName() : $a[0];
+        $tableName = empty($a[1]) ? $fullTableName : $a[1];
+        if (!self::ddlTableExists($fullTableName)) {
+            throw new BException(BApp::t('Invalid table name: %s.%s', $fullTableName));
         }
         $tableFields =& self::$_tables[$dbName][$tableName]['fields'];
-        $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();
-        foreach ($fields as $f) {
-            $tableFields[$f->Field] = $f;
+        if (empty($tableFields)) {
+            $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();
+            foreach ($fields as $f) {
+                $tableFields[$f->Field] = $f;
+            }
         }
         return isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null;
+    }
+
+    /**
+    * Clean array or object fields based on table columns and return an array
+    *
+    * @param array|object $data
+    * @return array
+    */
+    public static function cleanForTable($table, $data)
+    {
+        $isObject = is_object($data);
+        $result = array();
+        foreach ($data as $k=>$v) {
+            if (BDb::ddlFieldInfo($table, $k)) {
+                $result[$k] = $isObject ? $data->$k : $data[$k];
+            }
+        }
+        return $result;
     }
 
     /**

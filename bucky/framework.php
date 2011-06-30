@@ -974,13 +974,14 @@ class BDb
     * Convert array collection of objects from find_many result to arrays
     *
     * @param array $rows result of ORM::find_many()
+    * @param string $method default 'as_array'
     * @return array
     */
-    public static function many_as_array($rows)
+    public static function many_as_array($rows, $method='as_array')
     {
         $res = array();
         foreach ((array)$rows as $i=>$r) {
-            $res[$i] = $r->as_array();
+            $res[$i] = $r->$method();
         }
         return $res;
     }
@@ -1471,13 +1472,13 @@ class BORM extends ORMWrapper
         return $this->where_raw($where, $params);
     }
 
-    public function find_many_assoc($key=null)
+    public function find_many_assoc($key=null, $labelColumn=null)
     {
         $objects = $this->find_many();
         $array = array();
         $idColumn = !empty($key) ? $key : $this->_get_id_column_name();
         foreach ($objects as $r) {
-            $array[$r->$idColumn] = $r;
+            $array[$r->$idColumn] = is_null($labelColumn) ? $r : $r->$labelColumn;
         }
         return $array;
     }

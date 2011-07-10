@@ -1388,6 +1388,13 @@ class BORM extends ORMWrapper
         return new self($table_name); // Create this class instance
     }
 
+    protected function _quote_identifier($identifier) {
+        if ($identifier[0]=='(') {
+            return $identifier;
+        }
+        return parent::_quote_identifier($identifier);
+    }
+
     public static function get_config($key)
     {
         return !empty(self::$_config[$key]) ? self::$_config[$key] : null;
@@ -1645,7 +1652,13 @@ class BModel extends Model
             }
         } else {
             if ($add) {
-                $value += $this->get($key);
+                $oldValue = $this->get($key);
+                if (is_array($oldValue)) {
+                    $oldValue[] = $value;
+                    $value = $oldValue;
+                } else {
+                    $value += $oldValue;
+                }
             }
             parent::set($key, $value);
         }
@@ -1736,18 +1749,24 @@ class BModel extends Model
     /**
     * Model data as array, recursively
     *
-    * @param array|null $cols
+    * @param array $objHashes cache of object hashes to check for infinite recursion
     * @return array
     */
-    public function as_array()
+    public function as_array(array $objHashes=array())
     {
+        $objHash = spl_object_hash($this);
+        if (!empty($objHashes[$objHash])) {
+            return "*** RECURSION: ".get_class($this);
+        }
+        $objHashes[$objHash] = 1;
+
         $data = parent::as_array();
         foreach ($data as $k=>$v) {
             if ($v instanceof Model) {
                 $data[$k] = $v->as_array();
             } elseif (is_array($v) && current($v) instanceof Model) {
                 foreach ($v as $k1=>$v1) {
-                    $data[$k][$k1] = $v1->as_array();
+                    $data[$k][$k1] = $v1->as_array($objHashes);
                 }
             }
         }
@@ -1775,7 +1794,11 @@ class BModel extends Model
         $cacheKey = $modelClass;
         $model = $this->instanceCache($cacheKey);
         if (is_null($model)) {
-            $model = $modelClass::load($idValue, $foreignIdField);
+            if (is_array($idValue)) {
+                $model = $modelClass::factory()->where_complex($idValue)->find_one();
+            } else {
+                $model = $modelClass::load($idValue, $foreignIdField);
+            }
             $this->instanceCache($cacheKey, $model);
         }
         return $model;
@@ -3705,6 +3728,9 @@ class BResponse extends BClass
     */
     public static function q($str)
     {
+        if (is_null($str)) {
+            return '';
+        }
         if (!is_scalar($str)) {
             var_dump($str);
             return ' ** ERROR ** ';
@@ -4341,6 +4367,9 @@ class BView extends BClass
     */
     public function q($str)
     {
+        if (is_null($str)) {
+            return '';
+        }
         if (!is_string($str)) {
             var_dump($str);
             return ' ** ERROR ** ';

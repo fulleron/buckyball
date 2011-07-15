@@ -128,14 +128,7 @@ class BViewGrid extends BView
         }
 
         if (!empty($config['where'])) {
-            foreach ($config['where'] as $where) {
-                if (!empty($where['raw'])) {
-                    $orm->where_raw($where['raw'], isset($where['args']) ? (array)$where['args'] : array());
-                } else {
-                    $method = isset($where['op']) ? 'where_'.$where['op'] : 'where';
-                    $orm->$method($where['field'], isset($where['value']) ? $where['value'] : null);
-                }
-            }
+            $orm->where_complex($config['where']);
         }
 
         BEventRegistry::i()->dispatch('BViewGrid::gridData.initORM: '.$config['id'], array('orm'=>$orm, 'grid'=>$grid));

@@ -159,7 +159,7 @@
                 $value = $key;
                 $key = 'connection_string';
             }
-            self::$_config[$key] = $value;
+            static::$_config[$key] = $value;
         }
 
         /**
@@ -170,22 +170,22 @@
          * this will normally be the first method called in a chain.
          */
         public static function for_table($table_name) {
-            self::_setup_db();
-            return new self($table_name);
+            static::_setup_db();
+            return new static($table_name);
         }
 
         /**
          * Set up the database connection used by the class.
          */
         protected static function _setup_db() {
-            if (!is_object(self::$_db)) {
-                $connection_string = self::$_config['connection_string'];
-                $username = self::$_config['username'];
-                $password = self::$_config['password'];
-                $driver_options = self::$_config['driver_options'];
+            if (!is_object(static::$_db)) {
+                $connection_string = static::$_config['connection_string'];
+                $username = static::$_config['username'];
+                $password = static::$_config['password'];
+                $driver_options = static::$_config['driver_options'];
                 $db = new PDO($connection_string, $username, $password, $driver_options);
-                $db->setAttribute(PDO::ATTR_ERRMODE, self::$_config['error_mode']);
-                self::set_db($db);
+                $db->setAttribute(PDO::ATTR_ERRMODE, static::$_config['error_mode']);
+                static::set_db($db);
             }
         }
 
@@ -195,8 +195,8 @@
          * PDO object as its database connection.
          */
         public static function set_db($db) {
-            self::$_db = $db;
-            self::_setup_identifier_quote_character();
+            static::$_db = $db;
+            static::_setup_identifier_quote_character();
         }
 
         /**
@@ -206,8 +206,8 @@
          * this will do nothing.
          */
         public static function _setup_identifier_quote_character() {
-            if (is_null(self::$_config['identifier_quote_character'])) {
-                self::$_config['identifier_quote_character'] = self::_detect_identifier_quote_character();
+            if (is_null(static::$_config['identifier_quote_character'])) {
+                static::$_config['identifier_quote_character'] = static::_detect_identifier_quote_character();
             }
         }
 
@@ -216,7 +216,7 @@
          * names, column names etc) by looking at the driver being used by PDO.
          */
         protected static function _detect_identifier_quote_character() {
-            switch(self::$_db->getAttribute(PDO::ATTR_DRIVER_NAME)) {
+            switch(static::$_db->getAttribute(PDO::ATTR_DRIVER_NAME)) {
                 case 'pgsql':
                 case 'sqlsrv':
                 case 'dblib':
@@ -237,8 +237,8 @@
          * required outside the class.
          */
         public static function get_db() {
-            self::_setup_db(); // required in case this is called before Idiorm is instantiated
-            return self::$_db;
+            static::_setup_db(); // required in case this is called before Idiorm is instantiated
+            return static::$_db;
         }
 
         /**
@@ -252,13 +252,13 @@
          */
         protected static function _log_query($query, $parameters) {
             // If logging is not enabled, do nothing
-            if (!self::$_config['logging']) {
+            if (!static::$_config['logging']) {
                 return false;
             }
 
             if (count($parameters) > 0) {
                 // Escape the parameters
-                $parameters = array_map(array(self::$_db, 'quote'), $parameters);
+                $parameters = array_map(array(static::$_db, 'quote'), $parameters);
 
                 // Replace placeholders in the query for vsprintf
                 $query = str_replace("?", "%s", $query);
@@ -269,8 +269,8 @@
                 $bound_query = $query;
             }
 
-            self::$_last_query = $bound_query;
-            self::$_query_log[] = $bound_query;
+            static::$_last_query = $bound_query;
+            static::$_query_log[] = $bound_query;
             return true;
         }
 
@@ -280,7 +280,7 @@
          * this will return null.
          */
         public static function get_last_query() {
-            return self::$_last_query;
+            return static::$_last_query;
         }
 
         /**
@@ -289,7 +289,7 @@
          * set to true. Otherwise returned array will be empty.
          */
         public static function get_query_log() {
-            return self::$_query_log;
+            return static::$_query_log;
         }
 
         // ------------------------ //
@@ -339,7 +339,7 @@
          * array of data fetched from the database)
          */
         protected function _create_instance_from_row($row) {
-            $instance = self::for_table($this->_table_name);
+            $instance = static::for_table($this->_table_name);
             $instance->use_id_column($this->_instance_id_column);
             $instance->hydrate($row);
             return $instance;
@@ -567,8 +567,8 @@
                 $values = array($values);
             }
             $this->_where_conditions[] = array(
-                self::WHERE_FRAGMENT => $fragment,
-                self::WHERE_VALUES => $values,
+                static::WHERE_FRAGMENT => $fragment,
+                static::WHERE_VALUES => $values,
             );
             return $this;
         }
@@ -822,8 +822,8 @@
 
             $where_conditions = array();
             foreach ($this->_where_conditions as $condition) {
-                $where_conditions[] = $condition[self::WHERE_FRAGMENT];
-                $this->_values = array_merge($this->_values, $condition[self::WHERE_VALUES]);
+                $where_conditions[] = $condition[static::WHERE_FRAGMENT];
+                $this->_values = array_merge($this->_values, $condition[static::WHERE_VALUES]);
             }
 
             return "WHERE " . join(" AND ", $where_conditions);
@@ -906,7 +906,7 @@
             if ($part === '*') {
                 return $part;
             }
-            $quote_character = self::$_config['identifier_quote_character'];
+            $quote_character = static::$_config['identifier_quote_character'];
             return $quote_character . $part . $quote_character;
         }
 
@@ -924,8 +924,8 @@
          * is cached for the key, return the value. Otherwise, return false.
          */
         protected static function _check_query_cache($cache_key) {
-            if (isset(self::$_query_cache[$cache_key])) {
-                return self::$_query_cache[$cache_key];
+            if (isset(static::$_query_cache[$cache_key])) {
+                return static::$_query_cache[$cache_key];
             }
             return false;
         }
@@ -934,14 +934,14 @@
          * Clear the query cache
          */
         public static function clear_cache() {
-            self::$_query_cache = array();
+            static::$_query_cache = array();
         }
 
         /**
          * Add the given value to the query cache.
          */
         protected static function _cache_query_result($cache_key, $value) {
-            self::$_query_cache[$cache_key] = $value;
+            static::$_query_cache[$cache_key] = $value;
         }
 
         /**
@@ -950,28 +950,33 @@
          */
         protected function _run() {
             $query = $this->_build_select();
-            $caching_enabled = self::$_config['caching'];
+            $caching_enabled = static::$_config['caching'];
 
             if ($caching_enabled) {
-                $cache_key = self::_create_cache_key($query, $this->_values);
-                $cached_result = self::_check_query_cache($cache_key);
+                $cache_key = static::_create_cache_key($query, $this->_values);
+                $cached_result = static::_check_query_cache($cache_key);
 
                 if ($cached_result !== false) {
                     return $cached_result;
                 }
             }
 
-            self::_log_query($query, $this->_values);
-            $statement = self::$_db->prepare($query);
+            static::_log_query($query, $this->_values);
+            $statement = static::$_db->prepare($query);
+try {
             $statement->execute($this->_values);
-
+} catch (Exception $e) {
+echo $query;
+print_r($e);
+exit;
+}
             $rows = array();
             while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
                 $rows[] = $row;
             }
 
             if ($caching_enabled) {
-                self::_cache_query_result($cache_key, $rows);
+                static::_cache_query_result($cache_key, $rows);
             }
 
             return $rows;
@@ -1007,10 +1012,10 @@
             if (!is_null($this->_instance_id_column)) {
                 return $this->_instance_id_column;
             }
-            if (isset(self::$_config['id_column_overrides'][$this->_table_name])) {
-                return self::$_config['id_column_overrides'][$this->_table_name];
+            if (isset(static::$_config['id_column_overrides'][$this->_table_name])) {
+                return static::$_config['id_column_overrides'][$this->_table_name];
             } else {
-                return self::$_config['id_column'];
+                return static::$_config['id_column'];
             }
         }
 
@@ -1058,15 +1063,15 @@
                 $query = $this->_build_insert();
             }
 
-            self::_log_query($query, $values);
-            $statement = self::$_db->prepare($query);
+            static::_log_query($query, $values);
+            $statement = static::$_db->prepare($query);
             $success = $statement->execute($values);
 
             // If we've just inserted a new record, set the ID of this object
             if ($this->_is_new) {
                 $this->_is_new = false;
                 if (is_null($this->id())) {
-                    $this->_data[$this->_get_id_column_name()] = self::$_db->lastInsertId();
+                    $this->_data[$this->_get_id_column_name()] = static::$_db->lastInsertId();
                 }
             }
 
@@ -1119,8 +1124,8 @@
                 "= ?",
             ));
             $params = array($this->id());
-            self::_log_query($query, $params);
-            $statement = self::$_db->prepare($query);
+            static::_log_query($query, $params);
+            $statement = static::$_db->prepare($query);
             return $statement->execute($params);
         }
 

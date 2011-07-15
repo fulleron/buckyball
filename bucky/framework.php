@@ -90,8 +90,8 @@ class BApp extends BClass
     */
     public static function compat($feature)
     {
-        if (!empty(self::$_compat[$feature])) {
-            return self::$_compat[$feature];
+        if (!empty(static::$_compat[$feature])) {
+            return static::$_compat[$feature];
         }
         switch ($feature) {
         case 'PHP5.3':
@@ -101,7 +101,7 @@ class BApp extends BClass
         default:
             throw new BException(BApp::t('Unknown feature: %s', $feature));
         }
-        self::$_compat[$feature] = $compat;
+        static::$_compat[$feature] = $compat;
         return $compat;
     }
 
@@ -201,7 +201,7 @@ class BApp extends BClass
     */
     public static function log($message, $args=array(), $data=array())
     {
-        $data['message'] = self::t($message, $args);
+        $data['message'] = static::t($message, $args);
         BDebug::i()->log($data);
     }
 
@@ -327,7 +327,7 @@ class BDebug extends BClass
         if (is_array($var) && current($var) instanceof Model) {
             foreach ($var as $k=>$v) {
                 echo '<hr>'.$k.':';
-                self::dump($v);
+                static::dump($v);
             }
         } elseif ($var instanceof Model) {
             echo '<pre>'; print_r($var->as_array()); echo '</pre>';
@@ -384,7 +384,7 @@ class BUtil
     public static function fromJson($json, $asObject=false)
     {
         $obj = json_decode($json);
-        return $asObject ? $obj : self::objectToArray($obj);
+        return $asObject ? $obj : static::objectToArray($obj);
     }
 
     /**
@@ -504,7 +504,7 @@ class BUtil
                      continue;
                  }
                  if(is_array($value) or is_array($base[$key])) {
-                     $base[$key] = self::arrayMerge($base[$key], $append[$key]);
+                     $base[$key] = static::arrayMerge($base[$key], $append[$key]);
                  } else if(is_numeric($key)) {
                          if(!in_array($value, $base)) $base[] = $value;
                  } else {
@@ -533,7 +533,7 @@ class BUtil
                     $diff[0][$key] = $value;
                     $diff[1][$key] = $array2[$key];
                 } else {
-                    $new = self::arrayCompare($value, $array2[$key]);
+                    $new = static::arrayCompare($value, $array2[$key]);
                     if ($new !== false) {
                         if (isset($new[0])) $diff[0][$key] = $new[0];
                         if (isset($new[1])) $diff[1][$key] = $new[1];
@@ -563,17 +563,17 @@ class BUtil
     public static function hashAlgo($algo=null)
     {
         if (is_null($algo)) {
-            return self::$_hashAlgo;
+            return static::$_hashAlgo;
         }
-        self::$_hashAlgo = $algo;
+        static::$_hashAlgo = $algo;
     }
 
     public static function hashIter($iter=null)
     {
         if (is_null($iter)) {
-            return self::$_hashIter;
+            return static::$_hashIter;
         }
-        self::$iter = $iter;
+        static::$iter = $iter;
     }
 
     /**
@@ -602,7 +602,7 @@ class BUtil
     */
     public static function saltedHash($string, $salt, $algo=null)
     {
-        $algo = !is_null($algo) ? $algo : self::$_hashAlgo;
+        $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
         return hash($algo, $salt.$string);
     }
 
@@ -618,14 +618,14 @@ class BUtil
     */
     public static function fullSaltedHash($string, $salt=null, $algo=null, $iter=null)
     {
-        $algo = !is_null($algo) ? $algo : self::$_hashAlgo;
-        $iter = !is_null($iter) ? $iter : self::$_hashIter;
-        $s = self::$_hashSep;
+        $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
+        $iter = !is_null($iter) ? $iter : static::$_hashIter;
+        $s = static::$_hashSep;
         $hash = $s.$algo.$s.$iter;
         for ($i=0; $i<$iter; $i++) {
-            $salt1 = !is_null($salt) ? $salt : self::randomString();
+            $salt1 = !is_null($salt) ? $salt : static::randomString();
             $hash .= $s.$salt1;
-            $string = self::saltedHash($string, $salt1, $algo);
+            $string = static::saltedHash($string, $salt1, $algo);
         }
         return $hash.$s.$string;
     }
@@ -646,10 +646,32 @@ class BUtil
         $verifyHash = $string;
         for ($i=0; $i<$iter; $i++) {
             $salt = array_shift($arr);
-            $verifyHash = self::saltedHash($verifyHash, $salt, $algo);
+            $verifyHash = static::saltedHash($verifyHash, $salt, $algo);
         }
         $knownHash = array_shift($arr);
         return $verifyHash===$knownHash;
+    }
+
+    /**
+    * Return only specific fields from source array
+    *
+    * @param array $source
+    * @param array|string $fields
+    * @param boolean $inverse if true, will return anything NOT in $fields
+    * @result array
+    */
+    public static function maskFields($source, $fields, $inverse=false)
+    {
+        if (is_string($fields)) {
+            $fields = explode(',', $fields);
+        }
+        $result = array();
+        if (!$inverse) {
+            foreach ($fields as $k) $result[$k] = $source[$k];
+        } else {
+            foreach ($source as $k=>$v) if (!in_array($k, $fields)) $result[$k] = $v;
+        }
+        return $result;
     }
 }
 
@@ -756,7 +778,7 @@ class BDb
     protected static $_defaultDbName = 'DEFAULT';
 
     /**
-    * DB name which is currently referenced in self::$_db
+    * DB name which is currently referenced in static::$_db
     *
     * @var string
     */
@@ -829,23 +851,23 @@ class BDb
     public static function connect($name=null)
     {
         if (is_null($name)) {
-            $name = self::$_defaultDbName;
+            $name = static::$_defaultDbName;
         }
-        if ($name===self::$_currentDbName) {
+        if ($name===static::$_currentDbName) {
             return BORM::get_db();
         }
-        if (!empty(self::$_namedDbs[$name])) {
-            self::$_currentDbName = $name;
-            self::$_db = self::$_namedDbs[$name];
-            self::$_config = self::$_namedDbConfig[$name];
+        if (!empty(static::$_namedDbs[$name])) {
+            static::$_currentDbName = $name;
+            static::$_db = static::$_namedDbs[$name];
+            static::$_config = static::$_namedDbConfig[$name];
             return BORM::get_db();
         }
-        $config = BConfig::i()->get($name===self::$_defaultDbName ? 'db' : 'db/named/'.$name);
+        $config = BConfig::i()->get($name===static::$_defaultDbName ? 'db' : 'db/named/'.$name);
         if (!$config) {
             throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
         }
         if (!empty($config['use'])) { //TODO: Prevent circular reference
-            self::connect($config['use']);
+            static::connect($config['use']);
             return;
         }
         if (!empty($config['dsn'])) {
@@ -868,7 +890,7 @@ class BDb
                     throw new BException(BApp::t('Invalid DB engine: %s', $engine));
             }
         }
-        self::$_currentDbName = $name;
+        static::$_currentDbName = $name;
 
         BORM::configure($dsn);
         BORM::configure('username', !empty($config['username']) ? $config['username'] : 'root');
@@ -876,8 +898,8 @@ class BDb
         BORM::configure('logging', !empty($config['logging']));
         BORM::set_db(null);
         BORM::setup_db();
-        self::$_namedDbs[$name] = BORM::get_db();
-        self::$_config = self::$_namedDbConfig[$name] = array(
+        static::$_namedDbs[$name] = BORM::get_db();
+        static::$_config = static::$_namedDbConfig[$name] = array(
             'dbname' => !empty($config['dbname']) ? $config['dbname'] : null,
             'table_prefix' => !empty($config['table_prefix']) ? $config['table_prefix'] : '',
         );
@@ -966,7 +988,7 @@ class BDb
     public static function t($tableName)
     {
         $a = explode('.', $tableName);
-        $p = self::$_config['table_prefix'];
+        $p = static::$_config['table_prefix'];
         return !empty($a[1]) ? $a[0].'.'.$p.$a[1] : $p.$a[0];
     }
 
@@ -981,6 +1003,11 @@ class BDb
     {
         $res = array();
         foreach ((array)$rows as $i=>$r) {
+            if (!$r instanceof BModel) {
+                echo "<pre>"; print_r($r);
+                debug_print_backtrace();
+                exit;
+            }
             $res[$i] = $r->$method();
         }
         return $res;
@@ -1027,15 +1054,15 @@ class BDb
                         throw new BException('Invalid token: '.print_r($v,1));
                     }
                 } elseif ('AND'===$f) {
-                    list($w, $p) = self::where($v);
+                    list($w, $p) = static::where($v);
                     $where[] = '('.$w.')';
                     $params = array_merge($params, $p);
                 } elseif ('OR'===$f) {
-                    list($w, $p) = self::where($v, true);
+                    list($w, $p) = static::where($v, true);
                     $where[] = '('.$w.')';
                     $params = array_merge($params, $p);
                 } elseif ('NOT'===$f) {
-                    list($w, $p) = self::where($v);
+                    list($w, $p) = static::where($v);
                     $where[] = 'NOT ('.$w.')';
                     $params = array_merge($params, $p);
                 } elseif (is_array($v)) {
@@ -1059,10 +1086,10 @@ class BDb
     */
     public static function dbName()
     {
-        if (!self::$_config) {
+        if (!static::$_config) {
             throw new BException('No connection selected');
         }
-        return self::$_config['dbname'];
+        return static::$_config['dbname'];
     }
 
     /**
@@ -1071,7 +1098,7 @@ class BDb
     */
     public static function ddlClearCache()
     {
-        self::$_tables = array();
+        static::$_tables = array();
         return $this;
     }
 
@@ -1084,16 +1111,16 @@ class BDb
     public static function ddlTableExists($fullTableName)
     {
         $a = explode('.', $fullTableName);
-        $dbName = empty($a[1]) ? self::dbName() : $a[0];
+        $dbName = empty($a[1]) ? static::dbName() : $a[0];
         $tableName = empty($a[1]) ? $fullTableName : $a[1];
-        if (!isset(self::$_tables[$dbName])) {
+        if (!isset(static::$_tables[$dbName])) {
             $tables = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}`", array())->find_many();
             $field = "Tables_in_{$dbName}";
             foreach ($tables as $t) {
-                self::$_tables[$dbName][$t->$field] = array();
+                static::$_tables[$dbName][$t->$field] = array();
             }
         }
-        return isset(self::$_tables[$dbName][$tableName]);
+        return isset(static::$_tables[$dbName][$tableName]);
     }
 
     /**
@@ -1105,12 +1132,12 @@ class BDb
     public static function ddlFieldInfo($fullTableName, $fieldName)
     {
         $a = explode('.', $fullTableName);
-        $dbName = empty($a[1]) ? self::dbName() : $a[0];
+        $dbName = empty($a[1]) ? static::dbName() : $a[0];
         $tableName = empty($a[1]) ? $fullTableName : $a[1];
-        if (!self::ddlTableExists($fullTableName)) {
+        if (!static::ddlTableExists($fullTableName)) {
             throw new BException(BApp::t('Invalid table name: %s.%s', $fullTableName));
         }
-        $tableFields =& self::$_tables[$dbName][$tableName]['fields'];
+        $tableFields =& static::$_tables[$dbName][$tableName]['fields'];
         if (empty($tableFields)) {
             $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();
             foreach ($fields as $f) {
@@ -1149,7 +1176,7 @@ class BDb
         if (is_null($moduleName)) {
             $moduleName = BModuleRegistry::currentModuleName();
         }
-        self::$_migration[$moduleName]['script'] = $script;
+        static::$_migration[$moduleName]['script'] = $script;
     }
 
     /**
@@ -1163,7 +1190,7 @@ class BDb
         if (is_null($moduleName)) {
             $moduleName = BModuleRegistry::currentModuleName();
         }
-        self::$_uninstall[$moduleName]['script'] = $script;
+        static::$_uninstall[$moduleName]['script'] = $script;
     }
 
     /**
@@ -1172,7 +1199,7 @@ class BDb
     */
     public static function runMigrationScripts()
     {
-        if (empty(self::$_migration)) {
+        if (empty(static::$_migration)) {
             return;
         }
         $modReg = BModuleRegistry::i();
@@ -1181,16 +1208,16 @@ class BDb
         // find all installed modules
         $dbModules = BDbModule::factory()->find_many();
         // collect module code versions
-        foreach (self::$_migration as $modName=>&$m) {
+        foreach (static::$_migration as $modName=>&$m) {
             $m['code_version'] = $modReg->module($modName)->version;
         }
         unset($m);
         // collect module db schema versions
         foreach ($dbModules as $m) {
-            self::$_migration[$m->module_name]['schema_version'] = $m->schema_version;
+            static::$_migration[$m->module_name]['schema_version'] = $m->schema_version;
         }
         // run required migration scripts
-        foreach (self::$_migration as $moduleName=>$mod) {
+        foreach (static::$_migration as $moduleName=>$mod) {
             $modReg->currentModule($moduleName);
             $script = $mod['script'];
             /*
@@ -1225,11 +1252,11 @@ class BDb
     {
         $modName = BModuleRegistry::currentModuleName();
         // if no code version set, return
-        if (empty(self::$_migration[$modName]['code_version'])) {
+        if (empty(static::$_migration[$modName]['code_version'])) {
             return false;
         }
         // if schema version exists, skip
-        if (!empty(self::$_migration[$modName]['schema_version'])) {
+        if (!empty(static::$_migration[$modName]['schema_version'])) {
             return true;
         }
         // creating module before running install, so the module configuration values can be created within script
@@ -1252,7 +1279,7 @@ class BDb
             $mod->delete();
             throw $e;
         }
-        self::$_migration[$modName]['schema_version'] = $version;
+        static::$_migration[$modName]['schema_version'] = $version;
         return true;
     }
 
@@ -1267,14 +1294,14 @@ class BDb
     {
         $modName = BModuleRegistry::currentModuleName();
         // if no code version set, return
-        if (empty(self::$_migration[$modName]['code_version'])) {
+        if (empty(static::$_migration[$modName]['code_version'])) {
             return false;
         }
         // if schema doesn't exist, throw exception
-        if (empty(self::$_migration[$modName]['schema_version'])) {
+        if (empty(static::$_migration[$modName]['schema_version'])) {
             throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
-        $schemaVersion = self::$_migration[$modName]['schema_version'];
+        $schemaVersion = static::$_migration[$modName]['schema_version'];
         // if schema is newer than requested target version, skip
         if (version_compare($schemaVersion, $fromVersion, '>=') || version_compare($schemaVersion, $toVersion, '>')) {
             return true;
@@ -1288,7 +1315,7 @@ class BDb
             BDb::run($callback);
         }
         // update module schema version to new one
-        self::$_migration[$modName]['schema_version'] = $toVersion;
+        static::$_migration[$modName]['schema_version'] = $toVersion;
         BDbModule::load($modName, 'module_name')->set(array(
             'schema_version' => $toVersion,
             'last_upgrade' => BDb::now(),
@@ -1308,11 +1335,11 @@ class BDb
             $modName = BModuleRegistry::currentModuleName();
         }
         // if no code version set, return
-        if (empty(self::$_migration[$modName]['code_version'])) {
+        if (empty(static::$_migration[$modName]['code_version'])) {
             return false;
         }
         // if module schema doesn't exist, skip
-        if (empty(self::$_migration[$modName]['schema_version'])) {
+        if (empty(static::$_migration[$modName]['schema_version'])) {
             return true;
         }
         // call uninstall migration script
@@ -1326,6 +1353,55 @@ class BDb
         // delete module schema version from db, related configuration entries will be deleted
         BDbModule::load($modName, 'module_name')->delete();
         return true;
+    }
+}
+
+/**
+* Enhanced PDO class to allow for transaction nesting for mysql and postgresql
+*
+* @see http://www.kennynet.co.uk/2008/12/02/php-pdo-nested-transactions/
+*/
+class BPDO extends PDO
+{
+    // Database drivers that support SAVEPOINTs.
+    protected static $_savepointTransactions = array("pgsql", "mysql");
+
+    // The current transaction level.
+    protected $_transLevel = 0;
+
+    protected function _nestable() {
+        return in_array($this->getAttribute(PDO::ATTR_DRIVER_NAME),
+                        static::$_savepointTransactions);
+    }
+
+    public function beginTransaction() {
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::beginTransaction();
+        } else {
+            $this->exec("SAVEPOINT LEVEL{$this->_transLevel}");
+        }
+
+        $this->_transLevel++;
+    }
+
+    public function commit() {
+        $this->_transLevel--;
+
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::commit();
+        } else {
+            $this->exec("RELEASE SAVEPOINT LEVEL{$this->_transLevel}");
+        }
+    }
+
+    public function rollBack() {
+        $this->_transLevel--;
+
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::rollBack();
+        } else {
+            $this->exec("ROLLBACK TO SAVEPOINT LEVEL{$this->_transLevel}");
+        }
     }
 }
 
@@ -1370,22 +1446,12 @@ class BORM extends ORMWrapper
     public static function i($new=false)
     {
         if ($new) {
-            return new self('');
+            return new static('');
         }
-        if (!self::$_instance) {
-            self::$_instance = new self('');
+        if (!static::$_instance) {
+            static::$_instance = new static('');
         }
-        return self::$_instance;
-    }
-
-    /**
-     * Factory method, return an instance of this
-     * class bound to the supplied table name.
-     */
-    public static function for_table($table_name)
-    {
-        self::_setup_db();
-        return new self($table_name); // Create this class instance
+        return static::$_instance;
     }
 
     protected function _quote_identifier($identifier) {
@@ -1397,7 +1463,7 @@ class BORM extends ORMWrapper
 
     public static function get_config($key)
     {
-        return !empty(self::$_config[$key]) ? self::$_config[$key] : null;
+        return !empty(static::$_config[$key]) ? static::$_config[$key] : null;
     }
 
     /**
@@ -1405,7 +1471,23 @@ class BORM extends ORMWrapper
     */
     public static function setup_db()
     {
-        self::_setup_db();
+        static::_setup_db();
+    }
+
+    /**
+     * Set up the database connection used by the class.
+     * Use BPDO for nested transactions
+     */
+    protected static function _setup_db() {
+        if (!is_object(static::$_db)) {
+            $connection_string = static::$_config['connection_string'];
+            $username = static::$_config['username'];
+            $password = static::$_config['password'];
+            $driver_options = static::$_config['driver_options'];
+            $db = new BPDO($connection_string, $username, $password, $driver_options); //UPDATED
+            $db->setAttribute(PDO::ATTR_ERRMODE, static::$_config['error_mode']);
+            static::set_db($db);
+        }
     }
 
     /**
@@ -1414,9 +1496,9 @@ class BORM extends ORMWrapper
      * PDO object as its database connection.
      */
     public static function set_db($db) {
-        self::$_db = $db;
+        static::$_db = $db;
         if (!is_null($db)) {
-            self::_setup_identifier_quote_character();
+            static::_setup_identifier_quote_character();
         }
     }
 
@@ -1501,6 +1583,7 @@ class BORM extends ORMWrapper
     public function save()
     {
         BDb::connect($this->_writeDbName);
+        $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
         return parent::save();
     }
 
@@ -1579,21 +1662,21 @@ class BModel extends Model
     /**
     * PDO object of read DB connection
     *
-    * @return PDO
+    * @return BPDO
     */
     public static function readDb()
     {
-        return BDb::connect(self::$_readDbName);
+        return BDb::connect(static::$_readDbName);
     }
 
     /**
     * PDO object of write DB connection
     *
-    * @return PDO
+    * @return BPDO
     */
     public static function writeDb()
     {
-        return BDb::connect(self::$_writeDbName);
+        return BDb::connect(static::$_writeDbName);
     }
 
     /**
@@ -1612,11 +1695,11 @@ class BModel extends Model
         }
         $class_name = BClassRegistry::i()->className($class_name); // ADDED
 
-        $table_name = self::_get_table_name($class_name);
+        $table_name = static::_get_table_name($class_name);
         $wrapper = BORM::for_table($table_name); // CHANGED
         $wrapper->set_class_name($class_name);
-        $wrapper->use_id_column(self::_get_id_column_name($class_name));
-        $wrapper->set_rw_db_names(self::$_readDbName, self::$_writeDbName); // ADDED
+        $wrapper->use_id_column(static::_get_id_column_name($class_name));
+        $wrapper->set_rw_db_names(static::$_readDbName, static::$_writeDbName); // ADDED
         return $wrapper;
     }
 
@@ -1672,7 +1755,7 @@ class BModel extends Model
     */
     public static function create($data=null)
     {
-        return self::factory()->create($data);
+        return static::factory()->create($data);
     }
 
     /**
@@ -1684,7 +1767,7 @@ class BModel extends Model
     */
     public static function load($id, $field=null)
     {
-        $orm = self::factory();
+        $orm = static::factory();
         if (is_array($id)) {
             foreach ($id as $k=>$v) {
                 $orm->where($k, $v);
@@ -1717,8 +1800,8 @@ class BModel extends Model
     */
     public static function update_many(array $data, $cond)
     {
-        $db = BDb::connect(self::$_writeDbName);
-        $table = BDb::t(self::_get_table_name(get_called_class()));
+        $db = BDb::connect(static::$_writeDbName);
+        $table = BDb::t(static::_get_table_name(get_called_class()));
         $update = array();
         $params = array();
         foreach ($data as $k=>$v) {
@@ -1739,8 +1822,8 @@ class BModel extends Model
     */
     public static function delete_many($conds)
     {
-        $db = BDb::connect(self::$_writeDbName);
-        $table = BDb::t(self::_get_table_name(get_called_class()));
+        $db = BDb::connect(static::$_writeDbName);
+        $table = BDb::t(static::_get_table_name(get_called_class()));
         list($where, $params) = BDb::where($conds);
         $query = "DELETE FROM {$table} WHERE {$where}";
         return $db->prepare($query)->execute($params);
@@ -1816,7 +1899,7 @@ class BDbModule extends BModel
 
     public static function init()
     {
-        $table = BDb::t(self::$_table);
+        $table = BDb::t(static::$_table);
         BDb::connect();
         if (!BDb::ddlTableExists($table)) {
             BDb::run("
@@ -1839,7 +1922,7 @@ class BDbModuleConfig extends BModel
 
     public static function init()
     {
-        $table = BDb::t(self::$_table);
+        $table = BDb::t(static::$_table);
         $modTable = BDb::t('buckyball_module');
         if (!BDb::ddlTableExists($table)) {
             BDb::run("
@@ -1906,14 +1989,14 @@ class BClassRegistry extends BClass
     */
     public static function i($new=false, array $args=array(), $forceRefresh=false)
     {
-        if (!self::$_instance) {
-            self::$_instance = new BClassRegistry;
+        if (!static::$_instance) {
+            static::$_instance = new BClassRegistry;
         }
         if (!$new && !$forceRefresh) {
-            return self::$_instance;
+            return static::$_instance;
         }
         $class = BApp::compat('PHP5.3') ? get_called_class() : __CLASS__;
-        return self::$_instance->instance($class, $args, !$new);
+        return static::$_instance->instance($class, $args, !$new);
     }
 
     /**
@@ -2735,15 +2818,15 @@ class BModuleRegistry extends BClass
     public function currentModule($name=BNULL)
     {
         if (BNULL===$name) {
-            return self::$_currentModuleName ? $this->module(self::$_currentModuleName) : false;
+            return static::$_currentModuleName ? $this->module(static::$_currentModuleName) : false;
         }
-        self::$_currentModuleName = $name;
+        static::$_currentModuleName = $name;
         return $this;
     }
 
     static public function currentModuleName()
     {
-        return self::$_currentModuleName;
+        return static::$_currentModuleName;
     }
 }
 
@@ -4182,7 +4265,7 @@ class BView extends BClass
     static public function factory($viewname, array $params)
     {
         $params['viewname'] = $viewname;
-        $className = !empty($params['view_class']) ? $params['view_class'] : self::$_defaultClass;
+        $className = !empty($params['view_class']) ? $params['view_class'] : static::$_defaultClass;
         $view = BClassRegistry::i()->instance($className, $params);
         return $view;
     }

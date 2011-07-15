@@ -88,8 +88,8 @@
          * class bound to the supplied table name.
          */
         public static function for_table($table_name) {
-            self::_setup_db();
-            return new self($table_name);
+            static::_setup_db();
+            return new static($table_name);
         }
 
         /**
@@ -178,9 +178,9 @@
          * the _class_name_to_table_name method method.
          */
         protected static function _get_table_name($class_name) {
-            $specified_table_name = self::_get_static_property($class_name, '_table');
+            $specified_table_name = static::_get_static_property($class_name, '_table');
             if (is_null($specified_table_name)) {
-                return self::_class_name_to_table_name($class_name);
+                return static::_class_name_to_table_name($class_name);
             }
             return $specified_table_name;
         }
@@ -199,7 +199,7 @@
          * not set on the class, returns null.
          */
         protected static function _get_id_column_name($class_name) {
-            return self::_get_static_property($class_name, '_id_column', self::DEFAULT_ID_COLUMN);
+            return static::_get_static_property($class_name, '_id_column', static::DEFAULT_ID_COLUMN);
         }
 
         /**
@@ -212,7 +212,7 @@
             if (!is_null($specified_foreign_key_name)) {
                 return $specified_foreign_key_name;
             }
-            return $table_name . self::DEFAULT_FOREIGN_KEY_SUFFIX;
+            return $table_name . static::DEFAULT_FOREIGN_KEY_SUFFIX;
         }
 
         /**
@@ -225,10 +225,10 @@
          * its find_one or find_many methods are called.
          */
         public static function factory($class_name) {
-            $table_name = self::_get_table_name($class_name);
+            $table_name = static::_get_table_name($class_name);
             $wrapper = ORMWrapper::for_table($table_name);
             $wrapper->set_class_name($class_name);
-            $wrapper->use_id_column(self::_get_id_column_name($class_name));
+            $wrapper->use_id_column(static::_get_id_column_name($class_name));
             return $wrapper;
         }
 
@@ -239,9 +239,9 @@
          * the method chain.
          */
         protected function _has_one_or_many($associated_class_name, $foreign_key_name=null) {
-            $base_table_name = self::_get_table_name(get_class($this));
-            $foreign_key_name = self::_build_foreign_key_name($foreign_key_name, $base_table_name);
-            return self::factory($associated_class_name)->where($foreign_key_name, $this->id());
+            $base_table_name = static::_get_table_name(get_class($this));
+            $foreign_key_name = static::_build_foreign_key_name($foreign_key_name, $base_table_name);
+            return static::factory($associated_class_name)->where($foreign_key_name, $this->id());
         }
 
         /**
@@ -265,10 +265,10 @@
          * the foreign key is on the base table.
          */
         protected function belongs_to($associated_class_name, $foreign_key_name=null) {
-            $associated_table_name = self::_get_table_name($associated_class_name);
-            $foreign_key_name = self::_build_foreign_key_name($foreign_key_name, $associated_table_name);
+            $associated_table_name = static::_get_table_name($associated_class_name);
+            $foreign_key_name = static::_build_foreign_key_name($foreign_key_name, $associated_table_name);
             $associated_object_id = $this->$foreign_key_name;
-            return self::factory($associated_class_name)->where_id_is($associated_object_id);
+            return static::factory($associated_class_name)->where_id_is($associated_object_id);
         }
 
         /**
@@ -288,19 +288,19 @@
             }
 
             // Get table names for each class
-            $base_table_name = self::_get_table_name($base_class_name);
-            $associated_table_name = self::_get_table_name($associated_class_name);
-            $join_table_name = self::_get_table_name($join_class_name);
+            $base_table_name = static::_get_table_name($base_class_name);
+            $associated_table_name = static::_get_table_name($associated_class_name);
+            $join_table_name = static::_get_table_name($join_class_name);
 
             // Get ID column names
-            $base_table_id_column = self::_get_id_column_name($base_class_name);
-            $associated_table_id_column = self::_get_id_column_name($associated_class_name);
+            $base_table_id_column = static::_get_id_column_name($base_class_name);
+            $associated_table_id_column = static::_get_id_column_name($associated_class_name);
 
             // Get the column names for each side of the join table
-            $key_to_base_table = self::_build_foreign_key_name($key_to_base_table, $base_table_name);
-            $key_to_associated_table = self::_build_foreign_key_name($key_to_associated_table, $associated_table_name);
+            $key_to_base_table = static::_build_foreign_key_name($key_to_base_table, $base_table_name);
+            $key_to_associated_table = static::_build_foreign_key_name($key_to_associated_table, $associated_table_name);
 
-            return self::factory($associated_class_name)
+            return static::factory($associated_class_name)
                 ->select("{$associated_table_name}.*")
                 ->join($join_table_name, array("{$associated_table_name}.{$associated_table_id_column}", '=', "{$join_table_name}.{$key_to_associated_table}"))
                 ->where("{$join_table_name}.{$key_to_base_table}", $this->id());

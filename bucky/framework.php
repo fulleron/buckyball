@@ -4797,7 +4797,7 @@ class BSession extends BClass
     *
     * @var bool
     */
-    protected $_open = false;
+    protected $_phpSessionOpen = false;
 
     /**
     * Whether any session variable was changed since last session save
@@ -4822,9 +4822,9 @@ class BSession extends BClass
     * @param string|null $id Optional session ID
     * @param bool $close Close and unlock PHP session immediately
     */
-    public function open($id=null, $close=true)
+    public function open($id=null, $autoClose=true)
     {
-        if ($this->data) {
+        if (!is_null($this->data)) {
             return $this;
         }
         $config = BConfig::i()->get('cookie');
@@ -4834,7 +4834,7 @@ class BSession extends BClass
             session_id($id);
         }
         @session_start();
-        $this->_open = true;
+        $this->_phpSessionOpen = true;
         $this->_sessionId = session_id();
 
         $namespace = $config['session_namespace'];
@@ -4854,9 +4854,9 @@ class BSession extends BClass
             date_default_timezone_set($this->data['_timezone']);
         }
 
-        if ($close) {
+        if ($autoClose) {
             session_write_close();
-            $this->_open = false;
+            $this->_phpSessionOpen = false;
         }
         return $this;
     }
@@ -4872,7 +4872,6 @@ class BSession extends BClass
         if (BNULL===$flag) {
             return $this->_dirty;
         }
-        $this->open();
         $this->_dirty = $flag;
         return $this;
     }
@@ -4886,7 +4885,6 @@ class BSession extends BClass
     */
     public function data($key=BNULL, $value=BNULL)
     {
-        $this->open();
         if (BNULL===$key) {
             return $this->data;
         }
@@ -4907,7 +4905,6 @@ class BSession extends BClass
     */
     public function &dataToUpdate()
     {
-        $this->open();
         $this->dirty(true);
         return $this->data;
     }
@@ -4922,13 +4919,13 @@ class BSession extends BClass
         if (!$this->dirty()) {
             return;
         }
-        if (!$this->_open) {
+        if (!$this->_phpSessionOpen) {
             session_start();
         }
         $namespace = BConfig::i()->get('cookie/session_namespace');
         $_SESSION[$namespace] = $this->data;
         session_write_close();
-        $this->_open = false;
+        $this->_phpSessionOpen = false;
         $this->dirty(false);
         return $this;
     }

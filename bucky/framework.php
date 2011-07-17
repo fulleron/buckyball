@@ -1940,15 +1940,24 @@ class BModel extends Model
         return $this;
     }
 
-    public function relatedModel($modelClass, $idValue, $foreignIdField='id', $autoCreate=false)
+    /**
+    * Retrieve persistent related model object
+    *
+    * @param string $modelClass
+    * @param mixed $idValue related object id value or complex where expression
+    * @param boolean $autoCreate if record doesn't exist yet, create a new object
+    * @result BModel
+    */
+    public function relatedModel($modelClass, $idValue, $autoCreate=false)
     {
         $cacheKey = $modelClass;
         $model = $this->instanceCache($cacheKey);
         if (is_null($model)) {
             if (is_array($idValue)) {
                 $model = $modelClass::factory()->where_complex($idValue)->find_one();
+                if ($model) $model->afterLoad();
             } else {
-                $model = $modelClass::load($idValue, $foreignIdField);
+                $model = $modelClass::load($idValue, 'id');
             }
             if ($autoCreate && !$model) {
                 if (is_array($idValue)) {
@@ -1960,6 +1969,18 @@ class BModel extends Model
             $this->instanceCache($cacheKey, $model);
         }
         return $model;
+    }
+
+    /**
+    * Retrieve persistent related model objects collection
+    *
+    * @param string $modelClass
+    * @param mixed $idValue complex where expression
+    * @result array
+    */
+    public function relatedCollection($modelClass, $where)
+    {
+
     }
 
     public function __destruct()

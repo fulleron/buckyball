@@ -667,7 +667,7 @@ class BUtil
         }
         $result = array();
         if (!$inverse) {
-            foreach ($fields as $k) $result[$k] = $source[$k];
+            foreach ($fields as $k) $result[$k] = isset($source[$k]) ? $source[$k] : null;
         } else {
             foreach ($source as $k=>$v) if (!in_array($k, $fields)) $result[$k] = $v;
         }
@@ -1725,16 +1725,17 @@ class BModel extends Model
     *
     * @param string|array $key
     * @param mixed $value
+    * @param mixed $flag if true, add to existing value; if null, update only if currently not set
     * @return BModel
     */
-    public function set($key, $value=null, $add=false)
+    public function set($key, $value=null, $flag=false)
     {
         if (is_array($key)) {
             foreach ($key as $k=>$v) {
                 parent::set($k, $v);
             }
         } else {
-            if ($add) {
+            if (true===$flag) {
                 $oldValue = $this->get($key);
                 if (is_array($oldValue)) {
                     $oldValue[] = $value;
@@ -1743,7 +1744,9 @@ class BModel extends Model
                     $value += $oldValue;
                 }
             }
-            parent::set($key, $value);
+            if (!is_null($flag) || is_null($this->get($key))) {
+                parent::set($key, $value);
+            }
         }
         return $this;
     }
@@ -1755,7 +1758,18 @@ class BModel extends Model
     */
     public static function create($data=null)
     {
-        return static::factory()->create($data);
+        $record = static::factory()->create($data);
+        $record->afterCreate();
+        return $record;
+    }
+
+    /**
+    * Placeholder for after creae callback
+    *
+    */
+    public function afterCreate()
+    {
+        return $this;
     }
 
     /**
@@ -1772,12 +1786,34 @@ class BModel extends Model
             foreach ($id as $k=>$v) {
                 $orm->where($k, $v);
             }
-            return $orm->find_one();
+            $record = $orm->find_one();
         } elseif (is_null($field)) {
-            return $orm->find_one($id);
+            $record = $orm->find_one($id);
         } else {
-            return $orm->where($field, $id)->find_one();
+            $record = $orm->where($field, $id)->find_one();
         }
+        if ($record) $record->afterLoad();
+        return $record;
+    }
+
+    /**
+    * Placeholder for after load callback
+    *
+    * @return BModel
+    */
+    public function afterLoad()
+    {
+        return $this;
+    }
+
+    /**
+    * Placeholder for before save callback
+    *
+    * @return boolean whether to continue with save
+    */
+    public function beforeSave()
+    {
+        return true;
     }
 
     /**
@@ -1787,7 +1823,39 @@ class BModel extends Model
     */
     public function save()
     {
+        if (!$this->beforeSave()) {
+            return $this;
+        }
         parent::save();
+        $this->afterSave();
+        return $this;
+    }
+
+    /**
+    * Placeholder for after save callback
+    *
+    */
+    public function afterSave()
+    {
+        return $this;
+    }
+
+    /**
+    * Placeholder for before delete callback
+    *
+    * @return boolean whether to continue with delete
+    */
+    public function beforeDelete()
+    {
+        return true;
+    }
+
+    public function delete()
+    {
+        if (!$this->beforeDelete()) {
+            return $this;
+        }
+        parent::delete();
         return $this;
     }
 
@@ -1872,7 +1940,7 @@ class BModel extends Model
         return $this;
     }
 
-    public function relatedModel($modelClass, $idValue, $foreignIdField='id')
+    public function relatedModel($modelClass, $idValue, $foreignIdField='id', $autoCreate=false)
     {
         $cacheKey = $modelClass;
         $model = $this->instanceCache($cacheKey);
@@ -1881,6 +1949,13 @@ class BModel extends Model
                 $model = $modelClass::factory()->where_complex($idValue)->find_one();
             } else {
                 $model = $modelClass::load($idValue, $foreignIdField);
+            }
+            if ($autoCreate && !$model) {
+                if (is_array($idValue)) {
+                    $model = $modelClass::create($idValue);
+                } else {
+                    $model = $modelClass::create(array($foreignIdField=>$idValue));
+                }
             }
             $this->instanceCache($cacheKey, $model);
         }

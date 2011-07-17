@@ -45,17 +45,12 @@ class BClass
     /**
     * Fallback singleton/instance factory
     *
-    * Works correctly only in PHP 5.3.0
-    *
     * @param bool $new if true returns a new instance, otherwise singleton
     * @param array $args
     * @return BClass
     */
     public static function i($new=false, array $args=array())
     {
-        if (!BApp::compat('PHP5.3')) {
-            throw new BException(BApp::t('Implicit instance generation is not supported before PHP 5.3.0. Please add i() method to your class'));
-        }
         return BClassRegistry::i()->instance(get_called_class(), $args, !$new);
     }
 }
@@ -271,6 +266,7 @@ class BDebug extends BClass
 {
     protected $_startTime;
     protected $_events = array();
+    protected $_mode = 'development';
 
     /**
     * Contructor, remember script start time for delta timestamps
@@ -280,6 +276,7 @@ class BDebug extends BClass
     public function __construct()
     {
         $this->_startTime = microtime(true);
+        BEventRegistry::i()->observe('BResponse::output.after', array($this, 'afterOutput'));
     }
 
     /**
@@ -292,6 +289,15 @@ class BDebug extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    public function mode($mode=null)
+    {
+        if (is_null($mode)) {
+            return $this->_mode;
+        }
+        $this->_mode = $mode;
+        return $this;
+    }
+
     /**
     * Log event for future analysis
     *
@@ -300,6 +306,9 @@ class BDebug extends BClass
     */
     public function log($event)
     {
+        if ($this->_mode!=='debug' || $this->_mode!=='development') {
+            return $this;
+        }
         $event['ts'] = microtime(true);
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
@@ -310,6 +319,13 @@ class BDebug extends BClass
         }
         $this->_events[] = $event;
         return $this;
+    }
+
+    public function dumpLog()
+    {
+        echo "<hr><pre>";
+        print_r($this->_events);
+        echo "</pre>";
     }
 
     /**
@@ -333,6 +349,13 @@ class BDebug extends BClass
             echo '<pre>'; print_r($var->as_array()); echo '</pre>';
         } else {
             echo '<pre>'; print_r($var); echo '</pre>';
+        }
+    }
+
+    public function afterOutput()
+    {
+        if ($this->_mode=='debug') {
+            $this->dumpLog();
         }
     }
 }
@@ -1682,15 +1705,12 @@ class BModel extends Model
     /**
     * Model instance factory
     *
-    * @param string|null $class_name automatic class name (null) works only in PHP 5.3.0
+    * @param string|null $class_name optional
     * @return BORM
     */
     public static function factory($class_name=null)
     {
         if (is_null($class_name)) { // ADDED
-            if (!BApp::compat('PHP5.3')) {
-                throw new BException(BApp::t('Empty class name supported only for PHP 5.3.0'));
-            }
             $class_name = get_called_class();
         }
         $class_name = BClassRegistry::i()->className($class_name); // ADDED
@@ -1706,17 +1726,12 @@ class BModel extends Model
     /**
     * Fallback singleton/instance factory
     *
-    * Works correctly only in PHP 5.3.0
-    *
     * @param bool $new if true returns a new instance, otherwise singleton
     * @param array $args
     * @return BClass
     */
     public static function i($new=false, array $args=array())
     {
-        if (!BApp::compat('PHP5.3')) {
-            throw new BException(BApp::t('Implicit instance generation is not supported before PHP 5.3.0. Please add i() method to your class'));
-        }
         return BClassRegistry::instance(get_called_class(), $args, !$new);
     }
 
@@ -2070,7 +2085,7 @@ class BClassRegistry extends BClass
         if (!$new && !$forceRefresh) {
             return static::$_instance;
         }
-        $class = BApp::compat('PHP5.3') ? get_called_class() : __CLASS__;
+        $class = get_called_class();
         return static::$_instance->instance($class, $args, !$new);
     }
 
@@ -2441,8 +2456,6 @@ class BClassDecorator
 
     /**
     * Static method override facility
-    *
-    * Depends on PHP 5.3.0
     *
     * @param mixed $name
     * @param mixed $args
@@ -2839,7 +2852,7 @@ class BModuleRegistry extends BClass
                 // check if this child has other parents. if not, add it to the root modules list
                 if (!$childModule->parents) array_push($rootModules, $childModule);
             }
-            // removed processed module from list
+            // remove processed module from list
             unset($modules[$n->name]);
         }
         $this->_modules = $sorted;
@@ -4076,6 +4089,8 @@ class BResponse extends BClass
         echo $this->_contentPrefix;
         print_r($this->_content);
         echo $this->_contentSuffix;
+
+        BEventRegistry::i()->dispatch('BResponse::output.after');
 
         if ($this->_contentType=='text/html' && !BRequest::i()->xhr()) {
             echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);

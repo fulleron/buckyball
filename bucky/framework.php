@@ -1149,10 +1149,11 @@ class BDb
     /**
     * Get table field info
     *
-    * @param string $fullFieldName
+    * @param string $fullTableName
+    * @param string $fieldName if null return all fields
     * @return mixed
     */
-    public static function ddlFieldInfo($fullTableName, $fieldName)
+    public static function ddlFieldInfo($fullTableName, $fieldName=BNULL)
     {
         $a = explode('.', $fullTableName);
         $dbName = empty($a[1]) ? static::dbName() : $a[0];
@@ -1167,7 +1168,7 @@ class BDb
                 $tableFields[$f->Field] = $f;
             }
         }
-        return isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null;
+        return BNULL===$fieldName ? $tableFields : (isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null);
     }
 
     /**
@@ -1552,7 +1553,6 @@ class BORM extends ORMWrapper
         BDb::connect($this->_readDbName);
         return parent::_run();
     }
-
     /**
     * Add a column to the list of columns returned by the SELECT
     * query. This defaults to '*'. The second optional argument is
@@ -1578,19 +1578,42 @@ class BORM extends ORMWrapper
         return parent::select($column, $alias);
     }
 
+    public function iterate($callback)
+    {
+        BDb::connect($this->_readDbName);
+        $query = $this->_build_select();
+        static::_log_query($query, $this->_values);
+        $statement = static::$_db->prepare($query);
+try {
+        $statement->execute($this->_values);
+} catch (Exception $e) {
+echo $query;
+print_r($e);
+exit;
+}
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $model = $this->_create_model_instance($this->_create_instance_from_row($row));
+            call_user_func($callback, $model);
+        }
+        return $this;
+    }
+
     public function where_complex($conds, $or=false)
     {
         list($where, $params) = BDb::where($conds, $or);
         return $this->where_raw($where, $params);
     }
 
-    public function find_many_assoc($key=null, $labelColumn=null)
+    public function find_many_assoc($key=null, $labelColumn=null, $options=array())
     {
         $objects = $this->find_many();
         $array = array();
         $idColumn = !empty($key) ? $key : $this->_get_id_column_name();
         foreach ($objects as $r) {
-            $array[$r->$idColumn] = is_null($labelColumn) ? $r : $r->$labelColumn;
+            $key = $r->$idColumn;
+            if (!empty($options['key_lower'])) $key = strtolower($key);
+            if (!empty($options['key_trim'])) $key = trim($key);
+            $array[$key] = is_null($labelColumn) ? $r : $r->$labelColumn;
         }
         return $array;
     }
@@ -2727,6 +2750,50 @@ class BModuleRegistry extends BClass
     }
 
     /**
+    * Register or return module object
+    *
+    * @param string $modName
+    * @param array|callback $params if not supplied, return module by name
+    * @return BModule
+    */
+    public function module($modName, $params=BNULL)
+    {
+        if (BNULL===$params) {
+            return isset($this->_modules[$modName]) ? $this->_modules[$modName] : null;
+        }
+
+        if (is_callable($params)) {
+            $params = array('bootstrap'=>array('callback'=>$params));
+        } else {
+            $params = (array)$params;
+        }
+        $params['name'] = $modName;
+        if (!empty($this->_modules[$modName])) {
+            $rootDir = $this->_modules[$modName]->root_dir;
+            $file = $this->_modules[$modName]->bootstrap['file'];
+            throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
+        }
+        if (empty($params['bootstrap']['callback'])) {
+            BApp::log('Missing bootstrap information, skipping module: %s', $modName);
+            return $this;
+        }
+        if (empty($params['bootstrap']['file'])) {
+            $params['bootstrap']['file'] = null;
+        }
+        if (empty($params['root_dir'])) {
+            $params['root_dir'] = '.';
+        }
+        if (empty($params['view_root_dir'])) {
+            $params['view_root_dir'] = '.';
+        }
+        if (empty($params['base_url'])) {
+            $params['base_url'] = BApp::baseUrl();
+        }
+        $this->_modules[$modName] = BModule::i(true, $params);
+        return $this;
+    }
+
+    /**
     * Scan for module manifests in a folder
     *
     * Scan can be performed multiple times on different locations, order doesn't matter for dependencies
@@ -2754,18 +2821,11 @@ class BModuleRegistry extends BClass
             }
             $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$params) {
-                if (!empty($this->_modules[$modName])) {
-                    throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
-                }
-                if (empty($params['bootstrap']['file']) || empty($params['bootstrap']['callback'])) {
-                    BApp::log('Missing vital information, skipping module: %s', $modName);
-                    continue;
-                }
                 $params['name'] = $modName;
                 $params['root_dir'] = $rootDir;
                 $params['view_root_dir'] = $rootDir;
                 $params['base_url'] = BApp::baseUrl().'/'.(!empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file));
-                $this->_modules[$modName] = BModule::i(true, $params);
+                $this->module($modName, $params);
             }
         }
         return $this;
@@ -2894,24 +2954,15 @@ class BModuleRegistry extends BClass
                 continue;
             }
             $this->currentModule($mod->name);
-            include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
+            if (!empty($mod->bootstrap['file'])) {
+                include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
+            }
             BApp::log('Start bootstrap for %s', array($mod->name));
             call_user_func($mod->bootstrap['callback']);
             BApp::log('End bootstrap for %s', array($mod->name));
         }
         BModuleRegistry::i()->currentModule(null);
         return $this;
-    }
-
-    /**
-    * Return module object based on module name
-    *
-    * @param string $name
-    * @return BModule
-    */
-    public function module($name)
-    {
-        return isset($this->_modules[$name]) ? $this->_modules[$name] : null;
     }
 
     /**
@@ -3194,9 +3245,13 @@ class BFrontController extends BClass
             $callback = $routeNode['observers'][0]['callback'];
             $params = isset($routeNode['params_values']) ? $routeNode['params_values'] : array();
         }
+        $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
+        if (is_callable($callback)) {
+            call_user_func_array($callback, $args);
+            return;
+        }
         $controllerName = $callback[0];
         $actionName = $callback[1];
-        $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
         $controller = null;
         $attempts = 0;
         $request = BRequest::i();
@@ -3308,6 +3363,16 @@ class BActionController extends BClass
     */
     public function tryDispatch($actionName, $args)
     {
+        if (is_callable($actionName)) {
+            try {
+                call_user_func($actionName);
+            } catch (DActionException $e) {
+                $this->sendError($e->getMessage());
+            } catch (Exception $e) {
+echo "<pre>"; print_r($e); echo "</pre>";
+            }
+            return $this;
+        }
         $actionMethod = $this->_actionMethodPrefix.$actionName;
         if (!is_callable(array($this, $actionMethod))) {
             $this->forward('noroute');
@@ -4113,7 +4178,7 @@ class BResponse extends BClass
 
         BEventRegistry::i()->dispatch('BResponse::output.after');
 
-        if ($this->_contentType=='text/html' && !BRequest::i()->xhr()) {
+        if ($this->_contentType=='text/html' && BDebug::i()->mode()=='debug' && !BRequest::i()->xhr()) {
             echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
         }
         $this->shutdown(__METHOD__);

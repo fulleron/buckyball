@@ -616,6 +616,28 @@ class BUtil
     }
 
     /**
+    * Generate random string based on pattern
+    *
+    * Syntax: {ULD10}-{U5}
+    * - U: upper case letters
+    * - L: lower case letters
+    * - D: digits
+    *
+    * @param string $pattern
+    * @return string
+    */
+    public static function randomPattern($pattern)
+    {
+        static $chars = array('L'=>'bcdfghjkmnpqrstvwxyz', 'U'=>'BCDFGHJKLMNPQRSTVWXYZ', 'D'=>'123456789');
+
+        while (preg_match('#\{([ULD]+)([0-9]+)\}#i', $pattern, $m)) {
+            for ($i=0, $c=''; $i<strlen($m[1]); $i++) $c .= $chars[$m[1][$i]];
+            $pattern = preg_replace('#'.preg_quote($m[0]).'#', BUtil::randomString($m[2], $c), $pattern, 1);
+        }
+        return $pattern;
+    }
+
+    /**
     * Generate salted hash
     *
     * @param string $string original text
@@ -1230,7 +1252,7 @@ class BDb
         // initialize module tables
         BDbModule::init();
         // find all installed modules
-        $dbModules = BDbModule::factory()->find_many();
+        $dbModules = BDbModule::i()->factory()->find_many();
         // collect module code versions
         foreach (static::$_migration as $modName=>&$m) {
             $m['code_version'] = $modReg->module($modName)->version;
@@ -1284,7 +1306,7 @@ class BDb
             return true;
         }
         // creating module before running install, so the module configuration values can be created within script
-        $mod = BDbModule::create(array(
+        $mod = BDbModule::i()->create(array(
             'module_name' => $modName,
             'schema_version' => $version,
             'last_upgrade' => BDb::now(),
@@ -1340,7 +1362,7 @@ class BDb
         }
         // update module schema version to new one
         static::$_migration[$modName]['schema_version'] = $toVersion;
-        BDbModule::load($modName, 'module_name')->set(array(
+        BDbModule::i()->load($modName, 'module_name')->set(array(
             'schema_version' => $toVersion,
             'last_upgrade' => BDb::now(),
         ))->save();
@@ -1375,7 +1397,7 @@ class BDb
             BDb::run($callback);
         }
         // delete module schema version from db, related configuration entries will be deleted
-        BDbModule::load($modName, 'module_name')->delete();
+        BDbModule::i()->load($modName, 'module_name')->delete();
         return true;
     }
 }
@@ -1677,6 +1699,31 @@ exit;
         return BDb::t(parent::_get_table_name($class_name));
     }
 
+    /**
+    * Set page constraints on collection for use in grids
+    *
+    * @param array $r
+    * @return array
+    */
+    public function grid_data($r=BNULL)
+    {
+        if (BNULL===$r) $r = BRequest::i()->get(); // GET request
+        $s = array( // state
+            'q' => !empty($r['q']) ? $r['q'] : null, // search query
+            'p' => !empty($r['p']) ? $r['p'] : 1, // page
+            'ps' => !empty($r['ps']) ? $r['ps'] : 100, // page size
+            's' => !empty($r['s']) ? $r['s'] : '', // sort by
+            'sd' => !empty($r['sd']) ? $r['sd'] : 'asc', // sort dir
+        );
+        $cntOrm = clone $this; // clone ORM to count
+        $s['c'] = $cntOrm->count(); // row count
+        unset($cntOrm); // free mem
+        $s['mp'] = floor($s['c']/$s['ps'])+1; // max page
+        if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
+        if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
+        $this->limit($s['ps'])->offset(($s['p']-1)*$s['ps']); // limit rows to page
+        return array('state'=>$s, 'rows'=>$this->find_many()); // return state and data
+    }
 }
 
 /**
@@ -1755,7 +1802,7 @@ class BModel extends Model
     */
     public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::instance(get_called_class(), $args, !$new);
+        return BClassRegistry::i()->instance(get_called_class(), $args, !$new);
     }
 
     /**
@@ -1796,7 +1843,7 @@ class BModel extends Model
     */
     public static function create($data=null)
     {
-        $record = static::factory()->create($data);
+        $record = static::i()->factory()->create($data);
         $record->afterCreate();
         return $record;
     }
@@ -1819,7 +1866,7 @@ class BModel extends Model
     */
     public static function load($id, $field=null)
     {
-        $orm = static::factory();
+        $orm = static::i()->factory();
         if (is_array($id)) {
             foreach ($id as $k=>$v) {
                 $orm->where($k, $v);
@@ -1992,16 +2039,16 @@ class BModel extends Model
         $model = $this->instanceCache($cacheKey);
         if (is_null($model)) {
             if (is_array($idValue)) {
-                $model = $modelClass::factory()->where_complex($idValue)->find_one();
+                $model = $modelClass::i()->factory()->where_complex($idValue)->find_one();
                 if ($model) $model->afterLoad();
             } else {
-                $model = $modelClass::load($idValue, 'id');
+                $model = $modelClass::i()->load($idValue, 'id');
             }
             if ($autoCreate && !$model) {
                 if (is_array($idValue)) {
-                    $model = $modelClass::create($idValue);
+                    $model = $modelClass::i()->create($idValue);
                 } else {
-                    $model = $modelClass::create(array($foreignIdField=>$idValue));
+                    $model = $modelClass::i()->create(array($foreignIdField=>$idValue));
                 }
             }
             $this->instanceCache($cacheKey, $model);
@@ -2443,6 +2490,9 @@ class BClassRegistry extends BClass
 
         // get original or overridden class instance
         $className = $this->className($class);
+        if (!class_exists($className, true)) {
+            throw new BException(BApp::t('Invalid class name: %s', $className));
+        }
         $instance = new $className($args);
 
         // if any methods are overridden or augmented, get decorator
@@ -2799,7 +2849,7 @@ class BModuleRegistry extends BClass
     * Scan can be performed multiple times on different locations, order doesn't matter for dependencies
     * Wildcards are accepted.
     *
-    * @see BApp::load() for examples
+    * @see BApp::i()->load() for examples
     *
     * @param string $source
     */
@@ -3049,6 +3099,13 @@ class BFrontController extends BClass
     protected $_defaultRoutes = array('default'=>array('callback'=>array('BActionController', 'noroute')));
 
     /**
+    * Current route, empty if front controller dispatch wasn't run yet
+    *
+    * @var mixed
+    */
+    protected $_currentRoute;
+
+    /**
     * Tree of routes
     *
     * @var array
@@ -3141,6 +3198,7 @@ class BFrontController extends BClass
         $routeNode = $this->_routeTree[$method];
         $routeName = array($method.' ');
         $params = array();
+
         foreach ($requestArr as $i=>$r) {
             $r1 = $r==='' ? '__EMPTY__' : $r;
             $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null;
@@ -3152,7 +3210,9 @@ class BFrontController extends BClass
             }
             if (!empty($routeNode['/:'])) {
                 foreach ($routeNode['/:'] as $k=>$n) {
-                    if (!is_null($nextR) && !empty($n['/'][$nextR]) || is_null($nextR) && !empty($n['observers'])) {
+                    if (!is_null($nextR) && (!empty($n['/:']) || !empty($n['/'][$nextR]))
+                        || is_null($nextR) && !empty($n['observers'])
+                    ) {
                         $params[substr($k, 1)] = $r;
                         $routeNode = $n;
                         continue 2;
@@ -4087,16 +4147,16 @@ class BResponse extends BClass
     * @param string $filename
     * @return exit
     */
-    public function sendFile($filename)
+    public function sendFile($source, $filename=null)
     {
         BSession::i()->close();
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
         header('Content-Type: application/octet-stream');
-        header('Content-Length: ' . filesize($filename));
+        header('Content-Length: ' . filesize($source));
         header('Last-Modified: ' . date('r'));
-        header('Content-Disposition: attachment; filename=' . basename($filename));
-        $fs = fopen($filename, 'rb');
+        header('Content-Disposition: attachment; filename=' . $filename ? $filename : basename($source));
+        $fs = fopen($source, 'rb');
         $fd = fopen('php://output', 'wb');
         while (!feof($fs)) fwrite($fd, fread($fs, 8192));
         fclose($fs);
@@ -4320,7 +4380,7 @@ class BLayout extends BClass
             $params['module_name'] = $moduleName;
         }
         if (!isset($this->_views[$viewname]) || !empty($params['view_class'])) {
-            $this->_views[$viewname] = BView::factory($viewname, $params);
+            $this->_views[$viewname] = BView::i()->factory($viewname, $params);
         } else {
             $this->_views[$viewname]->param($params);
         }
@@ -4360,16 +4420,14 @@ class BLayout extends BClass
     {
         if (is_null($routeName)) {
             $route = BFrontController::i()->currentRoute();
-            if (!$route) {
-                return array();
+            if ($route) {
+                $routeName = $route['route_name'];
+                $args['route_name'] = $route['route_name'];
             }
-            $routeName = $route['route_name'];
-            $args['route_name'] = $route['route_name'];
-            $result = BEventRegistry::i()->dispatch("BLayout::{$eventName}", $args);
-        } else {
-            $result = array();
         }
-        $routes = is_string($routeName) ? explode(',', $routeName) : $routeName;
+        $result = BEventRegistry::i()->dispatch("BLayout::{$eventName}", $args);
+
+        $routes = is_string($routeName) ? explode(',', $routeName) : (array)$routeName;
         foreach ($routes as $route) {
             $args['route_name'] = $route;
             $r2 = BEventRegistry::i()->dispatch("BLayout::{$eventName}: {$route}", $args);
@@ -4669,8 +4727,8 @@ class BViewHead extends BView
     * @var array
     */
     protected $_defaultTag = array(
-        'js' => '<script type="text/javascript" src="%s"></script>',
-        'css' => '<link rel="stylesheet" type="text/css" href="%s"/>',
+        'js' => '<script type="text/javascript" src="%s" %a></script>',
+        'css' => '<link rel="stylesheet" type="text/css" href="%s" %a/>',
     );
 
     /**
@@ -4735,16 +4793,18 @@ class BViewHead extends BView
             $args = $this->_elements[$type][$name];
             $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $file = !empty($args['file']) ? $args['file'] : $name;
-            if (strpos($file, 'http:')===false && strpos($file, 'https:')===false) {
+            $params = !empty($args['params']) ? $args['params'] : '';
+            if (strpos($file, 'http:')===false && strpos($file, 'https:')===false && $file[0]!=='/') {
                 $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;
                 $baseUrl = $module ? $module->base_url : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
-            $result = str_replace('%s', htmlspecialchars($file), $tag);
+            $tag = str_replace('%s', htmlspecialchars($file), $tag);
+            $tag = str_replace('%a', $params, $tag);
             if (!empty($args['if'])) {
-                $result = '<!--[if '.$args['if'].']>'.$result.'<![endif]-->';
+                $tag = '<!--[if '.$args['if'].']>'.$tag.'<![endif]-->';
             }
-            return $result;
+            return $tag;
         } elseif (!is_array($args)) {
             throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }

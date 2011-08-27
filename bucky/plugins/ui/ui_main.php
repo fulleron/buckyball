@@ -386,3 +386,52 @@ class BViewGrid extends BView
         return $descrArr ? join("; ", $descrArr) : '';
     }
 }
+
+class BViewJqGrid extends BViewGrid
+{
+    public function jqGridConfig(array $o = array())
+    {
+        $c = $this->gridPrepareConfig($this->grid['config']);
+        $colNames = array();
+        $colModel = array();
+        foreach ($c['columns'] as $k=>$col) {
+            $colNames[] = $col['title'];
+            $col['name'] = $col['field'];
+            $col['index'] = !empty($col['sort_by']) ? $col['sort_by'] : $col['field'];
+            unset($col['field'], $col['sort_by'], $col['title']);
+            $colModel[] = $col;
+        }
+        $result = $o + array(
+            'url' => BApp::baseUrl().'/'.$c['dataUrl'],
+            'datatype' => 'json',
+            'colNames' => $colNames,
+            'colModel' => $colModel,
+            'rowNum' => $c['pageSize'],
+            'rowList' => $c['pageSizeOptions'],
+            'pager' => '#'.$c['id'].'_pager',
+            'sortname' => $c['sort'],
+            'sortorder' => $c['sortDir'],
+        );
+        return $result;
+    }
+
+    public function jqGridData(array $o = array())
+    {
+        $r = BRequest::i()->get();
+        $this->grid['request'] = array(
+            'page' => !empty($r['page']) ? $r['page'] : null,
+            'pageSize' => !empty($r['rows']) ? $r['rows'] : null,
+            'sort' => !empty($r['sidx']) ? $r['sidx'] : null,
+            'sortDir' => !empty($r['sord']) ? $r['sord'] : null,
+            'search' => array('', array()),
+        );
+        $this->gridData(array('no_raw'=>true));
+        $data = array();
+        foreach ($this->result['out'] as $rowId=>$row) {
+            foreach ($row as $colId=>$cell) {
+                $data[$rowId][$colId] = $cell['value'];
+            }
+        }
+        return $data;
+    }
+}

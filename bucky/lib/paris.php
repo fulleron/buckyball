@@ -317,6 +317,7 @@
          * Magic getter method, allows $model->property access to data.
          */
         public function __get($property) {
+if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }
             return $this->orm->get($property);
         }
 

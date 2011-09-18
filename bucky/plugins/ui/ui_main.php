@@ -50,6 +50,13 @@ class BViewGrid extends BView
         }
         $cell = $this->grid['data']['rows'][$rowId][$colId];
         */
+        if (!empty($this->grid['config']['columns'][$colId]['render'])) {
+            $render = $this->grid['config']['columns'][$colId]['render'];
+            if (is_callable($render)) {
+                return call_user_func($render, $cell, $rowId, $colId);
+            }
+        }
+
         return nl2br($this->q(!empty($cell['value']) ? $cell['value'] : ''));
     }
 
@@ -221,6 +228,8 @@ class BViewGrid extends BView
         if (is_string($format)) {
             switch ($format) {
                 case 'boolean': $value = !!$value; break;
+                case 'date': $value = $value ? strftime('%D', strtotime($value)) : ''; break;
+                case 'currency': $value = $value ? '$'.number_format($value, 2) : ''; break;
             }
         } elseif (is_callable($format)) {
             $value = $format($value);

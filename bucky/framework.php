@@ -264,6 +264,11 @@ class BException extends Exception
 */
 class BDebug extends BClass
 {
+    const MODE_DEBUG = 'debug',
+        MODE_DEVELOPMENT = 'development',
+        MODE_STAGING = 'staging',
+        MODE_PRODUCTION = 'production';
+
     protected $_startTime;
     protected $_events = array();
     protected $_mode = 'development';
@@ -298,6 +303,12 @@ class BDebug extends BClass
         return $this;
     }
 
+    public function is($modes)
+    {
+        if (is_string($modes)) $modes = explode(',', $modes);
+        return in_array($this->_mode, $modes);
+    }
+
     /**
     * Log event for future analysis
     *
@@ -306,17 +317,19 @@ class BDebug extends BClass
     */
     public function log($event)
     {
-        if ($this->_mode!=='debug' || $this->_mode!=='development') {
+        if (!$this->is('debug,development')) {
             return $this;
         }
         $event['ts'] = microtime(true);
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
         }
+        /*
         if (class_exists('BFireLogger')) {
             BFireLogger::channel('buckyball')->log('debug', $event);
             return $this;
         }
+        */
         $this->_events[] = $event;
         return $this;
     }
@@ -1120,6 +1133,7 @@ class BDb
                     $params[] = $v;
                 }
             }
+#print_r($where); print_r($params);
             return array(join($or ? " OR " : " AND ", $where), $params);
         }
         throw new BException("Invalid where parameter");
@@ -1600,7 +1614,16 @@ class BORM extends ORMWrapper
         return parent::select($column, $alias);
     }
 
-    public function iterate($callback)
+    /**
+    * Execute the query and return PDO statement object
+    *
+    * Usage:
+    *   $sth = $orm->execute();
+    *   while ($row = $sth->fetch(PDO::FETCH_ASSOC)) { ... }
+    *
+    * @return PDOStatement
+    */
+    public function execute()
     {
         BDb::connect($this->_readDbName);
         $query = $this->_build_select();
@@ -1613,19 +1636,52 @@ echo $query;
 print_r($e);
 exit;
 }
+        return $statement;
+    }
+
+    public function row_to_model($row)
+    {
+        return $this->_create_model_instance($this->_create_instance_from_row($row));
+    }
+
+    /**
+    * Iterate over select result with callback on each row
+    *
+    * @param mixed $callback
+    * @return BORM
+    */
+    public function iterate($callback)
+    {
+        $statement = $this->execute();
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
-            $model = $this->_create_model_instance($this->_create_instance_from_row($row));
+            $model = $this->row_to_model($row);
             call_user_func($callback, $model);
         }
         return $this;
     }
 
+    /**
+    * Add a complex where condition
+    *
+    * @see BDb::where
+    * @param array $conds
+    * @param boolean $or
+    * @return BORM
+    */
     public function where_complex($conds, $or=false)
     {
         list($where, $params) = BDb::where($conds, $or);
         return $this->where_raw($where, $params);
     }
 
+    /**
+    * Find many records and return as associated array
+    *
+    * @param string $key
+    * @param string|null $labelColumn
+    * @param array $options
+    * @return array
+    */
     public function find_many_assoc($key=null, $labelColumn=null, $options=array())
     {
         $objects = $this->find_many();
@@ -1705,7 +1761,7 @@ exit;
     * @param array $r
     * @return array
     */
-    public function grid_data($r=BNULL)
+    public function paginate($r=BNULL)
     {
         if (BNULL===$r) $r = BRequest::i()->get(); // GET request
         $s = array( // state
@@ -1724,6 +1780,11 @@ exit;
         $this->limit($s['ps'])->offset(($s['p']-1)*$s['ps']); // limit rows to page
         return array('state'=>$s, 'rows'=>$this->find_many()); // return state and data
     }
+
+    public function __destruct()
+    {
+        unset($this->_data);
+    }
 }
 
 /**
@@ -1731,19 +1792,27 @@ exit;
 */
 class BModel extends Model
 {
+    protected static $_dbName = 'DEFAULT';
     /**
     * DB name for reads. Set in class declaration
     *
     * @var string|null
     */
-    protected static $_readDbName = 'DEFAULT';
+    protected static $_readDbName = null;
 
     /**
     * DB name for writes. Set in class declaration
     *
     * @var string|null
     */
-    protected static $_writeDbName = 'DEFAULT';
+    protected static $_writeDbName = null;
+
+    /**
+    * Final table name cache with prefix
+    *
+    * @var string
+    */
+    protected static $_tableName = null;
 
     /**
     * Cache of instance level data values (related models)
@@ -1759,7 +1828,7 @@ class BModel extends Model
     */
     public static function readDb()
     {
-        return BDb::connect(static::$_readDbName);
+        return BDb::connect(static::$_readDbName ? static::$_readDbName : static::$_dbName);
     }
 
     /**
@@ -1769,7 +1838,7 @@ class BModel extends Model
     */
     public static function writeDb()
     {
-        return BDb::connect(static::$_writeDbName);
+        return BDb::connect(static::$_writeDbName ? static::$_writeDbName : static::$_dbName);
     }
 
     /**
@@ -1789,7 +1858,10 @@ class BModel extends Model
         $wrapper = BORM::for_table($table_name); // CHANGED
         $wrapper->set_class_name($class_name);
         $wrapper->use_id_column(static::_get_id_column_name($class_name));
-        $wrapper->set_rw_db_names(static::$_readDbName, static::$_writeDbName); // ADDED
+        $wrapper->set_rw_db_names( // ADDED
+            static::$_readDbName ? static::$_readDbName : static::$_dbName,
+            static::$_writeDbName ? static::$_writeDbName : static::$_dbName
+        );
         return $wrapper;
     }
 
@@ -1868,10 +1940,8 @@ class BModel extends Model
     {
         $orm = static::i()->factory();
         if (is_array($id)) {
-            foreach ($id as $k=>$v) {
-                $orm->where($k, $v);
-            }
-            $record = $orm->find_one();
+            #foreach ($id as $k=>$v) $orm->where($k, $v);
+            $record = $orm->where_complex($id)->find_one();
         } elseif (is_null($field)) {
             $record = $orm->find_one($id);
         } else {
@@ -1945,16 +2015,39 @@ class BModel extends Model
     }
 
     /**
+    * Run raw SQL with optional parameters
+    *
+    * @param string $sql
+    * @param array $params
+    * @return PDOStatement
+    */
+    public static function run_sql($sql, $params=array())
+    {
+        return static::writeDb()->prepare($sql)->execute((array)$params);
+    }
+
+    /**
+    * Get table name for the model
+    *
+    * @return string
+    */
+    public static function table()
+    {
+        if (!static::$_tableName) {
+            static::$_tableName = BDb::t(static::_get_table_name(get_called_class()));
+        }
+        return static::$_tableName;
+    }
+
+    /**
     * Update one or many records of the class
     *
     * @param array $data
     * @param string|array $cond where conditions (@see BDb::where)
     * @return boolean
     */
-    public static function update_many(array $data, $cond)
+    public static function update_many(array $data, $conds)
     {
-        $db = BDb::connect(static::$_writeDbName);
-        $table = BDb::t(static::_get_table_name(get_called_class()));
         $update = array();
         $params = array();
         foreach ($data as $k=>$v) {
@@ -1962,9 +2055,8 @@ class BModel extends Model
             $params[] = $v;
         }
         list($where, $p) = BDb::where($conds);
-        $params = array_merge($params, $p);
-        $query = "UPDATE {$table} SET ".join(', ', $update)." WHERE {$where}";
-        return $db->prepare($query)->execute($params);
+        return static::run_sql("UPDATE ".static::table()." SET ".join(', ', $update)
+            ." WHERE {$where}", array_merge($params, $p));
     }
 
     /**
@@ -1975,11 +2067,8 @@ class BModel extends Model
     */
     public static function delete_many($conds)
     {
-        $db = BDb::connect(static::$_writeDbName);
-        $table = BDb::t(static::_get_table_name(get_called_class()));
         list($where, $params) = BDb::where($conds);
-        $query = "DELETE FROM {$table} WHERE {$where}";
-        return $db->prepare($query)->execute($params);
+        return static::run_sql("DELETE FROM ".static::table()." WHERE {$where}", $params);
     }
 
     /**
@@ -2888,6 +2977,8 @@ class BModuleRegistry extends BClass
     */
     public function checkDepends()
     {
+        $config = BConfig::i();
+        $bootstrapConfig = $config->get('bootstrap');
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
             if (!empty($mod->depends)) {
@@ -2907,6 +2998,9 @@ class BModuleRegistry extends BClass
                         }
                         $mod->parents[] = $dep['name'];
                         $this->_modules[$dep['name']]->children[] = $modName;
+                        if (!empty($bootstrapConfig['modules'])) {
+                            BConfig::i()->add(array('bootstrap'=>array('depends'=>array($dep['name']))));
+                        }
                     } else {
                         $dep['error'] = array('type'=>'missing');
                     }
@@ -2999,8 +3093,18 @@ class BModuleRegistry extends BClass
     {
         $this->checkDepends();
         $this->sortDepends();
+
+        $config = BConfig::i()->get('bootstrap');
+
         foreach ($this->_modules as $mod) {
             if (!empty($mod->error)) {
+                BApp::log($mod->name.': '.$mod->error);
+                continue;
+            }
+            if (!empty($config['modules'])
+                && !in_array($mod->name, (array)$config['modules'])
+                && !in_array($mod->name, $config['depends'])
+            ) {
                 continue;
             }
             $this->currentModule($mod->name);
@@ -3244,7 +3348,11 @@ class BFrontController extends BClass
     {
         if (is_array($route)) {
             foreach ($route as $a) {
-                $this->route($a[0], $a[1], isset($a[2])?$a[2]:null, isset($a[3])?$a[3]:null);
+                if (is_null($callback)) {
+                    $this->route($a[0], $a[1], isset($a[2])?$a[2]:null, isset($a[3])?$a[3]:null);
+                } else {
+                    $this->route($a, $callback, $args);
+                }
             }
             return;
         }
@@ -4542,6 +4650,23 @@ class BView extends BClass
         return $this;
     }
 
+    public function set($name, $value=null)
+    {
+        if (is_array($name)) {
+            foreach ($name as $k=>$v) {
+                $this->_params['args'][$k] = $v;
+            }
+            return $this;
+        }
+        $this->_params['args'][$name] = $value;
+        return $this;
+    }
+
+    public function get($name)
+    {
+        return isset($this->_params['args'][$name]) ? $this->_params['args'][$name] : null;
+    }
+
     /**
     * Magic method to retrieve argument, accessible from view/template as $this->var
     *
@@ -4550,7 +4675,7 @@ class BView extends BClass
     */
     public function __get($name)
     {
-        return isset($this->_params['args'][$name]) ? $this->_params['args'][$name] : null;
+        return $this->get($name);
     }
 
     /**
@@ -4561,7 +4686,7 @@ class BView extends BClass
     */
     public function __set($name, $value)
     {
-        $this->_params['args'][$name] = $value;
+        return $this->set($name, $value);
     }
 
     /**
@@ -4692,6 +4817,65 @@ class BView extends BClass
             return ' ** ERROR ** ';
         }
         return htmlspecialchars($str);
+    }
+
+    /**
+    * Send email using the content of the view as body using standard PHP mail()
+    *
+    * Templates can include the following syntax for default headers:
+    * - <!--{ From: Support <support@example.com> }-->
+    * - <!--{ Subject: New order notification #<?php echo $this->order_id?> }-->
+    *
+    * $p accepts following parameters:
+    * - to: email OR "name" <email>
+    * - from: email OR "name" <email>
+    * - subject: email subject
+    * - cc: email OR "name" <email> OR array of these
+    * - bcc: same as cc
+    * - reply-to
+    * - return-path
+    *
+    * All parameters are also available in the template as $this->{param}
+    *
+    * @param array|string $p if string, used as "To:" header
+    * @return bool true if successful
+    */
+    public function email($p=array())
+    {
+        static $availHeaders = array('to','from','cc','bcc','reply-to','return-path');
+
+        if (is_string($p)) {
+            $p = array('to'=>$p);
+        }
+
+        $body = $this->render($p);
+        $headers = array();
+        $params = array();
+
+        if (preg_match_all('#<!--\{\s*(.*?):\s*(.*?)\s*\}-->#i', $body, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $lh = strtolower($m[1]);
+                if ($lh=='subject') {
+                    $subject = $m[2];
+                } elseif ($lh=='to') {
+                    $to = $m[2];
+                } elseif (in_array($lh, $availHeaders)) {
+                    $headers[$lh] = $m[1].': '.$m[2];
+                }
+                $body = preg_replace('/'.preg_quote($m[0]).'/', '', $body);
+            }
+        }
+        foreach ($p as $k=>$v) {
+            $lh = strtolower($k);
+            if ($lh=='subject') {
+                $subject = $v;
+            } elseif ($lh=='to') {
+                $to = $v;
+            } elseif (in_array($lh, $availHeaders)) {
+                $headers[$lh] = $k.': '.$v;
+            } elseif ($k=='-f') $params[$k] = $k.' '.$v;
+        }
+        return mail($to, $subject, trim($body), join("\r\n", $headers), join(' ', $params));
     }
 }
 

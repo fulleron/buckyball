@@ -69,10 +69,10 @@ $s = $data['result']['state'];
 <?php foreach ($data['result']['out'] as $rowId=>$row): ?>
     <tr class="<?php echo $rowId%2 ? 'odd' : 'even' ?>">
 <?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array(); ?>
-        <td>
+        <td <?php if (!empty($column['style'])): ?>style="<?php echo is_callable($column['style']) ? call_user_func($column['style'], $row, $colId) : $column['style'] ?>"<?php endif ?> <?php if (!empty($column['class'])): ?>class="<?php echo $column['class'] ?>"<?php endif ?>>
 <?php switch (!empty($column['type']) ? $column['type'] : ''): ?>
 <?php case 'link': ?>
-            <a href="<?php echo $cell['href'] ?>"><?php echo $this->cellData($cell) ?></a>
+            <a href="<?php echo $cell['href'] ?>"><?php echo $this->cellData($cell, $rowId, $colId) ?></a>
 <?php break; case 'actions': ?>
             <?php foreach ($this->rowActions($row) as $a): ?>
                 <a href="<?php echo $a['href'] ?>"><?php echo $a['value']?></a>

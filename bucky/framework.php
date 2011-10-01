@@ -368,7 +368,7 @@ class BDebug extends BClass
     public function afterOutput()
     {
         if ($this->_mode=='debug') {
-            $this->dumpLog();
+            //$this->dumpLog();
         }
     }
 }
@@ -729,6 +729,30 @@ class BUtil
         } else {
             foreach ($source as $k=>$v) if (!in_array($k, $fields)) $result[$k] = $v;
         }
+        return $result;
+    }
+
+    /**
+    * Send simple POST request to external server and retrieve response
+    *
+    * @param string $url
+    * @param array $data
+    * @return string
+    */
+    public static function post($url, $data) {
+        $request = http_build_query($data);
+        $opts = array(
+            'http' => array(
+                'method' => 'POST',
+                'header' => "Content-Type: application/x-www-form-urlencoded\r\n"
+                    ."Content-Length: ".strlen($request)."\r\n",
+                'content' => $request,
+                'timeout' => 5,
+            ),
+        );
+        $context = stream_context_create($opts);
+        $response = file_get_contents($url, false, $context);
+        parse_str($response, $result);
         return $result;
     }
 }
@@ -2155,6 +2179,24 @@ class BModel extends Model
     public function relatedCollection($modelClass, $where)
     {
 
+    }
+
+    /**
+    * Return a member of child collection identified by a field
+    *
+    * @param string $var
+    * @param string|int $id
+    * @param string $idField
+    * @return mixed
+    */
+    public function childById($var, $id, $idField='id')
+    {
+        $collection = $this->$var;
+        if (!$collection) return null;
+        foreach ($collection as $k=>$v) {
+            if ($v->$idField==$id) return $v;
+        }
+        return null;
     }
 
     public function __destruct()
@@ -4009,7 +4051,7 @@ class BRequest extends BClass
         unset($v);
         foreach ($config as $k=>$c) {
             if (!isset($data[$k])) {
-                $data[$k] = is_array($c) ? $c[1] : null;
+                $data[$k] = is_array($c) && isset($c[1]) ? $c[1] : null;
             }
         }
         return $data;
@@ -5480,7 +5522,31 @@ class BLocale extends BClass
     */
     public function datetimeLocalToDb($value)
     {
+        if (is_array($value)) {
+            return array_map(array($this, __METHOD__), $value);
+        }
+        if (!$value) return $value;
         return gmstrftime('%F %T', strtotime($value));
+    }
+
+    /**
+    * Parse user formatted dates into db style within object or array
+    *
+    * @param array|object $request fields to be parsed
+    * @param null|string|array $fields if null, all fields will be parsed, if string, will be split by comma
+    * @return array|object clone of $request with parsed dates
+    */
+    public function parseRequestDates($request, $fields=null)
+    {
+        if (is_string($fields)) $fields = explode(',', $fields);
+        $isObject = is_object($request);
+        $result = $isObject ? clone $request : $request;
+        foreach ($request as $k=>$v) {
+            if (!is_null($fields) && !in_array($k, $fields)) continue;
+            $r = $this->datetimeLocalToDb($v);
+            if ($isObject) $result->$k = $r; else $result[$k] = $r;
+        }
+        return $result;
     }
 
     /**

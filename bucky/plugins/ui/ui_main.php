@@ -316,11 +316,11 @@ class BViewGrid extends BView
                 break;
 
             case 'text-range': case 'number-range': case 'date-range':
-                if (!empty($filters[$fId.'_from'])) {
-                    $this->_processGridFiltersOne($f, 'gte', $filters[$fId.'_from'], $orm);
+                if (!empty($filters[$fId]['from'])) {
+                    $this->_processGridFiltersOne($f, 'gte', $filters[$fId]['from'], $orm);
                 }
-                if (!empty($filters[$fId.'_to'])) {
-                    $this->_processGridFiltersOne($f, 'lte', $filters[$fId.'_to'], $orm);
+                if (!empty($filters[$fId]['to'])) {
+                    $this->_processGridFiltersOne($f, 'lte', $filters[$fId]['to'], $orm);
                 }
                 break;
 

@@ -5,7 +5,7 @@ error_reporting(E_ALL | E_STRICT);
 
 require_once "../../bucky/framework.php";
 
-BDebug::i()->mode('debug');
+#BDebug::i()->mode('debug');
 
 BConfig::i()->addFile('protected/config.json');
 

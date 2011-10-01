@@ -228,7 +228,7 @@ class BViewGrid extends BView
         if (is_string($format)) {
             switch ($format) {
                 case 'boolean': $value = !!$value; break;
-                case 'date': $value = $value ? strftime('%D', strtotime($value)) : ''; break;
+                case 'date': $value = $value ? BLocale::i()->datetimeDbToLocal($value) : ''; break;
                 case 'currency': $value = $value ? '$'.number_format($value, 2) : ''; break;
             }
         } elseif (is_callable($format)) {

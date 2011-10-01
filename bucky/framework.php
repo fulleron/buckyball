@@ -755,6 +755,20 @@ class BUtil
         parse_str($response, $result);
         return $result;
     }
+
+    public static function normalizePath($path)
+    {
+        $path = str_replace('\\', '/', $path);
+        if (strpos($path, '/..')!==false) {
+            $a = explode('/', $path);
+            $b = array();
+            foreach ($a as $p) {
+                if ($p==='..') array_pop($b); else $b[] = $p;
+            }
+            $path = join('/', $b);
+        }
+        return $path;
+    }
 }
 
 /**
@@ -3003,9 +3017,9 @@ class BModuleRegistry extends BClass
             $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$params) {
                 $params['name'] = $modName;
-                $params['root_dir'] = $rootDir;
-                $params['view_root_dir'] = $rootDir;
-                $params['base_url'] = BApp::baseUrl().'/'.(!empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file));
+                $params['root_dir'] = BUtil::normalizePath($rootDir.'/'.(!empty($params['root_dir']) ? $params['root_dir'] : ''));
+                $params['view_root_dir'] = $params['root_dir'];
+                $params['base_url'] = BApp::baseUrl().'/'.BUtil::normalizePath(!empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file));
                 $this->module($modName, $params);
             }
         }
@@ -3151,7 +3165,7 @@ class BModuleRegistry extends BClass
             }
             $this->currentModule($mod->name);
             if (!empty($mod->bootstrap['file'])) {
-                include_once ($mod->root_dir.'/'.$mod->bootstrap['file']);
+                include_once (BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']));
             }
             BApp::log('Start bootstrap for %s', array($mod->name));
             call_user_func($mod->bootstrap['callback']);
@@ -3174,6 +3188,7 @@ class BModuleRegistry extends BClass
     public function currentModule($name=BNULL)
     {
         if (BNULL===$name) {
+#echo '<hr><pre>'; debug_print_backtrace(); echo static::$_currentModuleName.' * '; print_r($this->module(static::$_currentModuleName)); #echo '</pre>';
             return static::$_currentModuleName ? $this->module(static::$_currentModuleName) : false;
         }
         static::$_currentModuleName = $name;
@@ -3183,6 +3198,11 @@ class BModuleRegistry extends BClass
     static public function currentModuleName()
     {
         return static::$_currentModuleName;
+    }
+
+    public function debug()
+    {
+        return $this->_modules;
     }
 }
 
@@ -3195,6 +3215,8 @@ class BModule extends BClass
     public $bootstrap;
     public $version;
     public $root_dir;
+    public $autoload_root_dir;
+    public $autoload_filename_cb;
     public $view_root_dir;
     public $base_url;
     public $depends = array();
@@ -3222,6 +3244,37 @@ class BModule extends BClass
         foreach ($args as $k=>$v) {
             $this->$k = $v;
         }
+    }
+
+    /**
+    * Register
+    *
+    * @param mixed $rootDir
+    * @param mixed $callback
+    */
+    public function autoload($rootDir='', $callback=null)
+    {
+        $this->autoload_root_dir = rtrim((!$rootDir || $rootDir[0]!=='/' && $rootDir[1]!==':' ? $this->root_dir.'/' : '').$rootDir, '/');
+        $this->autoload_filename_cb = $callback;
+        spl_autoload_register(array($this, 'autoloadCallback'), false);
+        return $this;
+    }
+
+    public function autoloadCallback($class)
+    {
+        if ($this->autoload_filename_cb) {
+            $file = call_user_func($this->autoload_filename_cb, $class);
+        } else {
+            $file = str_replace('_', '/', $class).'.php';
+        }
+        if ($file) {
+            if ($file[0]!=='/' && $file[1]!==':') {
+                $file = $this->autoload_root_dir.'/'.$file;
+            }
+            include ($file);
+            return true;
+        }
+        return false;
     }
 }
 
@@ -4479,6 +4532,7 @@ class BLayout extends BClass
     public function allViews($rootDir, $prefix='')
     {
         $rootDir = BModuleRegistry::i()->currentModule()->root_dir.'/'.$rootDir;
+
         $this->viewRootDir($rootDir);
         $files = glob($rootDir.'/*');
         if (!$files) {

@@ -1274,7 +1274,9 @@ class BDb
         if (is_null($moduleName)) {
             $moduleName = BModuleRegistry::currentModuleName();
         }
-        static::$_migration[$moduleName]['script'] = $script;
+        $module = BModuleRegistry::i()->module($moduleName);
+        $dbName = $module->db_name ? $module->db_name : 'DEFAULT';
+        static::$_migration[$dbName][$moduleName]['script'] = $script;
     }
 
     /**
@@ -1302,40 +1304,53 @@ class BDb
         }
         $modReg = BModuleRegistry::i();
         // initialize module tables
-        BDbModule::init();
         // find all installed modules
-        $dbModules = BDbModule::i()->factory()->find_many();
-        // collect module code versions
-        foreach (static::$_migration as $modName=>&$m) {
-            $m['code_version'] = $modReg->module($modName)->version;
-        }
-        unset($m);
-        // collect module db schema versions
-        foreach ($dbModules as $m) {
-            static::$_migration[$m->module_name]['schema_version'] = $m->schema_version;
-        }
-        // run required migration scripts
-        foreach (static::$_migration as $moduleName=>$mod) {
-            $modReg->currentModule($moduleName);
-            $script = $mod['script'];
-            /*
-            try {
-                BDb::transaction();
-            */
-                if (is_callable($script)) {
-                    call_user_func($script);
-                } elseif (is_file($script)) {
-                    include_once($script);
-                } elseif (is_dir($script)) {
-                    //TODO: process directory of migration scripts
+        foreach (static::$_migration as $dbName=>$modules) {
+            // collect module code versions
+            foreach ($modules as $modName=>&$m) {
+                if (($version = $modReg->module($modName)->version)) {
+                    $m['code_version'] = $version;
+                } else {
+                    unset($modules[$modName]);
                 }
-            /*
-                BDb::commit();
-            } catch (Exception $e) {
-                BDb::rollback();
-                throw $e;
             }
-            */
+            unset($m);
+
+            if (!$modules) continue; // skip database if none of the modules needs migration
+
+            BDb::connect($dbName);
+            BDbModule::init();
+            $dbModules = BDbModule::i()->factory()->find_many();
+
+            // collect module db schema versions
+            foreach ($dbModules as $m) {
+                $modules[$m->module_name]['schema_version'] = $m->schema_version;
+            }
+
+            // run required migration scripts
+            foreach ($modules as $modName=>$mod) {
+                $modReg->currentModule($modName);
+                $script = $mod['script'];
+                $module = $modReg->module($modName);
+                /*
+                try {
+                    BDb::transaction();
+                */
+                    if (is_callable($script)) {
+                        call_user_func($script);
+                    } elseif (is_file($module->root_dir.'/'.$script)) {
+                        include_once($module->root_dir.'/'.$script);
+                    } elseif (is_dir($module->root_dir.'/'.$script)) {
+                        //TODO: process directory of migration scripts
+                    }
+                /*
+                    BDb::commit();
+                } catch (Exception $e) {
+                    BDb::rollback();
+                    throw $e;
+                }
+                */
+            }
         }
         $modReg->currentModule(null);
     }
@@ -3165,7 +3180,7 @@ class BModuleRegistry extends BClass
             }
             $this->currentModule($mod->name);
             if (!empty($mod->bootstrap['file'])) {
-                include_once (BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']));
+                require (BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']));
             }
             BApp::log('Start bootstrap for %s', array($mod->name));
             call_user_func($mod->bootstrap['callback']);
@@ -3214,6 +3229,7 @@ class BModule extends BClass
     public $name;
     public $bootstrap;
     public $version;
+    public $db_name;
     public $root_dir;
     public $autoload_root_dir;
     public $autoload_filename_cb;

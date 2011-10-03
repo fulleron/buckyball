@@ -1750,6 +1750,26 @@ exit;
     }
 
     /**
+     * Check whether the given field (or object itself) has been changed since this
+     * object was saved.
+     */
+    public function is_dirty($key=null) {
+        return is_null($key) ? !empty($this->_dirty_fields) : isset($this->_dirty_fields[$key]);
+    }
+
+    /**
+     * Set a property to a particular value on this object.
+     * Flags that property as 'dirty' so it will be saved to the
+     * database when save() is called.
+     */
+    public function set($key, $value) {
+        if (!array_key_exists($key, $this->_data) || $this->_data[$key] !== $value) {
+            $this->_dirty_fields[$key] = $value;
+        }
+        $this->_data[$key] = $value;
+    }
+
+    /**
      * Save any fields which have been modified on this object
      * to the database.
      *
@@ -1974,6 +1994,19 @@ class BModel extends Model
     }
 
     /**
+    * Add a value to field
+    *
+    * @param string $key
+    * @param int|float $value
+    * @return BModel
+    */
+    public function add($key, $value=1)
+    {
+        $this->set($key, $this->get($key)+$value);
+        return $this;
+    }
+
+    /**
     * Placeholder for after creae callback
     *
     */
@@ -2022,6 +2055,13 @@ class BModel extends Model
     public function beforeSave()
     {
         return true;
+    }
+
+    /**
+     * Check whether the given field has changed since the object was created or saved
+     */
+    public function is_dirty($property=null) {
+        return $this->orm->is_dirty($property);
     }
 
     /**
@@ -2175,9 +2215,9 @@ class BModel extends Model
     * @param boolean $autoCreate if record doesn't exist yet, create a new object
     * @result BModel
     */
-    public function relatedModel($modelClass, $idValue, $autoCreate=false)
+    public function relatedModel($modelClass, $idValue, $autoCreate=false, $cacheKey=null)
     {
-        $cacheKey = $modelClass;
+        $cacheKey = $cacheKey ? $cacheKey : $modelClass;
         $model = $this->instanceCache($cacheKey);
         if (is_null($model)) {
             if (is_array($idValue)) {
@@ -3367,8 +3407,8 @@ class BFrontController extends BClass
         $node =& $this->_routeTree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
-            if ($r!=='' && $r[0]===':') {
-                $node =& $node['/:'][$r];
+            if ($r!=='' && ($r[0]===':' || $r[0]==='*')) {
+                $node =& $node['/'.$r[0]][$r];
             } else {
                 $node =& $node['/'][$r==='' ? '__EMPTY__' : $r];
             }
@@ -3422,6 +3462,13 @@ class BFrontController extends BClass
                 $routeNode = $routeNode['/'][$r1];
                 $routeName[] = $r;
                 break;
+            }
+            if (!empty($routeNode['/*'])) {
+                foreach ($routeNode['/*'] as $k=>$n) {
+                    $params[substr($k, 1)] = join('/', array_slice($requestArr, $i));
+                    $routeNode = $n;
+                    break 2;
+                }
             }
             if (!empty($routeNode['/:'])) {
                 foreach ($routeNode['/:'] as $k=>$n) {
@@ -4577,9 +4624,10 @@ class BLayout extends BClass
     *   - template: optional, for templated views
     *   - view_class: optional, for custom views
     *   - module_name: optional, to use template from a specific module
+    * @param boolean $reset update or reset view params //TODO
     * @return BView|BLayout
     */
-    public function view($viewname, $params=BNULL)
+    public function view($viewname, $params=BNULL, $reset=false)
     {
         if (is_array($viewname)) {
             foreach ($viewname as $i=>$view) {

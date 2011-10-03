@@ -15,6 +15,9 @@
         "firelogger": {
             "bootstrap": {"file":"firelogger/firelogger_wrapper.php", "callback":"BFireLogger::init"},
             "version": "1.0.0"
+        },
+        "SolrPhpClient": {
+            "bootstrap": {"file":"SolrPhpClient/bootstrap.php", "callback":"BSolrPhpClient::bootstrap"}
         }
     }
 }

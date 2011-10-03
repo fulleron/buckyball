@@ -1997,12 +1997,18 @@ class BModel extends Model
     * Add a value to field
     *
     * @param string $key
-    * @param int|float $value
+    * @param mixed $value
     * @return BModel
     */
-    public function add($key, $value=1)
+    public function add($key, $increment=1)
     {
-        $this->set($key, $this->get($key)+$value);
+        $value = $this->get($key);
+        if (is_array($value)) {
+            $value[] = $increment;
+        } else {
+            $value += $increment;
+        }
+        $this->set($key, $value);
         return $this;
     }
 

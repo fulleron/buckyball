@@ -16,9 +16,11 @@
 */
 
 /**
-* bucky/app.php
+* bucky/framework.php
 *
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
+*
+* @todo move all debugging into separate module, and override core classes
 */
 
 /**
@@ -882,7 +884,7 @@ class BDb
     protected static $_defaultDbName = 'DEFAULT';
 
     /**
-    * DB name which is currently referenced in static::$_db
+    * DB name which is currently referenced in BORM::$_db
     *
     * @var string
     */
@@ -962,8 +964,7 @@ class BDb
         }
         if (!empty(static::$_namedDbs[$name])) {
             static::$_currentDbName = $name;
-            static::$_db = static::$_namedDbs[$name];
-            static::$_config = static::$_namedDbConfig[$name];
+            BORM::set_db(static::$_namedDbs[$name], static::$_namedDbConfig[$name]);
             return BORM::get_db();
         }
         $config = BConfig::i()->get($name===static::$_defaultDbName ? 'db' : 'db/named/'.$name);
@@ -1480,6 +1481,7 @@ class BDb
 /**
 * Enhanced PDO class to allow for transaction nesting for mysql and postgresql
 *
+* @see http://us.php.net/manual/en/pdo.connections.php#94100
 * @see http://www.kennynet.co.uk/2008/12/02/php-pdo-nested-transactions/
 */
 class BPDO extends PDO
@@ -1489,6 +1491,24 @@ class BPDO extends PDO
 
     // The current transaction level.
     protected $_transLevel = 0;
+
+    public static function exception_handler($exception)
+    {
+        // Output the exception details
+        die('Uncaught exception: '. $exception->getMessage());
+    }
+
+    public function __construct($dsn, $username='', $password='', $driver_options=array())
+    {
+        // Temporarily change the PHP exception handler while we . . .
+        set_exception_handler(array(__CLASS__, 'exception_handler'));
+
+        // . . . create a PDO object
+        parent::__construct($dsn, $username, $password, $driver_options);
+
+        // Change the exception handler back to whatever it was before
+        restore_exception_handler();
+    }
 
     protected function _nestable() {
         return in_array($this->getAttribute(PDO::ATTR_DRIVER_NAME),
@@ -1616,7 +1636,10 @@ class BORM extends ORMWrapper
      * This is public in case the ORM should use a ready-instantiated
      * PDO object as its database connection.
      */
-    public static function set_db($db) {
+    public static function set_db($db, $config=null) {
+        if (!is_null($config)) {
+            static::$_config = array_merge(static::$_config, $config);
+        }
         static::$_db = $db;
         if (!is_null($db)) {
             static::_setup_identifier_quote_character();
@@ -1960,6 +1983,7 @@ class BModel extends Model
         }
         $class_name = BClassRegistry::i()->className($class_name); // ADDED
 
+        static::readDb();
         $table_name = static::_get_table_name($class_name);
         $wrapper = BORM::for_table($table_name); // CHANGED
         $wrapper->set_class_name($class_name);
@@ -3525,9 +3549,9 @@ class BModule extends BClass
                 $file = $this->autoload_root_dir.'/'.$file;
             }
             include ($file);
-            return true;
+            //return true;
         }
-        return false;
+        //return false;
     }
 }
 

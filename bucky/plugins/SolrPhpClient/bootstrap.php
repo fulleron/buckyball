@@ -4,6 +4,6 @@ class BSolrPhpClient extends BClass
 {
     static public function bootstrap()
     {
-        BModuleRegistry::i()->currentModule()->autoload('');
+        BModuleRegistry::i()->currentModule()->autoload();
     }
 }

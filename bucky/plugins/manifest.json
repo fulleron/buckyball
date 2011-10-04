@@ -1,23 +1,28 @@
 {
     "modules": {
         "phpQuery": {
-            "bootstrap": {"file":"phpQuery/phpQuery_wrapper.php", "callback":"BphpQuery::init"},
+            "root_dir": "phpQuery",
+            "bootstrap": {"file":"phpQuery_wrapper.php", "callback":"BphpQuery::init"},
             "version": "0.9.5"
         },
         "buckyball.ui": {
-            "bootstrap": {"file":"ui/ui_main.php", "callback":"BuckyUI::init"},
+            "root_dir": "ui",
+            "bootstrap": {"file":"ui_main.php", "callback":"BuckyUI::init"},
             "version": "0.0.1"
         },
         "buckyball.modadmin": {
-            "bootstrap": {"file":"modadmin/modadmin_main.php", "callback":"BuckyModAdmin::init"},
+            "root_dir": "modadmin",
+            "bootstrap": {"file":"modadmin_main.php", "callback":"BuckyModAdmin::init"},
             "version": "0.0.1"
         },
         "firelogger": {
-            "bootstrap": {"file":"firelogger/firelogger_wrapper.php", "callback":"BFireLogger::init"},
+            "root_dir": "firelogger",
+            "bootstrap": {"file":"firelogger_wrapper.php", "callback":"BFireLogger::init"},
             "version": "1.0.0"
         },
         "SolrPhpClient": {
-            "bootstrap": {"file":"SolrPhpClient/bootstrap.php", "callback":"BSolrPhpClient::bootstrap"}
+            "root_dir": "SolrPhpClient",
+            "bootstrap": {"file":"bootstrap.php", "callback":"BSolrPhpClient::bootstrap"}
         }
     }
 }

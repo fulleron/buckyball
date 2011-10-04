@@ -21,17 +21,17 @@ class Blog
     {
         BFrontController::i()
         // public access
-            ->route('GET /', array('Blog_Public', 'index'))
-            ->route('GET /posts/:post_id', array('Blog_Public', 'post'))
-            ->route('POST /posts/:post_id/comments/', array('Blog_Public', 'new_comment'))
+            ->route('GET /', 'Blog_Public.index')
+            ->route('GET /posts/:post_id', 'Blog_Public.post')
+            ->route('POST /posts/:post_id/comments/', 'Blog_Public.new_comment')
 
         // admin access
-            ->route('POST /login', array('Blog_Admin', 'login'))
-            ->route('POST /posts/', array('Blog_Admin', 'new_post'))
-            ->route('POST /posts/:post_id', array('Blog_Admin', 'update_post'))
-            ->route('POST /posts/:post_id/comments/:com_id', array('Blog_Admin', 'update_comment'))
-            ->route('GET /comments/', array('Blog_Admin', 'comments'))
-            ->route('GET /logout', array('Blog_Admin', 'logout'))
+            ->route('POST /login', 'Blog_Admin.login')
+            ->route('POST /posts/', 'Blog_Admin.new_post')
+            ->route('POST /posts/:post_id', 'Blog_Admin.update_post')
+            ->route('POST /posts/:post_id/comments/:com_id', 'Blog_Admin.update_comment')
+            ->route('GET /comments/', 'Blog_Admin.comments')
+            ->route('GET /logout', 'Blog_Admin.logout')
         ;
 
         BLayout::i()

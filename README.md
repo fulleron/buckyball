@@ -3,6 +3,7 @@
 ## Main goals ##
 
 * PHP is fun again.
+* Complication of implementation should be proportional to complexity of specification.
 * Decoupling everything that should not be coupled.
 * Providing more flexibility than Magento framework, but much more efficiently.
 * In development mode logging which module/file changes what.

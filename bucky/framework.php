@@ -45,13 +45,20 @@ class BClass
     /**
     * Fallback singleton/instance factory
     *
-    * @param bool $new if true returns a new instance, otherwise singleton
+    * @param bool|object $new if true returns a new instance, otherwise singleton
+    *                         if object, returns singleton of the same class
     * @param array $args
     * @return BClass
     */
     public static function i($new=false, array $args=array())
     {
-        return BClassRegistry::i()->instance(get_called_class(), $args, !$new);
+        if (is_object($new)) {
+            $class = get_class($new);
+            $new = false;
+        } else {
+            $class = get_called_class();
+        }
+        return BClassRegistry::i()->instance($class, $args, !$new);
     }
 }
 
@@ -336,7 +343,8 @@ class BDebug extends BClass
 
     public function dumpLog()
     {
-        echo "<hr><pre>";
+        echo '<hr><pre style="border:solid 1px #f00; background:#fff; text-align:left; width:100%">';
+        print_r(BORM::get_query_log());
         print_r($this->_events);
         echo "</pre>";
     }
@@ -368,7 +376,7 @@ class BDebug extends BClass
     public function afterOutput()
     {
         if ($this->_mode=='debug') {
-            //$this->dumpLog();
+            #$this->dumpLog();
         }
     }
 }
@@ -3095,14 +3103,16 @@ class BModuleRegistry extends BClass
     public function checkDepends()
     {
         $config = BConfig::i();
-        $bootstrapConfig = $config->get('bootstrap');
+        $reqModules = $config->get('bootstrap/modules');
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
-            if (!empty($mod->depends)) {
+            foreach ($mod->depends as &$dep) {
+                if (is_string($dep)) {
+                    $dep = array('name'=>$dep);
+                }
+            }
+            if ((empty($reqModules) || in_array($modName, $reqModules)) && !empty($mod->depends)) {
                 foreach ($mod->depends as &$dep) {
-                    if (is_string($dep)) {
-                        $dep = array('name'=>$dep);
-                    }
                     if (!empty($this->_modules[$dep['name']])) {
                         if (!empty($dep['version'])) {
                             $depVer = $dep['version'];
@@ -3115,7 +3125,7 @@ class BModuleRegistry extends BClass
                         }
                         $mod->parents[] = $dep['name'];
                         $this->_modules[$dep['name']]->children[] = $modName;
-                        if (!empty($bootstrapConfig['modules'])) {
+                        if (!empty($reqModules)) {
                             BConfig::i()->add(array('bootstrap'=>array('depends'=>array($dep['name']))));
                         }
                     } else {
@@ -3578,6 +3588,10 @@ class BFrontController extends BClass
             $params = isset($routeNode['params_values']) ? $routeNode['params_values'] : array();
         }
         $args = !empty($routeNode['args']) ? $routeNode['args'] : array();
+        if (is_string($callback)) {
+            $r = explode('.', $callback);
+            if (sizeof($r)==2) $callback = $r;
+        }
         if (is_callable($callback)) {
             call_user_func_array($callback, $args);
             return;
@@ -4680,6 +4694,21 @@ class BLayout extends BClass
     }
 
     /**
+    * Clone view object to another name
+    *
+    * @param string $from
+    * @param string $to
+    * @return BView
+    */
+    public function cloneView($from, $to=BNULL)
+    {
+        if (BNULL===$to) $to = $from.'-copy';
+        $this->_views[$to] = clone $this->_views[$from];
+        $this->_views[$to]->view_name = $to;
+        return $this->_views[$to];
+    }
+
+    /**
     * Dispatch layout event, for both general observers and route specific observers
     *
     * Observers should watch for these events:
@@ -4772,7 +4801,7 @@ class BView extends BClass
     */
     static public function factory($viewname, array $params)
     {
-        $params['viewname'] = $viewname;
+        $params['view_name'] = $viewname;
         $className = !empty($params['view_class']) ? $params['view_class'] : static::$_defaultClass;
         $view = BClassRegistry::i()->instance($className, $params);
         return $view;

@@ -2947,6 +2947,19 @@ class BEventRegistry extends BClass
     }
 
     /**
+    * Alias for observe()
+    *
+    * @param string|array $eventName
+    * @param mixed $callback
+    * @param array $args
+    * @return BEventRegistry
+    */
+    public function on($eventName, $callback=null, $args=array())
+    {
+        return $this->observe($eventName, $callback, $args);
+    }
+
+    /**
     * Dispatch event observers
     *
     * @param string $eventName
@@ -2965,6 +2978,12 @@ class BEventRegistry extends BClass
                 if (!empty($observer['args'])) {
                     $args = array_merge($observer['args'], $args);
                 }
+                if (is_string($observer['callback'])) {
+                    $r = explode('.', $observer['callback']);
+                    if (sizeof($r)==2) {
+                        $observer['callback'] = array($r[0]::i(), $r[1]);
+                    }
+                }
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
                     $observer['callback'][0] = BClassRegistry::i()->instance($observer['callback'][0], array(), true);
                 }
@@ -2978,6 +2997,18 @@ class BEventRegistry extends BClass
             BModuleRegistry::i()->currentModule(null);
         }
         return $result;
+    }
+
+    /**
+    * Alias for dispatch()
+    *
+    * @param string|array $eventName
+    * @param array $args
+    * @return array Collection of results from observers
+    */
+    public function fire($eventName, $args=array())
+    {
+        return $this->dispatch($eventName, $args);
     }
 }
 

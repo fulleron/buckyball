@@ -1740,7 +1740,7 @@ exit;
     *
     * @param string $key
     * @param string|null $labelColumn
-    * @param array $options
+    * @param array $options (key_lower, key_trim)
     * @return array
     */
     public function find_many_assoc($key=null, $labelColumn=null, $options=array())
@@ -1896,6 +1896,31 @@ class BModel extends Model
     protected static $_tableName = null;
 
     /**
+    * Whether to enable automatic model caching on load
+    * if array, auto cache only if loading by one of these fields
+    *
+    * @var boolean|array
+    */
+    protected static $_cacheAuto = false;
+
+    /**
+    * Fields used in cache, that require values to be case insensitive or trimmed
+    *
+    * - key_lower
+    * - key_trim (TODO)
+    *
+    * @var array
+    */
+    protected static $_cacheFlags = array();
+
+    /**
+    * Cache of model instances of this class (for models that makes sense to keep cache)
+    *
+    * @var array
+    */
+    protected $_cache = array();
+
+    /**
     * Cache of instance level data values (related models)
     *
     * @var array
@@ -1990,6 +2015,18 @@ class BModel extends Model
     }
 
     /**
+    * Add a value to field
+    *
+    * @param string $key
+    * @param mixed $value
+    * @return BModel
+    */
+    public function add($key, $increment=1)
+    {
+        return $this->set($key, $increment, true);
+    }
+
+    /**
     * Create a new instance of the model
     *
     * @param null|array $data
@@ -1999,25 +2036,6 @@ class BModel extends Model
         $record = static::i()->factory()->create($data);
         $record->afterCreate();
         return $record;
-    }
-
-    /**
-    * Add a value to field
-    *
-    * @param string $key
-    * @param mixed $value
-    * @return BModel
-    */
-    public function add($key, $increment=1)
-    {
-        $value = $this->get($key);
-        if (is_array($value)) {
-            $value[] = $increment;
-        } else {
-            $value += $increment;
-        }
-        $this->set($key, $value);
-        return $this;
     }
 
     /**
@@ -2038,6 +2056,14 @@ class BModel extends Model
     */
     public static function load($id, $field=null)
     {
+        if (is_null($field)) {
+            $field = static::_get_id_column_name(get_called_class());
+        }
+
+        $key = $id;
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        if (!empty(static::i()->_cache[$field][$id])) return static::i()->_cache[$field][$key];
+
         $orm = static::i()->factory();
         if (is_array($id)) {
             #foreach ($id as $k=>$v) $orm->where($k, $v);
@@ -2047,7 +2073,12 @@ class BModel extends Model
         } else {
             $record = $orm->where($field, $id)->find_one();
         }
-        if ($record) $record->afterLoad();
+        if ($record) {
+            $record->afterLoad();
+            if (static::$_cacheAuto===true || is_array(static::$_cacheAuto) && in_array($field, static::$_cacheAuto)) {
+                $record->cacheStore();
+            }
+        }
         return $record;
     }
 
@@ -2058,6 +2089,113 @@ class BModel extends Model
     */
     public function afterLoad()
     {
+        return $this;
+    }
+
+    /**
+    * Apply afterLoad() to all models in collection
+    *
+    * @param array $arr Model collection
+    * @return BModel
+    */
+    public function afterLoadAll($arr)
+    {
+        foreach ($arr as $r) {
+            $r->afterLoad();
+        }
+        return $this;
+    }
+
+    /**
+    * Clear model cache
+    *
+    * @return BModel
+    */
+    public function cacheClear()
+    {
+        static::i()->_cache = array();
+        return $this;
+    }
+
+    /**
+    * Preload models into cache
+    *
+    * @param mixed $where complex where @see BORM::where_complex()
+    * @param mixed $field cache key
+    * @param mixed $sort
+    * @return BModel
+    */
+    public function cachePreload($where=null, $field='id', $sort=null)
+    {
+        $cache =& static::i()->_cache;
+        $orm = $this->factory();
+        if ($where) $orm->where_complex($where);
+        if ($sort) $orm->order_by_asc($sort);
+        $options = !empty(static::$_cacheFlags[$field]) ? static::$_cacheFlags[$field] : array();
+        $cache[$field] = $orm->find_many_assoc($field, null, $options);
+        return $this;
+    }
+
+    /**
+    * Copy cache into another field
+    *
+    * @param string $toKey
+    * @param string $fromKey
+    * @return BModel
+    */
+    public function cacheCopy($toKey, $fromKey='id')
+    {
+        $cache =& static::i()->_cache;
+        $lower = !empty(static::$_cacheFlags[$toKey]['key_lower']);
+        foreach ($cache[$fromKey] as $r) {
+            $key = $r->$toKey;
+            if ($lower) $key = strtolower($key);
+            $cache[$toKey][$key] = $r;
+        }
+        return $this;
+    }
+
+    /**
+    * Save all dirty models in cache
+    *
+    * @return BModel
+    */
+    public function cacheSaveDirty()
+    {
+        foreach (static::i()->_cache['id'] as $c) {
+            if ($c->is_dirty()) $c->save();
+        }
+        return $this;
+    }
+
+    /**
+    * Fetch all cached models by field
+    *
+    * @param string $field
+    * @param string $key
+    * @return array|BModel
+    */
+    public function cacheFetch($field='id', $key=null)
+    {
+        $cache = static::i()->_cache;
+        if (empty($cache[$field])) return null;
+        if (is_null($key)) return $cache[$field];
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        return !empty($cache[$field][$key]) ? $cache[$field][$key] : null;
+    }
+
+    /**
+    * Store model in cache by field
+    *
+    * @param string $field
+    * @return BModel
+    */
+    public function cacheStore($field='id')
+    {
+        $cache =& static::i()->_cache;
+        $key = $this->$field;
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        $cache[$field][$key] = $this;
         return $this;
     }
 
@@ -2089,7 +2227,12 @@ class BModel extends Model
             return $this;
         }
         parent::save();
+
         $this->afterSave();
+
+        if (static::$_cacheAuto) {
+            $this->cacheStore();
+        }
         return $this;
     }
 
@@ -2116,6 +2259,13 @@ class BModel extends Model
     {
         if (!$this->beforeDelete()) {
             return $this;
+        }
+        if (($cache =& static::i()->_cache)) {
+            foreach ($cache as $k=>$cache) {
+                $key = $this->$k;
+                if (!empty(static::$_cacheFlags[$k]['key_lower'])) $key = strtolower($key);
+                unset($cache[$k][$key]);
+            }
         }
         parent::delete();
         return $this;
@@ -2284,7 +2434,7 @@ class BModel extends Model
 
     public function __destruct()
     {
-        unset($this->_instanceCache);
+        unset($this->_cache, $this->_instanceCache);
     }
 }
 

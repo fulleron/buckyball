@@ -2217,9 +2217,10 @@ class BModel extends Model
             }
             if (empty($key)) continue;
             if ($keyLower) $key = strtolower($key);
+            if (!empty(static::i()->_cache[$lk][$key])) continue;
             $keys[$key] = 1;
         }
-        $this->cachePreload(array($lk=>array_keys($keys)), $lk);
+        if ($keys) $this->cachePreload(array($lk=>array_keys($keys)), $lk);
         return $this;
     }
 

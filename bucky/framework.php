@@ -1903,7 +1903,7 @@ exit;
         }
         $s = array( // state
             'p'  => !empty($r['p'])  && is_numeric($r['p']) ? $r['p']  : (isset($d['p'])  ? $d['p']  : 1), // page
-            'ps' => !empty($r['ps']) && is_numeric($r['p']) ? $r['ps'] : (isset($d['ps']) ? $d['ps'] : 100), // page size
+            'ps' => !empty($r['ps']) && is_numeric($r['ps']) ? $r['ps'] : (isset($d['ps']) ? $d['ps'] : 100), // page size
             's'  => !empty($r['s'])  ? $r['s']  : (isset($d['s'])  ? $d['s']  : ''), // sort by
             'sd' => !empty($r['sd']) ? $r['sd'] : (isset($d['sd']) ? $d['sd'] : 'asc'), // sort dir
         );
@@ -2026,6 +2026,16 @@ class BModel extends Model
             static::$_writeDbName ? static::$_writeDbName : static::$_dbName
         );
         return $wrapper;
+    }
+
+    /**
+    * Alias for self::factory()
+    *
+    * return BORM
+    */
+    public static function orm()
+    {
+        return static::i()->factory();
     }
 
     /**
@@ -3388,6 +3398,7 @@ class BModuleRegistry extends BClass
     {
         $config = BConfig::i();
         $reqModules = (array)$config->get('bootstrap/modules');
+
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
@@ -3419,6 +3430,13 @@ class BModuleRegistry extends BClass
                 unset($dep);
             }
         }
+        if (!empty($reqModules)) {
+            foreach ($reqModules as $modName) {
+                if (empty($this->_modules[$modName])) {
+                    throw new BException('Invalid module name: '.$modName);
+                }
+            }
+        }
         // propagate dependencies into subdependent modules
         foreach ($this->_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
@@ -3440,7 +3458,6 @@ class BModuleRegistry extends BClass
     */
     public function propagateDepends($modName, &$dep)
     {
-if (BDebug::i()->is('debug')) { echo "<pre>"; print_r($this->_modules); echo "</pre>"; }
         $this->_modules[$modName]->error = 'depends';
         $dep['error']['propagated'] = true;
         if (!empty($this->_modules[$modName]->depends)) {
@@ -3507,7 +3524,6 @@ if (BDebug::i()->is('debug')) { echo "<pre>"; print_r($this->_modules); echo "</
         $this->sortDepends();
 
         $config = BConfig::i()->get('bootstrap');
-
         foreach ($this->_modules as $mod) {
             if (!empty($mod->error)) {
                 BApp::log($mod->name.': '.$mod->error);
@@ -3515,7 +3531,7 @@ if (BDebug::i()->is('debug')) { echo "<pre>"; print_r($this->_modules); echo "</
             }
             if (!empty($config['modules'])
                 && !in_array($mod->name, (array)$config['modules'])
-                && !in_array($mod->name, $config['depends'])
+                && !empty($config['depends']) && !in_array($mod->name, $config['depends'])
             ) {
                 continue;
             }

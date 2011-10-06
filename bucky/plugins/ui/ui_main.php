@@ -19,7 +19,7 @@ class BuckyUI
 {
     static public function init()
     {
-        BLayout::i()->viewRootDir('ui/view');
+        BLayout::i()->viewRootDir('view');
     }
 }
 

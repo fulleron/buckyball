@@ -222,6 +222,18 @@ class BApp extends BClass
     }
 
     /**
+    * Shortcut to get a current module or module by name
+    *
+    * @param string $modName
+    * @return BModule
+    */
+    public static function m($modName=null)
+    {
+        $reg = BModuleRegistry::i();
+        return is_null($modName) ? $reg->currentModule() : $reg->module($modName);
+    }
+
+    /**
     * Shortcut for base URL to use in views and controllers
     *
     * @return string
@@ -378,7 +390,7 @@ class BDebug extends BClass
     public function afterOutput()
     {
         if ($this->_mode=='debug') {
-            #$this->dumpLog();
+            $this->dumpLog();
         }
     }
 }
@@ -1862,23 +1874,44 @@ exit;
     /**
     * Set page constraints on collection for use in grids
     *
-    * @param array $r
+    * - p: page number
+    * - ps: page size
+    * - s: sort order by (if default is array - only these values are allowed) (alt: sort|dir)
+    * - sd: sort direction (asc/desc)
+    * - sc: sort combined (s|sd)
+    * - c: total row count (return only)
+    * - mp: max page (return only)
+    *
+    * @param array $r pagination request, if null - take from request query string
+    * @param array $d default values
     * @return array
     */
-    public function paginate($r=BNULL)
+    public function paginate($r=null, $d=array())
     {
-        if (BNULL===$r) $r = BRequest::i()->get(); // GET request
+        if (is_null($r)) {
+            $r = BRequest::i()->get(); // GET request
+        }
+        if (!empty($r['sc']) && empty($r['s']) && empty($r['sd'])) { // sort and dir combined
+            list($r['s'], $r['sd']) = explode('|', $r['sc']);
+        }
+        if (!empty($r['s']) && !empty($d['s']) && is_array($d['s'])) { // limit by these values only
+            if (!in_array($r['s'], $d['s'])) $r['s'] = null;
+            $d['s'] = null;
+        }
+        if (!empty($r['sd']) && $r['sd']!='asc' && $r['sd']!='desc') { // only asc and desc are allowed
+            $r['sd'] = null;
+        }
         $s = array( // state
-            'q' => !empty($r['q']) ? $r['q'] : null, // search query
-            'p' => !empty($r['p']) ? $r['p'] : 1, // page
-            'ps' => !empty($r['ps']) ? $r['ps'] : 100, // page size
-            's' => !empty($r['s']) ? $r['s'] : '', // sort by
-            'sd' => !empty($r['sd']) ? $r['sd'] : 'asc', // sort dir
+            'p'  => !empty($r['p'])  && is_numeric($r['p']) ? $r['p']  : (isset($d['p'])  ? $d['p']  : 1), // page
+            'ps' => !empty($r['ps']) && is_numeric($r['p']) ? $r['ps'] : (isset($d['ps']) ? $d['ps'] : 100), // page size
+            's'  => !empty($r['s'])  ? $r['s']  : (isset($d['s'])  ? $d['s']  : ''), // sort by
+            'sd' => !empty($r['sd']) ? $r['sd'] : (isset($d['sd']) ? $d['sd'] : 'asc'), // sort dir
         );
+        $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
         $cntOrm = clone $this; // clone ORM to count
         $s['c'] = $cntOrm->count(); // row count
         unset($cntOrm); // free mem
-        $s['mp'] = floor($s['c']/$s['ps'])+1; // max page
+        $s['mp'] = ceil($s['c']/$s['ps']); // max page
         if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
         if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
         $this->limit($s['ps'])->offset(($s['p']-1)*$s['ps']); // limit rows to page
@@ -2161,6 +2194,36 @@ class BModel extends Model
     }
 
     /**
+    * Preload models using keys from external collection
+    *
+    * @param array $collection
+    * @param string $fk foreign key field
+    * @param string $lk local key field
+    * @return BModel
+    */
+    public function cachePreloadFrom($collection, $fk='id', $lk='id')
+    {
+        if (!$collection) return $this;
+        $keys = array();
+        $keyLower = !empty(static::$_cacheFlags[$lk]['key_lower']);
+        foreach ($collection as $r) {
+            $key = null;
+            if (is_object($r)) {
+                $key = $r->$fk;
+            } elseif (is_array($r)) {
+                $key = isset($r[$fk]) ? $r[$fk] : null;
+            } elseif (is_scalar($r)) {
+                $key = $r;
+            }
+            if (empty($key)) continue;
+            if ($keyLower) $key = strtolower($key);
+            $keys[$key] = 1;
+        }
+        $this->cachePreload(array($lk=>array_keys($keys)), $lk);
+        return $this;
+    }
+
+    /**
     * Copy cache into another field
     *
     * @param string $toKey
@@ -2211,12 +2274,25 @@ class BModel extends Model
     /**
     * Store model in cache by field
     *
-    * @param string $field
+    * @param string|array $field one or more fields to store the cache for
+    * @param array $collection external model collection to store into cache
     * @return BModel
     */
-    public function cacheStore($field='id')
+    public function cacheStore($field='id', $collection=null)
     {
         $cache =& static::i()->_cache;
+        if ($collection) {
+            foreach ($collection as $r) {
+                $r->cacheStore($field);
+            }
+            return $this;
+        }
+        if (is_array($field)) {
+            foreach ($field as $k) {
+                $this->cacheStore($k);
+            }
+            return $this;
+        }
         $key = $this->$field;
         if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
         $cache[$field][$key] = $this;
@@ -3288,12 +3364,14 @@ class BModuleRegistry extends BClass
             if (empty($manifest['modules'])) {
                 throw new BException(BApp::t("Could not read manifest file: %s", $file));
             }
+            $basePath = !empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file);
             $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$params) {
                 $params['name'] = $modName;
-                $params['root_dir'] = BUtil::normalizePath($rootDir.'/'.(!empty($params['root_dir']) ? $params['root_dir'] : ''));
+                $modRootDir = (!empty($params['root_dir']) ? $params['root_dir'] : '');
+                $params['root_dir'] = BUtil::normalizePath($rootDir.'/'.$modRootDir);
                 $params['view_root_dir'] = $params['root_dir'];
-                $params['base_url'] = BApp::baseUrl().'/'.BUtil::normalizePath(!empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file));
+                $params['base_url'] = BUtil::normalizePath(BApp::baseUrl().'/'.$basePath.'/'.$modRootDir);
                 $this->module($modName, $params);
             }
         }
@@ -3308,7 +3386,7 @@ class BModuleRegistry extends BClass
     public function checkDepends()
     {
         $config = BConfig::i();
-        $reqModules = $config->get('bootstrap/modules');
+        $reqModules = (array)$config->get('bootstrap/modules');
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
@@ -3361,6 +3439,7 @@ class BModuleRegistry extends BClass
     */
     public function propagateDepends($modName, &$dep)
     {
+if (BDebug::i()->is('debug')) { echo "<pre>"; print_r($this->_modules); echo "</pre>"; }
         $this->_modules[$modName]->error = 'depends';
         $dep['error']['propagated'] = true;
         if (!empty($this->_modules[$modName]->depends)) {
@@ -4633,6 +4712,16 @@ class BResponse extends BClass
     }
 
     /**
+    * Send json data as a response (for json API implementation)
+    *
+    * @param mixed $data
+    */
+    public function json($data)
+    {
+        $this->contentType('json')->set(BUtil::toJson($data))->render();
+    }
+
+    /**
     * Send file download to client
     *
     * @param string $filename
@@ -5758,6 +5847,45 @@ class BSession extends BClass
     public function sessionId()
     {
         return $this->_sessionId;
+    }
+
+    /**
+    * Add session message
+    *
+    * @param string $msg
+    * @param string $type
+    * @param string $tag
+    * @return BSession
+    */
+    public function addMessage($msg, $type='info', $tag='_')
+    {
+        $this->dirty(true);
+        $this->data['_messages'][$tag][] = array('msg'=>$msg, 'type'=>$type);
+        return $this;
+    }
+
+    /**
+    * Return any buffered messages for a tag and clear them from session
+    *
+    * @param string $tags comma separated
+    * @return array
+    */
+    public function messages($tags='_')
+    {
+        if (empty($this->data['_messages'])) {
+            return array();
+        }
+        $tags = explode(',', $tags);
+        $msgs = array();
+        foreach ($tags as $tag) {
+            if (empty($this->data['_messages'][$tag])) continue;
+            foreach ($avail[$tag] as $i=>$m) {
+                $msgs[] = $m;
+                unset($this->data['_messages'][$tag][$i]);
+                $this->dirty(true);
+            }
+        }
+        return $msgs;
     }
 }
 

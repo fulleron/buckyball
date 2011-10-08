@@ -341,7 +341,7 @@ class BDebug extends BClass
         if (!$this->is('debug,development')) {
             return $this;
         }
-        $event['ts'] = microtime(true);
+        $event['ts'] = microtime();
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
         }
@@ -3724,7 +3724,7 @@ class BFrontController extends BClass
         $node =& $this->_routeTree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
-            if ($r!=='' && ($r[0]===':' || $r[0]==='*')) {
+            if ($r!=='' && ($r[0]===':' || $r[0]==='*' || $r[0]==='.')) {
                 $node =& $node['/'.$r[0]][$r];
             } else {
                 $node =& $node['/'][$r==='' ? '__EMPTY__' : $r];
@@ -3770,6 +3770,7 @@ class BFrontController extends BClass
         $routeNode = $this->_routeTree[$method];
         $routeName = array($method.' ');
         $params = array();
+        $dynAction = null;
 
         foreach ($requestArr as $i=>$r) {
             $r1 = $r==='' ? '__EMPTY__' : $r;
@@ -3785,6 +3786,13 @@ class BFrontController extends BClass
                     $params[substr($k, 1)] = join('/', array_slice($requestArr, $i));
                     $routeNode = $n;
                     break 2;
+                }
+            }
+            if (!empty($routeNode['/.'])) {
+                foreach ($routeNode['/.'] as $k=>$n) {
+                    $routeNode = $n;
+                    $dynAction = $r;
+                    continue 2;
                 }
             }
             if (!empty($routeNode['/:'])) {
@@ -3807,6 +3815,9 @@ class BFrontController extends BClass
         }
         $routeNode['route_name'] = join('/', $routeName);
         $routeNode['params_values'] = $params;
+        if ($dynAction) {
+            $routeNode['observers'][0]['callback'] .= '.'.$dynAction;
+        }
         return $routeNode;
     }
 

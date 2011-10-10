@@ -968,15 +968,19 @@ class BDb
     */
     public static function connect($name=null)
     {
-        if (is_null($name)) {
-            $name = static::$_defaultDbName;
-        }
-        if ($name===static::$_currentDbName) {
+        if (!$name && static::$_currentDbName) { // continue connection to current db, if no value
             return BORM::get_db();
         }
-        if (!empty(static::$_namedDbs[$name])) {
+        if (is_null($name)) { // if first time connection, connect to default db
+            $name = static::$_defaultDbName;
+        }
+        if ($name===static::$_currentDbName) { // if currently connected to requested db, return
+            return BORM::get_db();
+        }
+        if (!empty(static::$_namedDbs[$name])) { // if connection already exists, switch to it
             static::$_currentDbName = $name;
-            BORM::set_db(static::$_namedDbs[$name], static::$_namedDbConfig[$name]);
+            static::$_config = static::$_namedDbConfig[$name];
+            BORM::set_db(static::$_namedDbs[$name], static::$_config);
             return BORM::get_db();
         }
         $config = BConfig::i()->get($name===static::$_defaultDbName ? 'db' : 'db/named/'.$name);
@@ -1114,9 +1118,11 @@ class BDb
     *
     * @param array $rows result of ORM::find_many()
     * @param string $method default 'as_array'
+    * @param array|string $fields if specified, return only these fields
+    * @param boolean $maskInverse if true, do not return specified fields
     * @return array
     */
-    public static function many_as_array($rows, $method='as_array')
+    public static function many_as_array($rows, $method='as_array', $fields=null, $maskInverse=false)
     {
         $res = array();
         foreach ((array)$rows as $i=>$r) {
@@ -1125,7 +1131,9 @@ class BDb
                 debug_print_backtrace();
                 exit;
             }
-            $res[$i] = $r->$method();
+            $row = $r->$method();
+            if (!is_null($fields)) $row = BUtil::maskFields($row, $fields, $maskInverse);
+            $res[$i] = $row;
         }
         return $res;
     }
@@ -1254,7 +1262,7 @@ class BDb
         $dbName = empty($a[1]) ? static::dbName() : $a[0];
         $tableName = empty($a[1]) ? $fullTableName : $a[1];
         if (!static::ddlTableExists($fullTableName)) {
-            throw new BException(BApp::t('Invalid table name: %s.%s', $fullTableName));
+            throw new BException(BApp::t('Invalid table name: %s', $fullTableName));
         }
         $tableFields =& static::$_tables[$dbName][$tableName]['fields'];
         if (empty($tableFields)) {
@@ -1874,16 +1882,23 @@ exit;
     /**
     * Set page constraints on collection for use in grids
     *
+    * Request and result vars:
     * - p: page number
     * - ps: page size
     * - s: sort order by (if default is array - only these values are allowed) (alt: sort|dir)
     * - sd: sort direction (asc/desc)
     * - sc: sort combined (s|sd)
+    * - rs: requested row start (optional in request, not dependent on page size)
+    * - rc: requested row count (optional in request, not dependent on page size)
     * - c: total row count (return only)
     * - mp: max page (return only)
     *
+    * Options (all optional):
+    * - format: 0..2
+    * - as_array: true or method name
+    *
     * @param array $r pagination request, if null - take from request query string
-    * @param array $d default values
+    * @param array $d default values and options
     * @return array
     */
     public function paginate($r=null, $d=array())
@@ -1891,6 +1906,7 @@ exit;
         if (is_null($r)) {
             $r = BRequest::i()->get(); // GET request
         }
+        $d = (array)$d; // make sure it's array
         if (!empty($r['sc']) && empty($r['s']) && empty($r['sd'])) { // sort and dir combined
             list($r['s'], $r['sd']) = explode('|', $r['sc']);
         }
@@ -1906,6 +1922,8 @@ exit;
             'ps' => !empty($r['ps']) && is_numeric($r['ps']) ? $r['ps'] : (isset($d['ps']) ? $d['ps'] : 100), // page size
             's'  => !empty($r['s'])  ? $r['s']  : (isset($d['s'])  ? $d['s']  : ''), // sort by
             'sd' => !empty($r['sd']) ? $r['sd'] : (isset($d['sd']) ? $d['sd'] : 'asc'), // sort dir
+            'rs' => !empty($r['rs']) ? $r['rs'] : null,
+            'rc' => !empty($r['rc']) ? $r['rc'] : null,
         );
         $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
         $cntOrm = clone $this; // clone ORM to count
@@ -1914,8 +1932,20 @@ exit;
         $s['mp'] = ceil($s['c']/$s['ps']); // max page
         if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
         if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
-        $this->limit($s['ps'])->offset(($s['p']-1)*$s['ps']); // limit rows to page
-        return array('state'=>$s, 'rows'=>$this->find_many()); // return state and data
+        $s['rs'] = isset($s['rs']) ? $s['rs'] : ($s['p']-1)*$s['ps']; // start from requested row or page
+        $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
+        $rows = $this->find_many(); // result data
+        $s['rc'] = $rows ? sizeof($rows) : 0; // returned row count
+        if (!empty($d['as_array'])) {
+            $rows = BDb::many_as_array($rows, is_string($d['as_array']) ? $d['as_array'] : 'as_array');
+        }
+        if (!empty($d['format'])) {
+            switch ($d['format']) {
+                case 1: return $rows;
+                case 2: $s['rows'] = $rows; return $s;
+            }
+        }
+        return array('state'=>$s, 'rows'=>$rows);
     }
 
     public function __destruct()
@@ -2411,10 +2441,11 @@ class BModel extends Model
     * Update one or many records of the class
     *
     * @param array $data
-    * @param string|array $cond where conditions (@see BDb::where)
+    * @param string|array $where where conditions (@see BDb::where)
+    * @param array $params if $where string, use these params
     * @return boolean
     */
-    public static function update_many(array $data, $conds)
+    public static function update_many(array $data, $where, $p=array())
     {
         $update = array();
         $params = array();
@@ -2422,7 +2453,9 @@ class BModel extends Model
             $update[] = "`{$k}`=?";
             $params[] = $v;
         }
-        list($where, $p) = BDb::where($conds);
+        if (is_array($where)) {
+            list($where, $p) = BDb::where($where);
+        }
         return static::run_sql("UPDATE ".static::table()." SET ".join(', ', $update)
             ." WHERE {$where}", array_merge($params, $p));
     }
@@ -3173,6 +3206,8 @@ class BEventRegistry extends BClass
     /**
     * Declare observers in bootstrap function
     *
+    * observe|watch|on|subscribe ?
+    *
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
     * @param array $args
@@ -3222,6 +3257,8 @@ class BEventRegistry extends BClass
 
     /**
     * Dispatch event observers
+    *
+    * dispatch|fire|notify ?
     *
     * @param string $eventName
     * @param array $args

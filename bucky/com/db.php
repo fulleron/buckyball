@@ -350,7 +350,7 @@ class BDb
         if (!static::$_config) {
             throw new BException('No connection selected');
         }
-        return static::$_config['dbname'];
+        return !empty(static::$_config['dbname']) ? static::$_config['dbname'] : null;
     }
 
     /**
@@ -371,6 +371,9 @@ class BDb
     */
     public static function ddlTableExists($fullTableName)
     {
+        if (!static::dbName()) {
+            static::connect(static::$_defaultDbName);
+        }
         $a = explode('.', $fullTableName);
         $dbName = empty($a[1]) ? static::dbName() : $a[0];
         $tableName = empty($a[1]) ? $fullTableName : $a[1];
@@ -393,12 +396,12 @@ class BDb
     */
     public static function ddlFieldInfo($fullTableName, $fieldName=BNULL)
     {
-        $a = explode('.', $fullTableName);
-        $dbName = empty($a[1]) ? static::dbName() : $a[0];
-        $tableName = empty($a[1]) ? $fullTableName : $a[1];
         if (!static::ddlTableExists($fullTableName)) {
             throw new BException(BApp::t('Invalid table name: %s', $fullTableName));
         }
+        $a = explode('.', $fullTableName);
+        $dbName = empty($a[1]) ? static::dbName() : $a[0];
+        $tableName = empty($a[1]) ? $fullTableName : $a[1];
         $tableFields =& static::$_tables[$dbName][$tableName]['fields'];
         if (empty($tableFields)) {
             $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();

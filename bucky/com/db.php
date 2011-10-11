@@ -466,9 +466,9 @@ class BDb
         if (empty(static::$_migration)) {
             return;
         }
-        if (!BDebug::i()->is('debug,development,migrate')) {
+        #if (!BDebug::i()->is('debug,development,migrate')) {
             return;
-        }
+        #}
         $modReg = BModuleRegistry::i();
         // initialize module tables
         // find all installed modules

@@ -16,7 +16,7 @@
 */
 
 /**
-* bucky/bootstrap.php
+* bucky/buckyball.php
 *
 * This file is the first bootstrap to initialize BuckyBall PHP Framework
 */
@@ -24,8 +24,22 @@
 $comDir = __DIR__.'/com/';
 
 /**
+* Load all components immediately (the fastest)
+*/
+
+require $comDir.'core.php';
+require $comDir.'lib/idiorm.php';
+require $comDir.'lib/paris.php';
+require $comDir.'db.php';
+require $comDir.'module.php';
+require $comDir.'controller.php';
+require $comDir.'view.php';
+require $comDir.'misc.php';
+
+/**
 * Auto load components
 */
+/*
 spl_autoload_register(function($name) use($comDir) {
     switch ($name) {
         case 'BClass': case 'BApp': case 'BException': case 'BConfig':
@@ -35,9 +49,7 @@ spl_autoload_register(function($name) use($comDir) {
             break;
 
         case 'BPDO': case 'BDb': case 'BORM': case 'BModel':
-            /**
-            * @see http://j4mie.github.com/idiormandparis/
-            */
+            // @see http://j4mie.github.com/idiormandparis/
             require $comDir.'lib/idiorm.php';
             require $comDir.'lib/paris.php';
             require $comDir.'db.php';
@@ -63,23 +75,12 @@ spl_autoload_register(function($name) use($comDir) {
             break;
     }
 }, false);
-
-/**
-* Load all components immediately
-*/
-/*
-require $comDir.'core.php';
-require $comDir.'db.php';
-require $comDir.'module.php';
-require $comDir.'controller.php';
-require $comDir.'view.php';
-require $comDir.'misc.php';
 */
 
 /**
 * Minify all components into 1 compact file.
 *
-* Syntax: php bootstrap.php -c
+* Syntax: php buckyball.php -c
 * Output: buckyball.min.php
 */
 

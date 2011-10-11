@@ -31,8 +31,8 @@ define('BNULL', 'THIS IS A DUMMY VALUE TO DISTINCT BETWEEN LACK OF ARGUMENT/VALU
 /**
 * @see http://j4mie.github.com/idiormandparis/
 */
-include_once('lib/idiorm.php');
-include_once('lib/paris.php');
+include_once('com/lib/idiorm.php');
+include_once('com/lib/paris.php');
 
 
 /**
@@ -2463,12 +2463,15 @@ class BModel extends Model
     /**
     * Delete one or many records of the class
     *
-    * @param string|array $conds where conditions (@see BDb::where)
+    * @param string|array $where where conditions (@see BDb::where)
+    * @param array $params if $where string, use these params
     * @return boolean
     */
-    public static function delete_many($conds)
+    public static function delete_many($where, $params=array())
     {
-        list($where, $params) = BDb::where($conds);
+        if (is_array($where)) {
+            list($where, $params) = BDb::where($where);
+        }
         return static::run_sql("DELETE FROM ".static::table()." WHERE {$where}", $params);
     }
 
@@ -2532,7 +2535,7 @@ class BModel extends Model
                 $model = $modelClass::i()->factory()->where_complex($idValue)->find_one();
                 if ($model) $model->afterLoad();
             } else {
-                $model = $modelClass::i()->load($idValue, 'id');
+                $model = $modelClass::i()->load($idValue);
             }
             if ($autoCreate && !$model) {
                 if (is_array($idValue)) {
@@ -2543,6 +2546,10 @@ class BModel extends Model
             }
             $this->instanceCache($cacheKey, $model);
         }
+if ($modelClass=='ACart') {
+    var_dump($idValue);
+    var_dump($model);
+}
         return $model;
     }
 
@@ -3790,7 +3797,7 @@ class BFrontController extends BClass
     * @param string $route RESTful route
     * @return array|null Route node or null if not found
     */
-    public function findRoute($route=null)
+    public function &findRoute($route=null)
     {
         if (is_null($route)) {
             $route = BRequest::i()->rawPath();
@@ -3820,6 +3827,7 @@ class BFrontController extends BClass
             }
             if (!empty($routeNode['/*'])) {
                 foreach ($routeNode['/*'] as $k=>$n) {
+                    if (!empty($n['_skip'])) continue 2;
                     $params[substr($k, 1)] = join('/', array_slice($requestArr, $i));
                     $routeNode = $n;
                     break 2;
@@ -3827,6 +3835,7 @@ class BFrontController extends BClass
             }
             if (!empty($routeNode['/.'])) {
                 foreach ($routeNode['/.'] as $k=>$n) {
+                    if (!empty($n['_skip'])) continue 2;
                     $routeNode = $n;
                     $dynAction = $r;
                     continue 2;
@@ -3834,6 +3843,7 @@ class BFrontController extends BClass
             }
             if (!empty($routeNode['/:'])) {
                 foreach ($routeNode['/:'] as $k=>$n) {
+                    if (!empty($n['_skip'])) continue 2;
                     if (!is_null($nextR) && (!empty($n['/:']) || !empty($n['/'][$nextR]))
                         || is_null($nextR) && !empty($n['observers'])
                     ) {
@@ -3861,7 +3871,10 @@ class BFrontController extends BClass
     /**
     * Declare RESTful route
     *
-    * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    * @param string $route
+    *   - "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    *   - "/prefix/*anything"
+    *   - "/prefix/.action" : $args=array('_methods'=>array('create'=>'POST', ...))
     * @param mixed $callback PHP callback
     * @param array $args Route arguments
     * @param string $name optional name for the route for URL templating
@@ -4081,6 +4094,15 @@ echo "<pre>"; print_r($e); echo "</pre>";
 echo "<pre>"; print_r($e); echo "</pre>";
         }
         return $this;
+    }
+
+    /**
+    * Instruct front controller to try the next route
+    *
+    */
+    public function tryNextRoute()
+    {
+
     }
 
     /**
@@ -4428,13 +4450,21 @@ class BRequest extends BClass
     * @param bool $asObject Return as object vs array
     * @return object|array|string
     */
-    public function rawPost($json=false, $asObject=false)
+    public function rawPost()
     {
         $post = file_get_contents('php://input');
-        if ($post && $json) {
-            $post = BUtil::fromJson($post, $asObject);
-        }
         return $post;
+    }
+
+    /**
+    * Request array/object from JSON API call
+    *
+    * @param boolean $asObject
+    * @return mixed
+    */
+    public function json($asObject=false)
+    {
+        return BUtil::fromJson($this->rawPost(), $asObject);
     }
 
     /**
@@ -5872,6 +5902,13 @@ class BSession extends BClass
         return $this;
     }
 
+    public function pop($key)
+    {
+        $data = $this->data($key);
+        $this->data($key, null);
+        return $data;
+    }
+
     /**
     * Get reference to session data and set dirty flag true
     *
@@ -5951,6 +5988,96 @@ class BSession extends BClass
             }
         }
         return $msgs;
+    }
+}
+
+/**
+* Basic user authentication and authorization class
+*/
+class BUser extends BModel
+{
+    protected static $_sessionUser;
+
+    public function sessionUserId()
+    {
+        $userId = BSession::i()->data('user_id');
+        return $userId ? $userId : false;
+    }
+
+    public function sessionUser($reset=false)
+    {
+        if (!static::isLoggedIn()) {
+            return false;
+        }
+        $session = BSession::i();
+        if ($reset || !static::$_sessionUser) {
+            static::$_sessionUser = $this->load($this->sessionUserId());
+        }
+        return static::$_sessionUser;
+    }
+
+    public function isLoggedIn()
+    {
+        return $this->sessionUserId() ? true : false;
+    }
+
+    public function password($password)
+    {
+        $this->password_hash = BUtil::fullSaltedHash($password);
+        return $this;
+    }
+
+    public function authenticate($username, $password)
+    {
+        if (empty(static::$_table)) {
+            return $username=='admin' && $password=='admin';
+        }
+        $user = $this->load($username, 'email');
+        if (!BUtil::validateSaltedHash($password, $user->password_hash)) {
+            return false;
+        }
+        return $user;
+    }
+
+    public function authorize($role, $args=null)
+    {
+        if (is_null($args)) {
+            // check authorization
+            return true;
+        }
+        // set authorization
+        return $this;
+    }
+
+    public function login($username, $password)
+    {
+        if (empty(static::$_table)) {
+            return $this->altAuthenticate($username, $password);
+        }
+
+        $user = $this->authenticate($username, $password);
+        if (!$user) {
+            return false;
+        }
+
+        BSession::i()->data('user_id', $user->id);
+
+        if ($user->locale) {
+            setlocale(LC_ALL, $user->locale);
+        }
+        if ($user->timezone) {
+            date_default_timezone_set($user->timezone);
+        }
+        BEventRegistry::i()->dispatch('BUser::login.after', array('user'=>$user));
+        return true;
+    }
+
+    public function logout()
+    {
+        BSession::i()->data('user_id', false);
+        static::$_sessionUser = null;
+        BEventRegistry::i()->dispatch('BUser::login.after');
+        return $this;
     }
 }
 

@@ -1,0 +1,1725 @@
+<?php
+
+/**
+* Wrapper for idiorm/paris
+*
+* For multiple connections waiting on: https://github.com/j4mie/idiorm/issues#issue/15
+*
+* @see http://j4mie.github.com/idiormandparis/
+*/
+class BDb
+{
+    /**
+    * Collection of cached named DB connections
+    *
+    * @var array
+    */
+    protected static $_namedDbs = array();
+
+    /**
+    * Necessary configuration for each DB connection name
+    *
+    * @var array
+    */
+    protected static $_namedDbConfig = array();
+
+    /**
+    * Default DB connection name
+    *
+    * @var string
+    */
+    protected static $_defaultDbName = 'DEFAULT';
+
+    /**
+    * DB name which is currently referenced in BORM::$_db
+    *
+    * @var string
+    */
+    protected static $_currentDbName;
+
+    /**
+    * Current DB configuration
+    *
+    * @var array
+    */
+    protected static $_config = array('table_prefix'=>'');
+
+    /**
+    * List of tables per connection
+    *
+    * @var array
+    */
+    protected static $_tables = array();
+
+    /**
+    * List of migration scripts by module
+    *
+    * @var array
+    */
+    protected static $_migration = array();
+
+    /**
+    * List of uninstall scripts by module
+    *
+    * @var array
+    */
+    protected static $_uninstall = array();
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BDb
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
+    }
+
+    /**
+    * Connect to DB using default or a named connection from global configuration
+    *
+    * Connections are cached for reuse when switching.
+    *
+    * Structure in configuration:
+    *
+    * {
+    *   db: {
+    *     dsn: 'mysql:host=127.0.0.1;dbname=buckyball',  - optional: replaces engine, host, dbname
+    *     engine: 'mysql',                               - optional if dsn exists, default: mysql
+    *     host: '127.0.0.1',                             - optional if dsn exists, default: 127.0.0.1
+    *     dbname: 'buckyball',                           - optional if dsn exists, required otherwise
+    *     username: 'dbuser',                            - default: root
+    *     password: 'password',                          - default: (empty)
+    *     logging: false,                                - default: false
+    *     named: {
+    *       read: {<db-connection-structure>},           - same structure as default connection
+    *       write: {
+    *         use: 'read'                                - optional, reuse another connection
+    *       }
+    *     }
+    *  }
+    *
+    * @param string $name
+    */
+    public static function connect($name=null)
+    {
+        if (!$name && static::$_currentDbName) { // continue connection to current db, if no value
+            return BORM::get_db();
+        }
+        if (is_null($name)) { // if first time connection, connect to default db
+            $name = static::$_defaultDbName;
+        }
+        if ($name===static::$_currentDbName) { // if currently connected to requested db, return
+            return BORM::get_db();
+        }
+        if (!empty(static::$_namedDbs[$name])) { // if connection already exists, switch to it
+            static::$_currentDbName = $name;
+            static::$_config = static::$_namedDbConfig[$name];
+            BORM::set_db(static::$_namedDbs[$name], static::$_config);
+            return BORM::get_db();
+        }
+        $config = BConfig::i()->get($name===static::$_defaultDbName ? 'db' : 'db/named/'.$name);
+        if (!$config) {
+            throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
+        }
+        if (!empty($config['use'])) { //TODO: Prevent circular reference
+            static::connect($config['use']);
+            return;
+        }
+        if (!empty($config['dsn'])) {
+            $dsn = $config['dsn'];
+            if (empty($config['dbname']) && preg_match('#dbname=(.*?)(;|$)#', $dsn, $m)) {
+                $config['dbname'] = $m[1];
+            }
+        } else {
+            if (empty($config['dbname'])) {
+                throw new BException(BApp::t("dbname configuration value is required for '%s'", $name));
+            }
+            $engine = !empty($config['engine']) ? $config['engine'] : 'mysql';
+            $host = !empty($config['host']) ? $config['host'] : '127.0.0.1';
+            switch ($engine) {
+                case "mysql":
+                    $dsn = "mysql:host={$host};dbname={$config['dbname']}";
+                    break;
+
+                default:
+                    throw new BException(BApp::t('Invalid DB engine: %s', $engine));
+            }
+        }
+        static::$_currentDbName = $name;
+
+        BORM::configure($dsn);
+        BORM::configure('username', !empty($config['username']) ? $config['username'] : 'root');
+        BORM::configure('password', !empty($config['password']) ? $config['password'] : '');
+        BORM::configure('logging', !empty($config['logging']));
+        BORM::set_db(null);
+        BORM::setup_db();
+        static::$_namedDbs[$name] = BORM::get_db();
+        static::$_config = static::$_namedDbConfig[$name] = array(
+            'dbname' => !empty($config['dbname']) ? $config['dbname'] : null,
+            'table_prefix' => !empty($config['table_prefix']) ? $config['table_prefix'] : '',
+        );
+        return BORM::get_db();
+    }
+
+    /**
+    * DB friendly current date/time
+    *
+    * @return string
+    */
+    public static function now()
+    {
+        return gmstrftime('%F %T');
+    }
+
+    /**
+    * Shortcut to run multiple queries from migrate scripts
+    *
+    * @param string $sql
+    * @param array $params
+    */
+    public static function run($sql)
+    {
+        $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql);
+        $results = array();
+        foreach ($queries as $query){
+           if (strlen(trim($query)) > 0) {
+                try {
+                    $results[] = BORM::get_db()->exec($query);
+                } catch (Exception $e) {
+                    var_dump($e); exit;
+                }
+           }
+        }
+        return $results;
+    }
+
+    /**
+    * Start transaction
+    *
+    * @param string $connectionName
+    */
+    public static function transaction($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->beginTransaction();
+    }
+
+    /**
+    * Commit transaction
+    *
+    * @param string $connectionName
+    */
+    public static function commit($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->commit();
+    }
+
+    /**
+    * Rollback transaction
+    *
+    * @param string $connectionName
+    */
+    public static function rollback($connectionName=null)
+    {
+        if (!is_null($connectionName)) {
+            BDb::connect($connectionName);
+        }
+        BORM::get_db()->rollback();
+    }
+
+    /**
+    * Get db specific table name with pre-configured prefix for current connection
+    *
+    * Can be used as both BDb::t() and $this->t() within migration script
+    * Convenient within strings and heredocs as {$this->t(...)}
+    *
+    * @param string $tableName
+    */
+    public static function t($tableName)
+    {
+        $a = explode('.', $tableName);
+        $p = static::$_config['table_prefix'];
+        return !empty($a[1]) ? $a[0].'.'.$p.$a[1] : $p.$a[0];
+    }
+
+    /**
+    * Convert array collection of objects from find_many result to arrays
+    *
+    * @param array $rows result of ORM::find_many()
+    * @param string $method default 'as_array'
+    * @param array|string $fields if specified, return only these fields
+    * @param boolean $maskInverse if true, do not return specified fields
+    * @return array
+    */
+    public static function many_as_array($rows, $method='as_array', $fields=null, $maskInverse=false)
+    {
+        $res = array();
+        foreach ((array)$rows as $i=>$r) {
+            if (!$r instanceof BModel) {
+                echo "<pre>"; print_r($r);
+                debug_print_backtrace();
+                exit;
+            }
+            $row = $r->$method();
+            if (!is_null($fields)) $row = BUtil::maskFields($row, $fields, $maskInverse);
+            $res[$i] = $row;
+        }
+        return $res;
+    }
+
+    /**
+    * Construct where statement (for delete or update)
+    *
+    * Examples:
+    * $w = BDb::where("f1 is null");
+    *
+    * // (f1='V1') AND (f2='V2')
+    * $w = BDb::where(array('f1'=>'V1', 'f2'=>'V2'));
+    *
+    * // (f1=5) AND (f2 LIKE '%text%'):
+    * $w = BDb::where(array('f1'=>5, array('f2 LIKE ?', '%text%')));
+    *
+    * // (f1!=5) OR f2 BETWEEN 10 AND 20:
+    * $w = BDb::where(array('OR'=>array(array('f1!=?', 5), array('f2 BETWEEN ? AND ?', 10, 20))));
+    *
+    * // (f1 IN (1,2,3)) AND NOT ((f2 IS NULL) OR (f2=10))
+    * $w = BDb::where(array('f1'=>array(1,2,3)), 'NOT'=>array('OR'=>array("f2 IS NULL", 'f2'=>10)));
+    *
+    * @param array $conds
+    * @param boolean $or
+    * @return array (query, params)
+    */
+    public static function where($conds, $or=false)
+    {
+        if (is_string($conds)) {
+            return array($conds, array());
+        }
+        $where = array();
+        $params = array();
+        if (is_array($conds)) {
+            foreach ($conds as $f=>$v) {
+                if (is_int($f)) {
+                    if (is_string($v)) {
+                        $where[] = '('.$v.')';
+                    } elseif (is_array($v)) {
+                        $where[] = array_shift($v);
+                        $params = array_merge($params, $v);
+                    } else {
+                        throw new BException('Invalid token: '.print_r($v,1));
+                    }
+                } elseif ('AND'===$f) {
+                    list($w, $p) = static::where($v);
+                    $where[] = '('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif ('OR'===$f) {
+                    list($w, $p) = static::where($v, true);
+                    $where[] = '('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif ('NOT'===$f) {
+                    list($w, $p) = static::where($v);
+                    $where[] = 'NOT ('.$w.')';
+                    $params = array_merge($params, $p);
+                } elseif (is_array($v)) {
+                    $where[] = "({$f} IN (".str_pad('', sizeof($v)*2-1, '?,')."))";
+                    $params = array_merge($params, $v);
+                } elseif (is_null($v)) {
+                    $where[] = "({$f} IS NULL)";
+                } else {
+                    $where[] = "({$f}=?)";
+                    $params[] = $v;
+                }
+            }
+#print_r($where); print_r($params);
+            return array(join($or ? " OR " : " AND ", $where), $params);
+        }
+        throw new BException("Invalid where parameter");
+    }
+
+    /**
+    * Get database name for current connection
+    *
+    */
+    public static function dbName()
+    {
+        if (!static::$_config) {
+            throw new BException('No connection selected');
+        }
+        return static::$_config['dbname'];
+    }
+
+    /**
+    * Clear DDL cache
+    *
+    */
+    public static function ddlClearCache()
+    {
+        static::$_tables = array();
+        return $this;
+    }
+
+    /**
+    * Check whether table exists
+    *
+    * @param string $fullTableName
+    * @return BDb
+    */
+    public static function ddlTableExists($fullTableName)
+    {
+        $a = explode('.', $fullTableName);
+        $dbName = empty($a[1]) ? static::dbName() : $a[0];
+        $tableName = empty($a[1]) ? $fullTableName : $a[1];
+        if (!isset(static::$_tables[$dbName])) {
+            $tables = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}`", array())->find_many();
+            $field = "Tables_in_{$dbName}";
+            foreach ($tables as $t) {
+                static::$_tables[$dbName][$t->$field] = array();
+            }
+        }
+        return isset(static::$_tables[$dbName][$tableName]);
+    }
+
+    /**
+    * Get table field info
+    *
+    * @param string $fullTableName
+    * @param string $fieldName if null return all fields
+    * @return mixed
+    */
+    public static function ddlFieldInfo($fullTableName, $fieldName=BNULL)
+    {
+        $a = explode('.', $fullTableName);
+        $dbName = empty($a[1]) ? static::dbName() : $a[0];
+        $tableName = empty($a[1]) ? $fullTableName : $a[1];
+        if (!static::ddlTableExists($fullTableName)) {
+            throw new BException(BApp::t('Invalid table name: %s', $fullTableName));
+        }
+        $tableFields =& static::$_tables[$dbName][$tableName]['fields'];
+        if (empty($tableFields)) {
+            $fields = BORM::i()->raw_query("SHOW FIELDS FROM `{$dbName}`.`{$tableName}`", array())->find_many();
+            foreach ($fields as $f) {
+                $tableFields[$f->Field] = $f;
+            }
+        }
+        return BNULL===$fieldName ? $tableFields : (isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null);
+    }
+
+    /**
+    * Clean array or object fields based on table columns and return an array
+    *
+    * @param array|object $data
+    * @return array
+    */
+    public static function cleanForTable($table, $data)
+    {
+        $isObject = is_object($data);
+        $result = array();
+        foreach ($data as $k=>$v) {
+            if (BDb::ddlFieldInfo($table, $k)) {
+                $result[$k] = $isObject ? $data->$k : $data[$k];
+            }
+        }
+        return $result;
+    }
+
+    /**
+    * Declare DB Migration script for a module
+    *
+    * @param string $script callback, script file name or directory
+    * @param string|null $moduleName if null, use current module
+    */
+    public static function migrate($script='migrate.php', $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::currentModuleName();
+        }
+        $module = BModuleRegistry::i()->module($moduleName);
+        $dbName = $module->db_name ? $module->db_name : 'DEFAULT';
+        static::$_migration[$dbName][$moduleName]['script'] = $script;
+    }
+
+    /**
+    * Declare DB uninstallation script for a module
+    *
+    * @param mixed $script
+    * @param empty $moduleName
+    */
+    public static function uninstall($script, $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::currentModuleName();
+        }
+        static::$_uninstall[$moduleName]['script'] = $script;
+    }
+
+    /**
+    * Run declared migration scripts to install or upgrade module DB scheme
+    *
+    */
+    public static function runMigrationScripts()
+    {
+        if (empty(static::$_migration)) {
+            return;
+        }
+        if (!BDebug::i()->is('debug,development,migrate')) {
+            return;
+        }
+        $modReg = BModuleRegistry::i();
+        // initialize module tables
+        // find all installed modules
+        foreach (static::$_migration as $dbName=>$modules) {
+            // collect module code versions
+            foreach ($modules as $modName=>&$m) {
+                if (($version = $modReg->module($modName)->version)) {
+                    $m['code_version'] = $version;
+                } else {
+                    unset($modules[$modName]);
+                }
+            }
+            unset($m);
+
+            if (!$modules) continue; // skip database if none of the modules needs migration
+
+            BDb::connect($dbName);
+            BDbModule::init();
+            $dbModules = BDbModule::i()->factory()->find_many();
+
+            // collect module db schema versions
+            foreach ($dbModules as $m) {
+                $modules[$m->module_name]['schema_version'] = $m->schema_version;
+            }
+
+            // run required migration scripts
+            foreach ($modules as $modName=>$mod) {
+                $modReg->currentModule($modName);
+                $script = $mod['script'];
+                $module = $modReg->module($modName);
+                /*
+                try {
+                    BDb::transaction();
+                */
+                    if (is_callable($script)) {
+                        call_user_func($script);
+                    } elseif (is_file($module->root_dir.'/'.$script)) {
+                        include_once($module->root_dir.'/'.$script);
+                    } elseif (is_dir($module->root_dir.'/'.$script)) {
+                        //TODO: process directory of migration scripts
+                    }
+                /*
+                    BDb::commit();
+                } catch (Exception $e) {
+                    BDb::rollback();
+                    throw $e;
+                }
+                */
+            }
+        }
+        $modReg->currentModule(null);
+    }
+
+    /**
+    * Run module DB installation scripts and set module db scheme version
+    *
+    * @param string $version
+    * @param mixed $callback SQL string, callback or file name
+    */
+    public static function install($version, $callback)
+    {
+        $modName = BModuleRegistry::currentModuleName();
+        // if no code version set, return
+        if (empty(static::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if schema version exists, skip
+        if (!empty(static::$_migration[$modName]['schema_version'])) {
+            return true;
+        }
+        // creating module before running install, so the module configuration values can be created within script
+        $mod = BDbModule::i()->create(array(
+            'module_name' => $modName,
+            'schema_version' => $version,
+            'last_upgrade' => BDb::now(),
+        ))->save();
+        // call install migration script
+        try {
+            if (is_callable($callback)) {
+                call_user_func($callback);
+            } elseif (is_file($callback)) {
+                include $callback;
+            } elseif (is_string($callback)) {
+                BDb::run($callback);
+            }
+        } catch (Exception $e) {
+            // delete module schema record if unsuccessful
+            $mod->delete();
+            throw $e;
+        }
+        static::$_migration[$modName]['schema_version'] = $version;
+        return true;
+    }
+
+    /**
+    * Run module DB upgrade scripts for specific version difference
+    *
+    * @param string $fromVersion
+    * @param string $toVersion
+    * @param mixed $callback SQL string, callback or file name
+    */
+    public static function upgrade($fromVersion, $toVersion, $callback)
+    {
+        $modName = BModuleRegistry::currentModuleName();
+        // if no code version set, return
+        if (empty(static::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if schema doesn't exist, throw exception
+        if (empty(static::$_migration[$modName]['schema_version'])) {
+            throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
+        }
+        $schemaVersion = static::$_migration[$modName]['schema_version'];
+        // if schema is newer than requested target version, skip
+        if (version_compare($schemaVersion, $fromVersion, '>=') || version_compare($schemaVersion, $toVersion, '>')) {
+            return true;
+        }
+        // call upgrade migration script
+        if (is_callable($callback)) {
+            call_user_func($callback);
+        } elseif (is_file($callback)) {
+            include $callback;
+        } elseif (is_string($callback)) {
+            BDb::run($callback);
+        }
+        // update module schema version to new one
+        static::$_migration[$modName]['schema_version'] = $toVersion;
+        BDbModule::i()->load($modName, 'module_name')->set(array(
+            'schema_version' => $toVersion,
+            'last_upgrade' => BDb::now(),
+        ))->save();
+        return true;
+    }
+
+    /**
+    * Run declared uninstallation scripts on module uninstall
+    *
+    * @param string $modName
+    * @return boolean
+    */
+    public static function runUninstallScript($modName=null)
+    {
+        if (is_null($modName)) {
+            $modName = BModuleRegistry::currentModuleName();
+        }
+        // if no code version set, return
+        if (empty(static::$_migration[$modName]['code_version'])) {
+            return false;
+        }
+        // if module schema doesn't exist, skip
+        if (empty(static::$_migration[$modName]['schema_version'])) {
+            return true;
+        }
+        // call uninstall migration script
+        if (is_callable($callback)) {
+            call_user_func($callback);
+        } elseif (is_file($callback)) {
+            include $callback;
+        } elseif (is_string($callback)) {
+            BDb::run($callback);
+        }
+        // delete module schema version from db, related configuration entries will be deleted
+        BDbModule::i()->load($modName, 'module_name')->delete();
+        return true;
+    }
+}
+
+/**
+* Enhanced PDO class to allow for transaction nesting for mysql and postgresql
+*
+* @see http://us.php.net/manual/en/pdo.connections.php#94100
+* @see http://www.kennynet.co.uk/2008/12/02/php-pdo-nested-transactions/
+*/
+class BPDO extends PDO
+{
+    // Database drivers that support SAVEPOINTs.
+    protected static $_savepointTransactions = array("pgsql", "mysql");
+
+    // The current transaction level.
+    protected $_transLevel = 0;
+
+    public static function exception_handler($exception)
+    {
+        // Output the exception details
+        die('Uncaught exception: '. $exception->getMessage());
+    }
+
+    public function __construct($dsn, $username='', $password='', $driver_options=array())
+    {
+        // Temporarily change the PHP exception handler while we . . .
+        set_exception_handler(array(__CLASS__, 'exception_handler'));
+
+        // . . . create a PDO object
+        parent::__construct($dsn, $username, $password, $driver_options);
+
+        // Change the exception handler back to whatever it was before
+        restore_exception_handler();
+    }
+
+    protected function _nestable() {
+        return in_array($this->getAttribute(PDO::ATTR_DRIVER_NAME),
+                        static::$_savepointTransactions);
+    }
+
+    public function beginTransaction() {
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::beginTransaction();
+        } else {
+            $this->exec("SAVEPOINT LEVEL{$this->_transLevel}");
+        }
+
+        $this->_transLevel++;
+    }
+
+    public function commit() {
+        $this->_transLevel--;
+
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::commit();
+        } else {
+            $this->exec("RELEASE SAVEPOINT LEVEL{$this->_transLevel}");
+        }
+    }
+
+    public function rollBack() {
+        $this->_transLevel--;
+
+        if (!$this->_nestable() || $this->_transLevel == 0) {
+            parent::rollBack();
+        } else {
+            $this->exec("ROLLBACK TO SAVEPOINT LEVEL{$this->_transLevel}");
+        }
+    }
+}
+
+/**
+* Enhanced ORMWrapper to support multiple database connections
+*/
+class BORM extends ORMWrapper
+{
+    /**
+    * Singleton instance
+    *
+    * @var BORM
+    */
+    protected static $_instance;
+
+    /**
+    * Default class name for direct ORM calls
+    *
+    * @var string
+    */
+    protected $_class_name = 'BModel';
+
+    /**
+    * Read DB connection for selects (replication slave)
+    *
+    * @var string|null
+    */
+    protected $_readDbName;
+
+    /**
+    * Write DB connection for updates (master)
+    *
+    * @var string|null
+    */
+    protected $_writeDbName;
+
+    /**
+    * Shortcut factory for generic instance
+    *
+    * @return BConfig
+    */
+    public static function i($new=false)
+    {
+        if ($new) {
+            return new static('');
+        }
+        if (!static::$_instance) {
+            static::$_instance = new static('');
+        }
+        return static::$_instance;
+    }
+
+    protected function _quote_identifier($identifier) {
+        if ($identifier[0]=='(') {
+            return $identifier;
+        }
+        return parent::_quote_identifier($identifier);
+    }
+
+    public static function get_config($key)
+    {
+        return !empty(static::$_config[$key]) ? static::$_config[$key] : null;
+    }
+
+    /**
+    * Public alias for _setup_db
+    */
+    public static function setup_db()
+    {
+        static::_setup_db();
+    }
+
+    /**
+     * Set up the database connection used by the class.
+     * Use BPDO for nested transactions
+     */
+    protected static function _setup_db() {
+        if (!is_object(static::$_db)) {
+            $connection_string = static::$_config['connection_string'];
+            $username = static::$_config['username'];
+            $password = static::$_config['password'];
+            $driver_options = static::$_config['driver_options'];
+            $db = new BPDO($connection_string, $username, $password, $driver_options); //UPDATED
+            $db->setAttribute(PDO::ATTR_ERRMODE, static::$_config['error_mode']);
+            static::set_db($db);
+        }
+    }
+
+    /**
+     * Set the PDO object used by Idiorm to communicate with the database.
+     * This is public in case the ORM should use a ready-instantiated
+     * PDO object as its database connection.
+     */
+    public static function set_db($db, $config=null) {
+        if (!is_null($config)) {
+            static::$_config = array_merge(static::$_config, $config);
+        }
+        static::$_db = $db;
+        if (!is_null($db)) {
+            static::_setup_identifier_quote_character();
+        }
+    }
+
+    /**
+    * Set read/write DB connection names from model
+    *
+    * @param string $read
+    * @param string $write
+    * @return BORMWrapper
+    */
+    public function set_rw_db_names($read, $write)
+    {
+        $this->_readDbName = $read;
+        $this->_writeDbName = $write;
+        return $this;
+    }
+
+    /**
+    * Execute the SELECT query that has been built up by chaining methods
+    * on this class. Return an array of rows as associative arrays.
+    *
+    * Connection will be switched to read, if set
+    *
+    * @return array
+    */
+    protected function _run()
+    {
+        BDb::connect($this->_readDbName);
+        return parent::_run();
+    }
+    /**
+    * Add a column to the list of columns returned by the SELECT
+    * query. This defaults to '*'. The second optional argument is
+    * the alias to return the column as.
+    *
+    * @param string|array $column if array, select multiple columns
+    * @param string $alias optional alias, if $column is array, used as table name
+    * @return BORM
+    */
+    public function select($column, $alias=null)
+    {
+        if (is_array($column)) {
+            foreach ($column as $k=>$v) {
+                $col = (!is_null($alias) ? $alias.'.' : '').$v;
+                if (is_int($k)) {
+                    $this->select($col);
+                } else {
+                    $this->select($col, $k);
+                }
+            }
+            return $this;
+        }
+        return parent::select($column, $alias);
+    }
+
+    /**
+    * Execute the query and return PDO statement object
+    *
+    * Usage:
+    *   $sth = $orm->execute();
+    *   while ($row = $sth->fetch(PDO::FETCH_ASSOC)) { ... }
+    *
+    * @return PDOStatement
+    */
+    public function execute()
+    {
+        BDb::connect($this->_readDbName);
+        $query = $this->_build_select();
+        static::_log_query($query, $this->_values);
+        $statement = static::$_db->prepare($query);
+try {
+        $statement->execute($this->_values);
+} catch (Exception $e) {
+echo $query;
+print_r($e);
+exit;
+}
+        return $statement;
+    }
+
+    public function row_to_model($row)
+    {
+        return $this->_create_model_instance($this->_create_instance_from_row($row));
+    }
+
+    /**
+    * Iterate over select result with callback on each row
+    *
+    * @param mixed $callback
+    * @return BORM
+    */
+    public function iterate($callback)
+    {
+        $statement = $this->execute();
+        while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+            $model = $this->row_to_model($row);
+            call_user_func($callback, $model);
+        }
+        return $this;
+    }
+
+    /**
+    * Add a complex where condition
+    *
+    * @see BDb::where
+    * @param array $conds
+    * @param boolean $or
+    * @return BORM
+    */
+    public function where_complex($conds, $or=false)
+    {
+        list($where, $params) = BDb::where($conds, $or);
+        return $this->where_raw($where, $params);
+    }
+
+    /**
+    * Find many records and return as associated array
+    *
+    * @param string $key
+    * @param string|null $labelColumn
+    * @param array $options (key_lower, key_trim)
+    * @return array
+    */
+    public function find_many_assoc($key=null, $labelColumn=null, $options=array())
+    {
+        $objects = $this->find_many();
+        $array = array();
+        $idColumn = !empty($key) ? $key : $this->_get_id_column_name();
+        foreach ($objects as $r) {
+            $key = $r->$idColumn;
+            if (!empty($options['key_lower'])) $key = strtolower($key);
+            if (!empty($options['key_trim'])) $key = trim($key);
+            $array[$key] = is_null($labelColumn) ? $r : $r->$labelColumn;
+        }
+        return $array;
+    }
+
+    /**
+     * Check whether the given field (or object itself) has been changed since this
+     * object was saved.
+     */
+    public function is_dirty($key=null) {
+        return is_null($key) ? !empty($this->_dirty_fields) : isset($this->_dirty_fields[$key]);
+    }
+
+    /**
+     * Set a property to a particular value on this object.
+     * Flags that property as 'dirty' so it will be saved to the
+     * database when save() is called.
+     */
+    public function set($key, $value) {
+        if (!array_key_exists($key, $this->_data) || $this->_data[$key] !== $value) {
+            $this->_dirty_fields[$key] = $value;
+        }
+        $this->_data[$key] = $value;
+    }
+
+    /**
+     * Save any fields which have been modified on this object
+     * to the database.
+     *
+     * Connection will be switched to write, if set
+     *
+     * @return boolean
+     */
+    public function save()
+    {
+        BDb::connect($this->_writeDbName);
+        $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
+        return parent::save();
+    }
+
+    /**
+     * Delete this record from the database
+     *
+     * Connection will be switched to write, if set
+     *
+     * @return boolean
+     */
+    public function delete()
+    {
+        BDb::connect($this->_writeDbName);
+        return parent::delete();
+    }
+
+    /**
+     * Perform a raw query. The query should contain placeholders,
+     * in either named or question mark style, and the parameters
+     * should be an array of values which will be bound to the
+     * placeholders in the query. If this method is called, all
+     * other query building methods will be ignored.
+     *
+     * Connection will be set to write, if query is not SELECT or SHOW
+     *
+     * @return BORMWrapper
+     */
+    public function raw_query($query, $parameters)
+    {
+        if (preg_match('#^\s*(SELECT|SHOW)#i', $query)) {
+            BDb::connect($this->_readDbName);
+        } else {
+            BDb::connect($this->_writeDbName);
+        }
+        return parent::raw_query($query, $parameters);
+    }
+
+    /**
+    * Get table name with prefix, if configured
+    *
+    * @param string $class_name
+    * @return string
+    */
+    protected static function _get_table_name($class_name) {
+        return BDb::t(parent::_get_table_name($class_name));
+    }
+
+    /**
+    * Set page constraints on collection for use in grids
+    *
+    * Request and result vars:
+    * - p: page number
+    * - ps: page size
+    * - s: sort order by (if default is array - only these values are allowed) (alt: sort|dir)
+    * - sd: sort direction (asc/desc)
+    * - sc: sort combined (s|sd)
+    * - rs: requested row start (optional in request, not dependent on page size)
+    * - rc: requested row count (optional in request, not dependent on page size)
+    * - c: total row count (return only)
+    * - mp: max page (return only)
+    *
+    * Options (all optional):
+    * - format: 0..2
+    * - as_array: true or method name
+    *
+    * @param array $r pagination request, if null - take from request query string
+    * @param array $d default values and options
+    * @return array
+    */
+    public function paginate($r=null, $d=array())
+    {
+        if (is_null($r)) {
+            $r = BRequest::i()->get(); // GET request
+        }
+        $d = (array)$d; // make sure it's array
+        if (!empty($r['sc']) && empty($r['s']) && empty($r['sd'])) { // sort and dir combined
+            list($r['s'], $r['sd']) = explode('|', $r['sc']);
+        }
+        if (!empty($r['s']) && !empty($d['s']) && is_array($d['s'])) { // limit by these values only
+            if (!in_array($r['s'], $d['s'])) $r['s'] = null;
+            $d['s'] = null;
+        }
+        if (!empty($r['sd']) && $r['sd']!='asc' && $r['sd']!='desc') { // only asc and desc are allowed
+            $r['sd'] = null;
+        }
+        $s = array( // state
+            'p'  => !empty($r['p'])  && is_numeric($r['p']) ? $r['p']  : (isset($d['p'])  ? $d['p']  : 1), // page
+            'ps' => !empty($r['ps']) && is_numeric($r['ps']) ? $r['ps'] : (isset($d['ps']) ? $d['ps'] : 100), // page size
+            's'  => !empty($r['s'])  ? $r['s']  : (isset($d['s'])  ? $d['s']  : ''), // sort by
+            'sd' => !empty($r['sd']) ? $r['sd'] : (isset($d['sd']) ? $d['sd'] : 'asc'), // sort dir
+            'rs' => !empty($r['rs']) ? $r['rs'] : null,
+            'rc' => !empty($r['rc']) ? $r['rc'] : null,
+        );
+        $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
+        $cntOrm = clone $this; // clone ORM to count
+        $s['c'] = $cntOrm->count(); // row count
+        unset($cntOrm); // free mem
+        $s['mp'] = ceil($s['c']/$s['ps']); // max page
+        if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
+        if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
+        $s['rs'] = isset($s['rs']) ? $s['rs'] : ($s['p']-1)*$s['ps']; // start from requested row or page
+        $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
+        $rows = $this->find_many(); // result data
+        $s['rc'] = $rows ? sizeof($rows) : 0; // returned row count
+        if (!empty($d['as_array'])) {
+            $rows = BDb::many_as_array($rows, is_string($d['as_array']) ? $d['as_array'] : 'as_array');
+        }
+        if (!empty($d['format'])) {
+            switch ($d['format']) {
+                case 1: return $rows;
+                case 2: $s['rows'] = $rows; return $s;
+            }
+        }
+        return array('state'=>$s, 'rows'=>$rows);
+    }
+
+    public function __destruct()
+    {
+        unset($this->_data);
+    }
+}
+
+/**
+* ORM model base class
+*/
+class BModel extends Model
+{
+    protected static $_dbName = 'DEFAULT';
+    /**
+    * DB name for reads. Set in class declaration
+    *
+    * @var string|null
+    */
+    protected static $_readDbName = null;
+
+    /**
+    * DB name for writes. Set in class declaration
+    *
+    * @var string|null
+    */
+    protected static $_writeDbName = null;
+
+    /**
+    * Final table name cache with prefix
+    *
+    * @var string
+    */
+    protected static $_tableName = null;
+
+    /**
+    * Whether to enable automatic model caching on load
+    * if array, auto cache only if loading by one of these fields
+    *
+    * @var boolean|array
+    */
+    protected static $_cacheAuto = false;
+
+    /**
+    * Fields used in cache, that require values to be case insensitive or trimmed
+    *
+    * - key_lower
+    * - key_trim (TODO)
+    *
+    * @var array
+    */
+    protected static $_cacheFlags = array();
+
+    /**
+    * Cache of model instances of this class (for models that makes sense to keep cache)
+    *
+    * @var array
+    */
+    protected $_cache = array();
+
+    /**
+    * Cache of instance level data values (related models)
+    *
+    * @var array
+    */
+    protected $_instanceCache = array();
+
+    /**
+    * PDO object of read DB connection
+    *
+    * @return BPDO
+    */
+    public static function readDb()
+    {
+        return BDb::connect(static::$_readDbName ? static::$_readDbName : static::$_dbName);
+    }
+
+    /**
+    * PDO object of write DB connection
+    *
+    * @return BPDO
+    */
+    public static function writeDb()
+    {
+        return BDb::connect(static::$_writeDbName ? static::$_writeDbName : static::$_dbName);
+    }
+
+    /**
+    * Model instance factory
+    *
+    * @param string|null $class_name optional
+    * @return BORM
+    */
+    public static function factory($class_name=null)
+    {
+        if (is_null($class_name)) { // ADDED
+            $class_name = get_called_class();
+        }
+        $class_name = BClassRegistry::i()->className($class_name); // ADDED
+
+        static::readDb();
+        $table_name = static::_get_table_name($class_name);
+        $wrapper = BORM::for_table($table_name); // CHANGED
+        $wrapper->set_class_name($class_name);
+        $wrapper->use_id_column(static::_get_id_column_name($class_name));
+        $wrapper->set_rw_db_names( // ADDED
+            static::$_readDbName ? static::$_readDbName : static::$_dbName,
+            static::$_writeDbName ? static::$_writeDbName : static::$_dbName
+        );
+        return $wrapper;
+    }
+
+    /**
+    * Alias for self::factory()
+    *
+    * return BORM
+    */
+    public static function orm()
+    {
+        return static::i()->factory();
+    }
+
+    /**
+    * Fallback singleton/instance factory
+    *
+    * @param bool $new if true returns a new instance, otherwise singleton
+    * @param array $args
+    * @return BClass
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return BClassRegistry::i()->instance(get_called_class(), $args, !$new);
+    }
+
+    /**
+    * Enhanced set method, allowing to set multiple values, and returning $this for chaining
+    *
+    * @param string|array $key
+    * @param mixed $value
+    * @param mixed $flag if true, add to existing value; if null, update only if currently not set
+    * @return BModel
+    */
+    public function set($key, $value=null, $flag=false)
+    {
+        if (is_array($key)) {
+            foreach ($key as $k=>$v) {
+                parent::set($k, $v);
+            }
+        } else {
+            if (true===$flag) {
+                $oldValue = $this->get($key);
+                if (is_array($oldValue)) {
+                    $oldValue[] = $value;
+                    $value = $oldValue;
+                } else {
+                    $value += $oldValue;
+                }
+            }
+            if (!is_null($flag) || is_null($this->get($key))) {
+                parent::set($key, $value);
+            }
+        }
+        return $this;
+    }
+
+    /**
+    * Add a value to field
+    *
+    * @param string $key
+    * @param mixed $value
+    * @return BModel
+    */
+    public function add($key, $increment=1)
+    {
+        return $this->set($key, $increment, true);
+    }
+
+    /**
+    * Create a new instance of the model
+    *
+    * @param null|array $data
+    */
+    public static function create($data=null)
+    {
+        $record = static::i()->factory()->create($data);
+        $record->afterCreate();
+        return $record;
+    }
+
+    /**
+    * Placeholder for after creae callback
+    *
+    */
+    public function afterCreate()
+    {
+        return $this;
+    }
+
+    /**
+    * Load a model object based on ID, another field or multiple fields
+    *
+    * @param int|string|array $id
+    * @param string $field
+    * @return BModel
+    */
+    public static function load($id, $field=null)
+    {
+        if (is_null($field)) {
+            $field = static::_get_id_column_name(get_called_class());
+        }
+
+        $key = $id;
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        if (!empty(static::i()->_cache[$field][$id])) return static::i()->_cache[$field][$key];
+
+        $orm = static::i()->factory();
+        if (is_array($id)) {
+            #foreach ($id as $k=>$v) $orm->where($k, $v);
+            $record = $orm->where_complex($id)->find_one();
+        } elseif (is_null($field)) {
+            $record = $orm->find_one($id);
+        } else {
+            $record = $orm->where($field, $id)->find_one();
+        }
+        if ($record) {
+            $record->afterLoad();
+            if (static::$_cacheAuto===true || is_array(static::$_cacheAuto) && in_array($field, static::$_cacheAuto)) {
+                $record->cacheStore();
+            }
+        }
+        return $record;
+    }
+
+    /**
+    * Placeholder for after load callback
+    *
+    * @return BModel
+    */
+    public function afterLoad()
+    {
+        return $this;
+    }
+
+    /**
+    * Apply afterLoad() to all models in collection
+    *
+    * @param array $arr Model collection
+    * @return BModel
+    */
+    public function afterLoadAll($arr)
+    {
+        foreach ($arr as $r) {
+            $r->afterLoad();
+        }
+        return $this;
+    }
+
+    /**
+    * Clear model cache
+    *
+    * @return BModel
+    */
+    public function cacheClear()
+    {
+        static::i()->_cache = array();
+        return $this;
+    }
+
+    /**
+    * Preload models into cache
+    *
+    * @param mixed $where complex where @see BORM::where_complex()
+    * @param mixed $field cache key
+    * @param mixed $sort
+    * @return BModel
+    */
+    public function cachePreload($where=null, $field='id', $sort=null)
+    {
+        $cache =& static::i()->_cache;
+        $orm = $this->factory();
+        if ($where) $orm->where_complex($where);
+        if ($sort) $orm->order_by_asc($sort);
+        $options = !empty(static::$_cacheFlags[$field]) ? static::$_cacheFlags[$field] : array();
+        $cache[$field] = $orm->find_many_assoc($field, null, $options);
+        return $this;
+    }
+
+    /**
+    * Preload models using keys from external collection
+    *
+    * @param array $collection
+    * @param string $fk foreign key field
+    * @param string $lk local key field
+    * @return BModel
+    */
+    public function cachePreloadFrom($collection, $fk='id', $lk='id')
+    {
+        if (!$collection) return $this;
+        $keys = array();
+        $keyLower = !empty(static::$_cacheFlags[$lk]['key_lower']);
+        foreach ($collection as $r) {
+            $key = null;
+            if (is_object($r)) {
+                $key = $r->$fk;
+            } elseif (is_array($r)) {
+                $key = isset($r[$fk]) ? $r[$fk] : null;
+            } elseif (is_scalar($r)) {
+                $key = $r;
+            }
+            if (empty($key)) continue;
+            if ($keyLower) $key = strtolower($key);
+            if (!empty(static::i()->_cache[$lk][$key])) continue;
+            $keys[$key] = 1;
+        }
+        if ($keys) $this->cachePreload(array($lk=>array_keys($keys)), $lk);
+        return $this;
+    }
+
+    /**
+    * Copy cache into another field
+    *
+    * @param string $toKey
+    * @param string $fromKey
+    * @return BModel
+    */
+    public function cacheCopy($toKey, $fromKey='id')
+    {
+        $cache =& static::i()->_cache;
+        $lower = !empty(static::$_cacheFlags[$toKey]['key_lower']);
+        foreach ($cache[$fromKey] as $r) {
+            $key = $r->$toKey;
+            if ($lower) $key = strtolower($key);
+            $cache[$toKey][$key] = $r;
+        }
+        return $this;
+    }
+
+    /**
+    * Save all dirty models in cache
+    *
+    * @return BModel
+    */
+    public function cacheSaveDirty()
+    {
+        foreach (static::i()->_cache['id'] as $c) {
+            if ($c->is_dirty()) $c->save();
+        }
+        return $this;
+    }
+
+    /**
+    * Fetch all cached models by field
+    *
+    * @param string $field
+    * @param string $key
+    * @return array|BModel
+    */
+    public function cacheFetch($field='id', $key=null)
+    {
+        $cache = static::i()->_cache;
+        if (empty($cache[$field])) return null;
+        if (is_null($key)) return $cache[$field];
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        return !empty($cache[$field][$key]) ? $cache[$field][$key] : null;
+    }
+
+    /**
+    * Store model in cache by field
+    *
+    * @param string|array $field one or more fields to store the cache for
+    * @param array $collection external model collection to store into cache
+    * @return BModel
+    */
+    public function cacheStore($field='id', $collection=null)
+    {
+        $cache =& static::i()->_cache;
+        if ($collection) {
+            foreach ($collection as $r) {
+                $r->cacheStore($field);
+            }
+            return $this;
+        }
+        if (is_array($field)) {
+            foreach ($field as $k) {
+                $this->cacheStore($k);
+            }
+            return $this;
+        }
+        $key = $this->$field;
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
+        $cache[$field][$key] = $this;
+        return $this;
+    }
+
+    /**
+    * Placeholder for before save callback
+    *
+    * @return boolean whether to continue with save
+    */
+    public function beforeSave()
+    {
+        return true;
+    }
+
+    /**
+     * Check whether the given field has changed since the object was created or saved
+     */
+    public function is_dirty($property=null) {
+        return $this->orm->is_dirty($property);
+    }
+
+    /**
+    * Save method returns the model object for chaining
+    *
+    * @return BModel
+    */
+    public function save()
+    {
+        if (!$this->beforeSave()) {
+            return $this;
+        }
+        parent::save();
+
+        $this->afterSave();
+
+        if (static::$_cacheAuto) {
+            $this->cacheStore();
+        }
+        return $this;
+    }
+
+    /**
+    * Placeholder for after save callback
+    *
+    */
+    public function afterSave()
+    {
+        return $this;
+    }
+
+    /**
+    * Placeholder for before delete callback
+    *
+    * @return boolean whether to continue with delete
+    */
+    public function beforeDelete()
+    {
+        return true;
+    }
+
+    public function delete()
+    {
+        if (!$this->beforeDelete()) {
+            return $this;
+        }
+        if (($cache =& static::i()->_cache)) {
+            foreach ($cache as $k=>$cache) {
+                $key = $this->$k;
+                if (!empty(static::$_cacheFlags[$k]['key_lower'])) $key = strtolower($key);
+                unset($cache[$k][$key]);
+            }
+        }
+        parent::delete();
+        return $this;
+    }
+
+    /**
+    * Run raw SQL with optional parameters
+    *
+    * @param string $sql
+    * @param array $params
+    * @return PDOStatement
+    */
+    public static function run_sql($sql, $params=array())
+    {
+        return static::writeDb()->prepare($sql)->execute((array)$params);
+    }
+
+    /**
+    * Get table name for the model
+    *
+    * @return string
+    */
+    public static function table()
+    {
+        if (!static::$_tableName) {
+            static::$_tableName = BDb::t(static::_get_table_name(get_called_class()));
+        }
+        return static::$_tableName;
+    }
+
+    /**
+    * Update one or many records of the class
+    *
+    * @param array $data
+    * @param string|array $where where conditions (@see BDb::where)
+    * @param array $params if $where string, use these params
+    * @return boolean
+    */
+    public static function update_many(array $data, $where, $p=array())
+    {
+        $update = array();
+        $params = array();
+        foreach ($data as $k=>$v) {
+            $update[] = "`{$k}`=?";
+            $params[] = $v;
+        }
+        if (is_array($where)) {
+            list($where, $p) = BDb::where($where);
+        }
+        return static::run_sql("UPDATE ".static::table()." SET ".join(', ', $update)
+            ." WHERE {$where}", array_merge($params, $p));
+    }
+
+    /**
+    * Delete one or many records of the class
+    *
+    * @param string|array $where where conditions (@see BDb::where)
+    * @param array $params if $where string, use these params
+    * @return boolean
+    */
+    public static function delete_many($where, $params=array())
+    {
+        if (is_array($where)) {
+            list($where, $params) = BDb::where($where);
+        }
+        return static::run_sql("DELETE FROM ".static::table()." WHERE {$where}", $params);
+    }
+
+    /**
+    * Model data as array, recursively
+    *
+    * @param array $objHashes cache of object hashes to check for infinite recursion
+    * @return array
+    */
+    public function as_array(array $objHashes=array())
+    {
+        $objHash = spl_object_hash($this);
+        if (!empty($objHashes[$objHash])) {
+            return "*** RECURSION: ".get_class($this);
+        }
+        $objHashes[$objHash] = 1;
+
+        $data = parent::as_array();
+        foreach ($data as $k=>$v) {
+            if ($v instanceof Model) {
+                $data[$k] = $v->as_array();
+            } elseif (is_array($v) && current($v) instanceof Model) {
+                foreach ($v as $k1=>$v1) {
+                    $data[$k][$k1] = $v1->as_array($objHashes);
+                }
+            }
+        }
+        return $data;
+    }
+
+    /**
+    * Store instance data cache, such as related models
+    *
+    * @param string $key
+    * @param mixed $value
+    * @return mixed
+    */
+    public function instanceCache($key, $value=BNULL)
+    {
+        if (BNULL===$value) {
+            return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
+        }
+        $this->_instanceCache[$key] = $value;
+        return $this;
+    }
+
+    /**
+    * Retrieve persistent related model object
+    *
+    * @param string $modelClass
+    * @param mixed $idValue related object id value or complex where expression
+    * @param boolean $autoCreate if record doesn't exist yet, create a new object
+    * @result BModel
+    */
+    public function relatedModel($modelClass, $idValue, $autoCreate=false, $cacheKey=null)
+    {
+        $cacheKey = $cacheKey ? $cacheKey : $modelClass;
+        $model = $this->instanceCache($cacheKey);
+        if (is_null($model)) {
+            if (is_array($idValue)) {
+                $model = $modelClass::i()->factory()->where_complex($idValue)->find_one();
+                if ($model) $model->afterLoad();
+            } else {
+                $model = $modelClass::i()->load($idValue);
+            }
+            if ($autoCreate && !$model) {
+                if (is_array($idValue)) {
+                    $model = $modelClass::i()->create($idValue);
+                } else {
+                    $model = $modelClass::i()->create(array($foreignIdField=>$idValue));
+                }
+            }
+            $this->instanceCache($cacheKey, $model);
+        }
+
+        return $model;
+    }
+
+    /**
+    * Retrieve persistent related model objects collection
+    *
+    * @param string $modelClass
+    * @param mixed $idValue complex where expression
+    * @result array
+    */
+    public function relatedCollection($modelClass, $where)
+    {
+
+    }
+
+    /**
+    * Return a member of child collection identified by a field
+    *
+    * @param string $var
+    * @param string|int $id
+    * @param string $idField
+    * @return mixed
+    */
+    public function childById($var, $id, $idField='id')
+    {
+        $collection = $this->$var;
+        if (!$collection) return null;
+        foreach ($collection as $k=>$v) {
+            if ($v->$idField==$id) return $v;
+        }
+        return null;
+    }
+
+    public function __destruct()
+    {
+        unset($this->_cache, $this->_instanceCache);
+    }
+}

@@ -3,9 +3,9 @@
 ini_set('display_errors', 1);
 error_reporting(E_ALL | E_STRICT);
 
-require_once "../../bucky/framework.php";
+require_once "../../bucky/bootstrap.php";
 
-#BDebug::i()->mode('debug');
+BDebug::i()->mode('debug');
 
 BConfig::i()->addFile('protected/config.json');
 

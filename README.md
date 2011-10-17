@@ -21,7 +21,7 @@
 * Do not fight or stronghand with the developer, do not try to force, limit, etc.
 * Developer will find ways to work around or use undocumented API.
 * Conserve memory by not storing unnecessary data or configuration more than needed.
-* Minimize framework overhead (~10ms on slow server)
+* Minimize framework overhead (~3ms on slow server)
 
 ## Q&A ##
 * Q: Why yet another PHP framework?
@@ -106,3 +106,57 @@ So, yada yada.
 For demo please see /blog
 
 Make sure to edit protected/config.json to set your own environment details, and run protected/blog.sql on your DB to create tables.
+
+## Walkthrough ##
+
+By widely accepted tradition we start with Hello, World!
+
+helloworld.php
+==============
+  Hello, World!
+
+Seriously, if all you need is to output "Hello, World!" you don't really need more than that.
+BuckyBall framework is build with this concept in mind:
+  Complication of implementation should be proportional to complexity of specification.
+
+<?php
+
+include "buckyball.php";
+
+BFrontController::i()->route('GET /', function() {
+    echo 'Hello, World!';
+});
+
+
+<?php
+
+BFrontController::i()
+    ->route('GET /', 'DemoController.index')
+    ->route('GET /test1/:param', 'DemoController.test1')
+    ->route('GET /test2/*param', 'DemoController.anything')
+    ->route('GET /test3/.action/:param', 'DemoController', array('post_test'=>'POST'))
+;
+
+class DemoController extends BActionController
+{
+    public function afterDispatch()
+    {
+        BResponse::i()->render();
+    }
+
+    public function action_index()
+    {
+        BResponse::i()->set('Hello, World!');
+    }
+
+    public function action_test1()
+    {
+        BResponse::i()->set('Hello, '.BRequest::i()->params('param'));
+    }
+
+    public function action_test2()
+    {
+        BResponse::i()->set('Hello, '.BRequest::i()->params('param'));
+    }
+}
+

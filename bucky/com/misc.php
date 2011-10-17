@@ -1,6 +1,479 @@
 <?php
 
 /**
+* Utility class to parse and construct strings and data structures
+*/
+class BUtil
+{
+    /**
+    * IV for mcrypt operations
+    *
+    * @var string
+    */
+    protected static $_mcryptIV;
+
+    /**
+    * Encryption key from configuration (encrypt/key)
+    *
+    * @var string
+    */
+    protected static $_mcryptKey;
+
+    /**
+    * Default hash algorithm
+    *
+    * @var string default sha512 for strength and slowness
+    */
+    protected static $_hashAlgo = 'sha256';
+
+    /**
+    * Default number of hash iterations
+    *
+    * @var int
+    */
+    protected static $_hashIter = 3;
+
+    /**
+    * Default full hash string separator
+    *
+    * @var string
+    */
+    protected static $_hashSep = '$';
+
+    /**
+    * Convert any data to JSON
+    *
+    * @param mixed $data
+    * @return string
+    */
+    public static function toJson($data)
+    {
+        return json_encode($data);
+    }
+
+    /**
+    * Parse JSON into PHP data
+    *
+    * @param string $json
+    * @param bool $asObject if false will attempt to convert to array,
+    *                       otherwise standard combination of objects and arrays
+    */
+    public static function fromJson($json, $asObject=false)
+    {
+        $obj = json_decode($json);
+        return $asObject ? $obj : static::objectToArray($obj);
+    }
+
+    /**
+    * Convert object to array recursively
+    *
+    * @param object $d
+    * @return array
+    */
+    public static function objectToArray($d)
+    {
+        if (is_object($d)) {
+            $d = get_object_vars($d);
+        }
+        if (is_array($d)) {
+            return array_map('BUtil::objectToArray', $d);
+        }
+        return $d;
+    }
+
+    /**
+    * Convert array to object
+    *
+    * @param mixed $d
+    * @return object
+    */
+    public static function arrayToObject($d)
+    {
+        if (is_array($d)) {
+            return (object) array_map('BUtil::objectToArray', $d);
+        }
+        return $d;
+    }
+
+    /**
+     * version of sprintf for cases where named arguments are desired (php syntax)
+     *
+     * with sprintf: sprintf('second: %2$s ; first: %1$s', '1st', '2nd');
+     *
+     * with sprintfn: sprintfn('second: %second$s ; first: %first$s', array(
+     *  'first' => '1st',
+     *  'second'=> '2nd'
+     * ));
+     *
+     * @see http://www.php.net/manual/en/function.sprintf.php#94608
+     * @param string $format sprintf format string, with any number of named arguments
+     * @param array $args array of [ 'arg_name' => 'arg value', ... ] replacements to be made
+     * @return string|false result of sprintf call, or bool false on error
+     */
+    public static function sprintfn($format, $args = array())
+    {
+        $args = (array)$args;
+
+        // map of argument names to their corresponding sprintf numeric argument value
+        $arg_nums = array_slice(array_flip(array_keys(array(0 => 0) + $args)), 1);
+
+        // find the next named argument. each search starts at the end of the previous replacement.
+        for ($pos = 0; preg_match('/(?<=%)([a-zA-Z_]\w*)(?=\$)/', $format, $match, PREG_OFFSET_CAPTURE, $pos);) {
+            $arg_pos = $match[0][1];
+            $arg_len = strlen($match[0][0]);
+            $arg_key = $match[1][0];
+
+            // programmer did not supply a value for the named argument found in the format string
+            if (! array_key_exists($arg_key, $arg_nums)) {
+                user_error("sprintfn(): Missing argument '${arg_key}'", E_USER_WARNING);
+                return false;
+            }
+
+            // replace the named argument with the corresponding numeric one
+            $format = substr_replace($format, $replace = $arg_nums[$arg_key], $arg_pos, $arg_len);
+            $pos = $arg_pos + strlen($replace); // skip to end of replacement for next iteration
+        }
+
+        return vsprintf($format, array_values($args));
+    }
+
+    /**
+    * Inject vars into string template
+    *
+    * Ex: echo BUtil::injectVars('One :two :three', array('two'=>2, 'three'=>3))
+    * Result: "One 2 3"
+    *
+    * @param string $str
+    * @param array $vars
+    * @return string
+    */
+    public static function injectVars($str, $vars)
+    {
+        $from = array(); $to = array();
+        foreach ($vars as $k=>$v) {
+            $from[] = ':'.$k;
+            $to[] = $v;
+        }
+        return str_replace($from, $to, $str);
+    }
+
+    /**
+     * Merges any number of arrays / parameters recursively, replacing
+     * entries with string keys with values from latter arrays.
+     * If the entry or the next value to be assigned is an array, then it
+     * automagically treats both arguments as an array.
+     * Numeric entries are appended, not replaced, but only if they are
+     * unique
+     *
+     * calling: result = array_merge_recursive_distinct(a1, a2, ... aN)
+     *
+     * @see http://us3.php.net/manual/en/function.array-merge-recursive.php#96201
+     **/
+     public static function arrayMerge() {
+         $arrays = func_get_args();
+         $base = array_shift($arrays);
+         if(!is_array($base)) $base = empty($base) ? array() : array($base);
+         foreach($arrays as $append) {
+             if(!is_array($append)) $append = array($append);
+             foreach($append as $key => $value) {
+                 if(!array_key_exists($key, $base) and !is_numeric($key)) {
+                     $base[$key] = $append[$key];
+                     continue;
+                 }
+                 if(is_array($value) or is_array($base[$key])) {
+                     $base[$key] = static::arrayMerge($base[$key], $append[$key]);
+                 } else if(is_numeric($key)) {
+                         if(!in_array($value, $base)) $base[] = $value;
+                 } else {
+                     $base[$key] = $value;
+                 }
+             }
+         }
+         return $base;
+     }
+
+    /**
+    * Compare 2 arrays recursively
+    *
+    * @param array $array1
+    * @param array $array2
+    */
+    public static function arrayCompare(array $array1, array $array2)
+    {
+        $diff = false;
+        // Left-to-right
+        foreach ($array1 as $key => $value) {
+            if (!array_key_exists($key,$array2)) {
+                $diff[0][$key] = $value;
+            } elseif (is_array($value)) {
+                if (!is_array($array2[$key])) {
+                    $diff[0][$key] = $value;
+                    $diff[1][$key] = $array2[$key];
+                } else {
+                    $new = static::arrayCompare($value, $array2[$key]);
+                    if ($new !== false) {
+                        if (isset($new[0])) $diff[0][$key] = $new[0];
+                        if (isset($new[1])) $diff[1][$key] = $new[1];
+                    }
+                }
+            } elseif ($array2[$key] !== $value) {
+                 $diff[0][$key] = $value;
+                 $diff[1][$key] = $array2[$key];
+            }
+        }
+        // Right-to-left
+        foreach ($array2 as $key => $value) {
+            if (!array_key_exists($key,$array1)) {
+                $diff[1][$key] = $value;
+            }
+            // No direct comparsion because matching keys were compared in the
+            // left-to-right loop earlier, recursively.
+        }
+        return $diff;
+    }
+
+    /**
+    * Create IV for mcrypt operations
+    *
+    * @return string
+    */
+    static public function mcryptIV()
+    {
+        if (!self::$_mcryptIV) {
+            self::$_mcryptIV = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_DEV_URANDOM);
+        }
+        return self::$_mcryptIV;
+    }
+
+    /**
+    * Fetch default encryption key from config
+    *
+    * @return string
+    */
+    static public function mcryptKey()
+    {
+        if (is_null(static::$_mcryptKey)) {
+            static::$_mcryptKey = BConfig::i()->get('encrypt/key');
+        }
+        return static::$_mcryptKey;
+
+    }
+
+    /**
+    * Encrypt using AES256
+    *
+    * Requires PHP extension mcrypt
+    *
+    * @param string $value
+    * @param string $key
+    * @param boolean $base64
+    * @return string
+    */
+    static public function encrypt($value, $key=null, $base64=true)
+    {
+        if (is_null($key)) $key = BUtil::mcryptKey();
+        $enc = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, $key, $value, MCRYPT_MODE_ECB, self::mcryptIV());
+        return $base64 ? trim(base64_encode($enc)) : $enc;
+    }
+
+    /**
+    * Decrypt using AES256
+    *
+    * Requires PHP extension mcrypt
+    *
+    * @param string $value
+    * @param string $key
+    * @param boolean $base64
+    * @return string
+    */
+    static public function decrypt($value, $key=null, $base64=true)
+    {
+        if (is_null($key)) $key = BUtil::mcryptKey();
+        $enc = $base64 ? base64_decode($value) : $value;
+        return trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $key, $enc, MCRYPT_MODE_ECB, self::mcryptIV()));
+    }
+
+    /**
+    * Set or retrieve current hash algorithm
+    *
+    * @param string $algo
+    */
+    public static function hashAlgo($algo=null)
+    {
+        if (is_null($algo)) {
+            return static::$_hashAlgo;
+        }
+        static::$_hashAlgo = $algo;
+    }
+
+    public static function hashIter($iter=null)
+    {
+        if (is_null($iter)) {
+            return static::$_hashIter;
+        }
+        static::$iter = $iter;
+    }
+
+    /**
+    * Generate random string
+    *
+    * @param int $strLen length of resulting string
+    * @param string $chars allowed characters to be used
+    */
+    public static function randomString($strLen=8, $chars='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789')
+    {
+        $charsLen = strlen($chars)-1;
+        $str = '';
+        for ($i=0; $i<$strLen; $i++) {
+            $str .= $chars[mt_rand(0, $charsLen)];
+        }
+        return $str;
+    }
+
+    /**
+    * Generate random string based on pattern
+    *
+    * Syntax: {ULD10}-{U5}
+    * - U: upper case letters
+    * - L: lower case letters
+    * - D: digits
+    *
+    * @param string $pattern
+    * @return string
+    */
+    public static function randomPattern($pattern)
+    {
+        static $chars = array('L'=>'bcdfghjkmnpqrstvwxyz', 'U'=>'BCDFGHJKLMNPQRSTVWXYZ', 'D'=>'123456789');
+
+        while (preg_match('#\{([ULD]+)([0-9]+)\}#i', $pattern, $m)) {
+            for ($i=0, $c=''; $i<strlen($m[1]); $i++) $c .= $chars[$m[1][$i]];
+            $pattern = preg_replace('#'.preg_quote($m[0]).'#', BUtil::randomString($m[2], $c), $pattern, 1);
+        }
+        return $pattern;
+    }
+
+    /**
+    * Generate salted hash
+    *
+    * @param string $string original text
+    * @param mixed $salt
+    * @param mixed $algo
+    * @return string
+    */
+    public static function saltedHash($string, $salt, $algo=null)
+    {
+        $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
+        return hash($algo, $salt.$string);
+    }
+
+    /**
+    * Generate fully composed salted hash
+    *
+    * Ex: $sha512$2$<salt1>$<salt2>$<double-hashed-string-here>
+    *
+    * @param string $string
+    * @param string $salt
+    * @param string $algo
+    * @param integer $iter
+    */
+    public static function fullSaltedHash($string, $salt=null, $algo=null, $iter=null)
+    {
+        $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
+        $iter = !is_null($iter) ? $iter : static::$_hashIter;
+        $s = static::$_hashSep;
+        $hash = $s.$algo.$s.$iter;
+        for ($i=0; $i<$iter; $i++) {
+            $salt1 = !is_null($salt) ? $salt : static::randomString();
+            $hash .= $s.$salt1;
+            $string = static::saltedHash($string, $salt1, $algo);
+        }
+        return $hash.$s.$string;
+    }
+
+    /**
+    * Validate salted hash against original text
+    *
+    * @param string $string original text
+    * @param string $storedHash fully composed salted hash
+    */
+    public static function validateSaltedHash($string, $storedHash)
+    {
+        $sep = $storedHash[0];
+        $arr = explode($sep, $storedHash);
+        array_shift($arr);
+        $algo = array_shift($arr);
+        $iter = array_shift($arr);
+        $verifyHash = $string;
+        for ($i=0; $i<$iter; $i++) {
+            $salt = array_shift($arr);
+            $verifyHash = static::saltedHash($verifyHash, $salt, $algo);
+        }
+        $knownHash = array_shift($arr);
+        return $verifyHash===$knownHash;
+    }
+
+    /**
+    * Return only specific fields from source array
+    *
+    * @param array $source
+    * @param array|string $fields
+    * @param boolean $inverse if true, will return anything NOT in $fields
+    * @result array
+    */
+    public static function maskFields($source, $fields, $inverse=false)
+    {
+        if (is_string($fields)) {
+            $fields = explode(',', $fields);
+        }
+        $result = array();
+        if (!$inverse) {
+            foreach ($fields as $k) $result[$k] = isset($source[$k]) ? $source[$k] : null;
+        } else {
+            foreach ($source as $k=>$v) if (!in_array($k, $fields)) $result[$k] = $v;
+        }
+        return $result;
+    }
+
+    /**
+    * Send simple POST request to external server and retrieve response
+    *
+    * @param string $url
+    * @param array $data
+    * @return string
+    */
+    public static function post($url, $data) {
+        $request = http_build_query($data);
+        $opts = array(
+            'http' => array(
+                'method' => 'POST',
+                'header' => "Content-Type: application/x-www-form-urlencoded\r\n"
+                    ."Content-Length: ".strlen($request)."\r\n",
+                'content' => $request,
+                'timeout' => 5,
+            ),
+        );
+        $context = stream_context_create($opts);
+        $response = file_get_contents($url, false, $context);
+        parse_str($response, $result);
+        return $result;
+    }
+
+    public static function normalizePath($path)
+    {
+        $path = str_replace('\\', '/', $path);
+        if (strpos($path, '/..')!==false) {
+            $a = explode('/', $path);
+            $b = array();
+            foreach ($a as $p) {
+                if ($p==='..') array_pop($b); else $b[] = $p;
+            }
+            $path = join('/', $b);
+        }
+        return $path;
+    }
+}
+
+/**
 * Basic user authentication and authorization class
 */
 class BUser extends BModel

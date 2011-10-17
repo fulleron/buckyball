@@ -69,8 +69,11 @@ class BModuleRegistry extends BClass
         if (empty($params['view_root_dir'])) {
             $params['view_root_dir'] = '.';
         }
+        if (empty($params['url_prefix'])) {
+            $params['url_prefix'] = '';
+        }
         if (empty($params['base_url'])) {
-            $params['base_url'] = BApp::baseUrl();
+            $params['base_url'] = BApp::baseUrl().$params['url_prefix'];
         }
         $this->_modules[$modName] = BModule::i(true, $params);
         return $this;
@@ -347,7 +350,7 @@ class BModule extends BClass
     }
 
     /**
-    * Register
+    * Register module specific autoload callback
     *
     * @param mixed $rootDir
     * @param mixed $callback
@@ -360,6 +363,11 @@ class BModule extends BClass
         return $this;
     }
 
+    /**
+    * Default autoload callback
+    *
+    * @param string $class
+    */
     public function autoloadCallback($class)
     {
         if ($this->autoload_filename_cb) {
@@ -372,9 +380,17 @@ class BModule extends BClass
                 $file = $this->autoload_root_dir.'/'.$file;
             }
             include ($file);
-            //return true;
         }
-        //return false;
+    }
+
+    /**
+    * Module specific base URL
+    *
+    * @return string
+    */
+    public function baseUrl()
+    {
+        return $this->base_url;
     }
 }
 

@@ -901,6 +901,9 @@ class BFrontController extends BClass
     public function saveRoute($route, $callback=null, $args=null, $multiple=false)
     {
         list($method, $route) = explode(' ', $route, 2);
+        if (($module = BModuleRegistry::i()->currentModule())) {
+            $route = trim($module->url_prefix, '/').'/'.$route;
+        }
         $route = ltrim($route, '/');
 
         if (!isset($this->_routeTree[$method])) {
@@ -1085,17 +1088,21 @@ class BFrontController extends BClass
                 $node = $this->findRoute($route);
 
                 $this->_currentRoute = $node;
-                $match = $node->match();
-                $observer = $match['observer'];
 
-                if (!$node || !$observer) {
-                    $params = array();
+                if (!$node) {
                     $callback = $this->_defaultRoutes['default']['callback'];
+                    $params = array();
+                    $args = array();
                 } else {
+                    $match = $node->match();
+                    $observer = $match['observer'];
                     $callback = $observer->callback;
                     $params = (array)$match['params'];
+                    $args = (array)$observer->args;
+                    if ($observer->moduleName) {
+                        BModuleRegistry::i()->currentModule($observer->moduleName);
+                    }
                 }
-                $args = (array)$observer->args;
                 if (is_string($callback)) {
                     $r = explode('.', $callback);
                     if (sizeof($r)==2) $callback = $r;
@@ -1107,9 +1114,6 @@ class BFrontController extends BClass
                 $controllerName = $callback[0];
                 $actionName = $callback[1];
                 $request = BRequest::i();
-                if ($observer->moduleName) {
-                    BModuleRegistry::i()->currentModule($observer->moduleName);
-                }
             }
             if (is_array($forward)) {
                 list($actionName, $forwardControllerName, $params) = $forward;

@@ -3,13 +3,13 @@
 class BFireLogger extends BClass
 {
     static protected $_channels = array();
-    
+
     public static function init()
     {
-        //BEventRegistry::i()->observe('BResponse::output.before', 'FireLogger::handler');
+        //BPubSub::i()->on('BResponse::output.before', 'FireLogger::handler');
         self::channel('buckyball')->log('Start');
     }
-    
+
     public static function channel($name)
     {
         if (empty(self::$_channels)) {
@@ -23,7 +23,7 @@ class BFireLogger extends BClass
             include_once "firelogger.php";
             #FireLogger::$enabled = true;
 
-            
+
         }
         if (empty(self::$_channels[$name])) {
             self::$_channels[$name] = new FireLogger($name);

@@ -856,7 +856,7 @@ class BClassDecorator
 /**
 * Events and observers registry
 */
-class BEventRegistry extends BClass
+class BPubSub extends BClass
 {
     /**
     * Stores events and observers
@@ -868,7 +868,7 @@ class BEventRegistry extends BClass
     /**
     * Shortcut to help with IDE autocompletion
     *
-    * @return BEventRegistry
+    * @return BPubSub
     */
     public static function i($new=false, array $args=array())
     {
@@ -880,7 +880,7 @@ class BEventRegistry extends BClass
     *
     * @param string|array $eventName accepts multiple events in form of non-associative array
     * @param array $args
-    * @return BEventRegistry
+    * @return BPubSub
     */
     public function event($eventName, $args=array())
     {
@@ -900,14 +900,14 @@ class BEventRegistry extends BClass
     /**
     * Declare observers in bootstrap function
     *
-    * observe|watch|on|subscribe ?
+    * observe|watch|on|sub|subscribe ?
     *
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
     * @param array $args
-    * @return BEventRegistry
+    * @return BPubSub
     */
-    public function observe($eventName, $callback=null, $args=array())
+    public function on($eventName, $callback=null, $args=array())
     {
         if (is_array($eventName)) {
             foreach ($eventName as $obs) {
@@ -924,41 +924,41 @@ class BEventRegistry extends BClass
     }
 
     /**
-    * Alias for observe()
+    * Alias for on()
     *
     * @param string|array $eventName
     * @param mixed $callback
     * @param array $args
-    * @return BEventRegistry
+    * @return BPubSub
     */
     public function watch($eventName, $callback=null, $args=array())
     {
-        return $this->observe($eventName, $callback, $args);
+        return $this->on($eventName, $callback, $args);
     }
 
     /**
-    * Alias for observe()
+    * Alias for on()
     *
     * @param string|array $eventName
     * @param mixed $callback
     * @param array $args
-    * @return BEventRegistry
+    * @return BPubSub
     */
-    public function on($eventName, $callback=null, $args=array())
+    public function observe($eventName, $callback=null, $args=array())
     {
-        return $this->observe($eventName, $callback, $args);
+        return $this->on($eventName, $callback, $args);
     }
 
     /**
     * Dispatch event observers
     *
-    * dispatch|fire|notify|publish ?
+    * dispatch|fire|notify|pub|publish ?
     *
     * @param string $eventName
     * @param array $args
     * @return array Collection of results from observers
     */
-    public function dispatch($eventName, $args=array())
+    public function fire($eventName, $args=array())
     {
         $result = array();
         if (!empty($this->_events[$eventName])) {
@@ -992,18 +992,17 @@ class BEventRegistry extends BClass
     }
 
     /**
-    * Alias for dispatch()
+    * Alias for fire()
     *
     * @param string|array $eventName
     * @param array $args
     * @return array Collection of results from observers
     */
-    public function fire($eventName, $args=array())
+    public function dispatch($eventName, $args=array())
     {
-        return $this->dispatch($eventName, $args);
+        return $this->fire($eventName, $args);
     }
 }
-
 
 /**
 * Facility to handle session state

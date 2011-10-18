@@ -550,7 +550,7 @@ class BUser extends BModel
         if ($user->timezone) {
             date_default_timezone_set($user->timezone);
         }
-        BEventRegistry::i()->dispatch('BUser::login.after', array('user'=>$user));
+        BPubSub::i()->fire('BUser::login.after', array('user'=>$user));
         return true;
     }
 
@@ -558,7 +558,7 @@ class BUser extends BModel
     {
         BSession::i()->data('user_id', false);
         static::$_sessionUser = null;
-        BEventRegistry::i()->dispatch('BUser::login.after');
+        BPubSub::i()->fire('BUser::login.after');
         return $this;
     }
 }
@@ -587,7 +587,7 @@ class BDebug extends BClass
     public function __construct()
     {
         $this->_startTime = microtime(true);
-        BEventRegistry::i()->observe('BResponse::output.after', array($this, 'afterOutput'));
+        BPubSub::i()->on('BResponse::output.after', array($this, 'afterOutput'));
     }
 
     /**
@@ -626,7 +626,7 @@ class BDebug extends BClass
         if (!$this->is('debug,development')) {
             return $this;
         }
-        $event['ts'] = microtime();
+        $event['ts'] = microtime(true)-$this->_startTime;
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
         }

@@ -27,7 +27,7 @@ class BphpQuery extends BClass
 
     static public function init()
     {
-        BEventRegistry::i()->observe('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
+        BPubSub::i()->on('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
     }
 
     /**
@@ -44,7 +44,7 @@ class BphpQuery extends BClass
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
 
-        BEventRegistry::i()->dispatch('phpQuery.render', $args);
+        BPubSub::i()->fire('phpQuery.render', $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;

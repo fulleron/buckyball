@@ -629,7 +629,7 @@ class BResponse extends BClass
     */
     public function output($type=null)
     {
-        BEventRegistry::i()->dispatch('BResponse::output.before');
+        BPubSub::i()->fire('BResponse::output.before');
         if (!is_null($type)) {
             $this->contentType($type);
         }
@@ -645,7 +645,7 @@ class BResponse extends BClass
         print_r($this->_content);
         echo $this->_contentSuffix;
 
-        BEventRegistry::i()->dispatch('BResponse::output.after');
+        BPubSub::i()->fire('BResponse::output.after');
 
         if ($this->_contentType=='text/html' && BDebug::i()->mode()=='debug' && !BRequest::i()->xhr()) {
             echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
@@ -678,7 +678,7 @@ class BResponse extends BClass
 
     public function shutdown($lastMethod=null)
     {
-        BEventRegistry::i()->dispatch('BResponse::shutdown', array('last_method'=>$lastMethod));
+        BPubSub::i()->fire('BResponse::shutdown', array('last_method'=>$lastMethod));
         exit;
     }
 }

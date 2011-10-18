@@ -168,12 +168,12 @@ class BLayout extends BClass
                 $args['route_name'] = $routeName;
             }
         }
-        $result = BEventRegistry::i()->dispatch("BLayout::{$eventName}", $args);
+        $result = BPubSub::i()->fire("BLayout::{$eventName}", $args);
 
         $routes = is_string($routeName) ? explode(',', $routeName) : (array)$routeName;
         foreach ($routes as $route) {
             $args['route_name'] = $route;
-            $r2 = BEventRegistry::i()->dispatch("BLayout::{$eventName}: {$route}", $args);
+            $r2 = BPubSub::i()->fire("BLayout::{$eventName}: {$route}", $args);
             $result = BUtil::arrayMerge($result, $r2);
         }
         return $result;

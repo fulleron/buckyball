@@ -24,7 +24,7 @@
 $comDir = __DIR__.'/com/';
 
 /**
-* Load all components immediately (the fastest)
+* Load all components immediately
 */
 
 require $comDir.'core.php';
@@ -35,47 +35,6 @@ require $comDir.'module.php';
 require $comDir.'controller.php';
 require $comDir.'view.php';
 require $comDir.'misc.php';
-
-/**
-* Auto load components
-*/
-/*
-spl_autoload_register(function($name) use($comDir) {
-    switch ($name) {
-        case 'BClass': case 'BApp': case 'BException': case 'BConfig':
-        case 'BClassRegistry': case 'BClassDecorator':
-        case 'BEventRegistry': case 'BSession': case 'BUtil':
-            require $comDir.'core.php';
-            break;
-
-        case 'BPDO': case 'BDb': case 'BORM': case 'BModel':
-            // @see http://j4mie.github.com/idiormandparis/
-            require $comDir.'lib/idiorm.php';
-            require $comDir.'lib/paris.php';
-            require $comDir.'db.php';
-            break;
-
-        case 'BModule': case 'BModuleRegistry':
-        case 'BDbModule': case 'BDbModuleConfig':
-            require $comDir.'module.php';
-            break;
-
-        case 'BRequest': case 'BResponse':
-        case 'BFrontController': case 'BActionController':
-        case 'BRouteNode': case 'BRouteObserver':
-            require $comDir.'controller.php';
-            break;
-
-        case 'BLayout': case 'BView': case 'BViewHead': case 'BViewList':
-            require $comDir.'view.php';
-            break;
-
-        case 'BCache': case 'BDebug': case 'BLocale': case 'BUnit': case 'BUser':
-            require $comDir.'misc.php';
-            break;
-    }
-}, false);
-*/
 
 /**
 * Minify all components into 1 compact file.

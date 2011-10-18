@@ -40,9 +40,7 @@ class Blog
             ->view('body', array('view_class'=>'BViewList'))
         ;
 
-        BEventRegistry::i()
-            ->observe('BLayout::render.before', 'Blog::layout_render_before')
-        ;
+        BPubSub::i()->on('BLayout::render.before', 'Blog::layout_render_before');
 
         BDb::migrate('Blog::migrate');
     }

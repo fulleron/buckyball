@@ -4,7 +4,7 @@
         "engine": "mysql",
         "host": "127.0.0.1",
         "dbname": "buckyball",
-        "username": "",
+        "username": "web",
         "password": "",
         "logging": true
     },

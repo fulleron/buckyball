@@ -188,6 +188,9 @@ class BModuleRegistry extends BClass
     */
     public function propagateDepends($modName, &$dep)
     {
+        if (empty($this->_modules[$modName])) {
+            return $this;
+        }
         $this->_modules[$modName]->error = 'depends';
         $dep['error']['propagated'] = true;
         if (!empty($this->_modules[$modName]->depends)) {
@@ -391,6 +394,15 @@ class BModule extends BClass
     public function baseUrl()
     {
         return $this->base_url;
+    }
+
+    public function _($string, $args=array())
+    {
+        $tr = dgettext($this->name, $string);
+        if ($args) {
+            $tr = BUtil::sprintfn($tr, $args);
+        }
+        return $tr;
     }
 }
 

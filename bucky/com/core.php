@@ -187,7 +187,7 @@ class BApp extends BClass
     */
     public static function t($string, $args=array())
     {
-        return Blocale::i()->t($string, $args);
+        return Blocale::i()->translate($string, $args);
     }
 
     /**

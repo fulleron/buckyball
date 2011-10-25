@@ -41,7 +41,7 @@ class BuckyModAdmin_Controller extends BActionController
 {
     public function action_index()
     {
-        BLayout::i()->mainView('modadmin.main');
+        BLayout::i()->rootView('modadmin.main');
         BResponse::i()->render();
     }
 }

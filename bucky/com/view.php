@@ -17,7 +17,7 @@ class BLayout extends BClass
     *
     * @var BView
     */
-    protected $_mainViewName = 'main';
+    protected $_rootViewName = 'main';
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -121,15 +121,15 @@ class BLayout extends BClass
     * @param string $viewname
     * @return BView|BLayout
     */
-    public function mainView($viewname=BNULL)
+    public function rootView($viewname=BNULL)
     {
         if (BNULL===$viewname) {
-            return $this->_mainViewName ? $this->view($this->_mainViewName) : null;
+            return $this->_rootViewName ? $this->view($this->_rootViewName) : null;
         }
         if (empty($this->_views[$viewname])) {
             throw new BException(BApp::t('Invalid view name for main view: %s', $viewname));
         }
-        $this->_mainViewName = $viewname;
+        $this->_rootViewName = $viewname;
         return $this;
     }
 
@@ -190,11 +190,11 @@ class BLayout extends BClass
     {
         $this->dispatch('render.before', $routeName, $args);
 
-        $mainView = $this->mainView();
-        if (!$mainView) {
-            throw new BException(BApp::t('Main view not found: %s', $this->_mainViewName));
+        $rootView = $this->rootView();
+        if (!$rootView) {
+            throw new BException(BApp::t('Main view not found: %s', $this->_rootViewName));
         }
-        $result = $mainView->render($args);
+        $result = $rootView->render($args);
 
         $args['output'] =& $result;
         $this->dispatch('render.after', $routeName, $args);
@@ -440,9 +440,10 @@ class BView extends BClass
     * Escape HTML
     *
     * @param string $str
+    * @param array $args
     * @return string
     */
-    public function q($str)
+    public function q($str, $args=array())
     {
         if (is_null($str)) {
             return '';
@@ -451,7 +452,7 @@ class BView extends BClass
             var_dump($str);
             return ' ** ERROR ** ';
         }
-        return htmlspecialchars($str);
+        return htmlspecialchars($args ? BUtil::sprintfn($str, $args) : $str);
     }
 
     /**

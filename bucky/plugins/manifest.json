@@ -19,10 +19,6 @@
             "root_dir": "firelogger",
             "bootstrap": {"file":"firelogger_wrapper.php", "callback":"BFireLogger::init"},
             "version": "1.0.0"
-        },
-        "SolrPhpClient": {
-            "root_dir": "SolrPhpClient",
-            "bootstrap": {"file":"bootstrap.php", "callback":"BSolrPhpClient::bootstrap"}
         }
     }
 }

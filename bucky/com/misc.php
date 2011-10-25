@@ -676,6 +676,9 @@ class BDebug extends BClass
     {
         if ($this->_mode=='debug') {
             $this->dumpLog();
+            if (BResponse::i()->contentType()=='text/html' && !BRequest::i()->xhr()) {
+                echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
+            }
         }
     }
 }
@@ -711,6 +714,8 @@ class BCache extends BClass
 */
 class BLocale extends BClass
 {
+    static protected $_domainPrefix = 'fulleron/';
+    static protected $_domainStack = array();
     /**
     * Default timezone
     *
@@ -753,6 +758,40 @@ class BLocale extends BClass
         $this->_tzCache['GMT'] = new DateTimeZone('GMT');
     }
 
+    public function language($lang=null)
+    {
+        if (is_null($lang)) {
+            return $this->_curLang;
+        }
+        putenv('LANGUAGE='.$lang);
+        putenv('LANG='.$lang);
+        setlocale(LC_ALL, $lang.'.utf8', $lang.'.UTF8', $lang.'.utf-8', $lang.'.UTF-8');
+        return $this;
+    }
+
+    public function module($domain, $file=null)
+    {
+        if (is_null($file)) {
+            if (!is_null($domain)) {
+                $domain = static::$_domainPrefix.$domain;
+                $oldDomain = textdomain(null);
+                if ($oldDomain) {
+                    array_push(static::$_domainStack, $domain!==$oldDomain ? $domain : false);
+                }
+            } else {
+                $domain = array_pop(static::$_domainStack);
+            }
+            if ($domain) {
+                textdomain($domain);
+            }
+        } else {
+            $domain = static::$_domainPrefix.$domain;
+            bindtextdomain($domain, $file);
+            bind_textdomain_codeset($domain, "UTF-8");
+        }
+        return $this;
+    }
+
     /**
     * Translate a string and inject optionally named arguments
     *
@@ -760,8 +799,13 @@ class BLocale extends BClass
     * @param array $args
     * @return string|false
     */
-    public function t($string, $args=array())
+    public function translate($string, $args=array(), $domain=null)
     {
+        if (!is_null($domain)) {
+            $string = dgettext($domain, $string);
+        } else {
+            $string = gettext($string);
+        }
         return BUtil::sprintfn($string, $args);
     }
 

@@ -629,7 +629,7 @@ class BResponse extends BClass
     */
     public function output($type=null)
     {
-        BPubSub::i()->fire('BResponse::output.before');
+        BPubSub::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
         if (!is_null($type)) {
             $this->contentType($type);
         }
@@ -645,11 +645,8 @@ class BResponse extends BClass
         print_r($this->_content);
         echo $this->_contentSuffix;
 
-        BPubSub::i()->fire('BResponse::output.after');
+        BPubSub::i()->fire('BResponse::output.after', array('content'=>&$this->_content));
 
-        if ($this->_contentType=='text/html' && BDebug::i()->mode()=='debug' && !BRequest::i()->xhr()) {
-            echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
-        }
         $this->shutdown(__METHOD__);
     }
 
@@ -977,7 +974,7 @@ class BFrontController extends BClass
                         || (is_null($nextR) && ($observer = $n->validObserver())) // OR final part and valid observer
                     ) {
                         $node = $n; // found the route node
-                        $dynAction = $r; // assign dynamic controller action name
+                        $dynAction = $r==='' ? 'index' : $r; // assign dynamic controller action name
                         continue 2; // if $nextR continue to next child, otherwise final node
                     }
                 }

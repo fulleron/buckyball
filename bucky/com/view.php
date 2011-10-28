@@ -152,7 +152,12 @@ class BLayout extends BClass
     {
         // special case for view name
         if (is_string($callback) && !is_callable($callback)) {
-            $callback = BLayout::i()->view($callback);
+            $view = BLayout::i()->view($callback);
+            if (!$view) {
+                BDebug::warning('Invalid view name: '.$callback, 1);
+                return $this;
+            }
+            $callback = $view;
         }
         BPubSub::i()->on('BLayout::on.'.$hookname, $callback, $args);
         return $this;

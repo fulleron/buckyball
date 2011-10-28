@@ -1101,13 +1101,13 @@ class BFrontController extends BClass
                         BModuleRegistry::i()->currentModule($observer->moduleName);
                     }
                 }
-                if (is_string($callback)) {
-                    $r = explode('.', $callback);
-                    if (sizeof($r)==2) $callback = $r;
-                }
                 if (is_callable($callback)) {
                     call_user_func_array($callback, $args);
                     return;
+                }
+                if (is_string($callback)) {
+                    $r = explode('.', $callback);
+                    if (sizeof($r)==2) $callback = $r;
                 }
                 $controllerName = $callback[0];
                 $actionName = $callback[1];

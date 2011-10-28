@@ -1033,20 +1033,14 @@ class BPubSub extends BClass
                         $observer['callback'] = array($r[0]::i(), $r[1]);
                     }
                 }
-                /** @deprecated, @todo remove */
-                if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
-                    $observer['callback'][0] = BClassRegistry::i()->instance($observer['callback'][0], array(), true);
-                }
 
-                if (!is_callable($observer['callback'])) {
-                    if (BDebug::i()->is('debug,development')) {
-                        throw new BException('Invalid callback: '.print_r($observer['callback'], 1));
-                    } else {
-                        continue;
-                    }
-                }
                 // Invoke observer
-                $result[] = call_user_func($observer['callback'], $args);
+                if (is_callable($observer['callback'])) {
+                    $result[] = call_user_func($observer['callback'], $args);
+                } else {
+debug_print_backtrace();
+                    BDebug::warning('Invalid callback: '.var_export($observer['callback'], 1));
+                }
             }
             // Unset current module
             BModuleRegistry::i()->currentModule(null);

@@ -309,9 +309,12 @@ class BConfig extends BClass
     *
     * @param string $path
     */
-    public function get($path)
+    public function get($path=null)
     {
         $root = $this->_config;
+        if (is_null($path)) {
+            return $root;
+        }
         foreach (explode('/', $path) as $key) {
             if (!isset($root[$key])) {
                 return null;
@@ -319,6 +322,49 @@ class BConfig extends BClass
             $root = $root[$key];
         }
         return $root;
+    }
+
+    public function writeFile($filename, $config=null, $format='php')
+    {
+        if (is_null($config)) {
+            $config = $this->_config;
+        }
+        switch ($format) {
+            case 'php':
+                $contents = "<?php return ".var_export($config, 1).';';
+/*
+                // Additional check for allowed tokens
+                $tokens = token_get_all($contents);
+                $t1 = array();
+                $allowed = array(T_OPEN_TAG=>1, T_RETURN=>1, T_WHITESPACE=>1,
+                    T_ARRAY=>1, T_CONSTANT_ENCAPSED_STRING=>1, T_DOUBLE_ARROW=>1,
+                    T_DNUMBER=>1, T_LNUMBER=>1, T_STRING=>1, '('=>1, ','=>1, ')'=>1);
+                $denied = array();
+                foreach ($tokens as $t) {
+                    $t1[token_name($t[0])] = 1;
+                    $t1[$t[0]] = 1;
+                    if (!isset($allowed[$t[0]])) {
+                        $denied[] = token_name($t[0]).': '.$t[1]
+                            .(!empty($t[2]) ? ' ('.$t[2].')':'');
+                    }
+                }
+                if ($denied) {
+                    throw new BException('Invalid tokens in configuration found');
+                }
+*/
+                // a small formatting enhancement
+                $contents = preg_replace('#=> \n\s+#', '=> ', $contents);
+                break;
+
+            case 'json':
+                $contents = BUtil::i()->toJson($config);
+                break;
+        }
+
+        // Write contents
+        if (!file_put_contents($filename, $contents, LOCK_EX)) {
+            throw new BException('Error writing configuration file: '.$filename);
+        }
     }
 }
 
@@ -970,18 +1016,35 @@ class BPubSub extends BClass
                 if (!empty($observer['args'])) {
                     $args = array_merge($observer['args'], $args);
                 }
+
+                // Set current module to be used in observer callback
+                BModuleRegistry::i()->currentModule(!empty($observer['module_name']) ? $observer['module_name'] : null);
+
+                // For cases like BView
+                if (is_object($observer['callback'])) {
+                    $result[] = (string)$observer['callback'];
+                    continue;
+                }
+
+                // Special singleton syntax
                 if (is_string($observer['callback'])) {
                     $r = explode('.', $observer['callback']);
                     if (sizeof($r)==2) {
                         $observer['callback'] = array($r[0]::i(), $r[1]);
                     }
                 }
+                /** @deprecated, @todo remove */
                 if (is_array($observer['callback']) && is_string($observer['callback'][0])) {
                     $observer['callback'][0] = BClassRegistry::i()->instance($observer['callback'][0], array(), true);
                 }
-                // Set current module to be used in observer callback
-                BModuleRegistry::i()->currentModule(!empty($observer['module_name']) ? $observer['module_name'] : null);
 
+                if (!is_callable($observer['callback'])) {
+                    if (BDebug::i()->is('debug,development')) {
+                        throw new BException('Invalid callback: '.print_r($observer['callback'], 1));
+                    } else {
+                        continue;
+                    }
+                }
                 // Invoke observer
                 $result[] = call_user_func($observer['callback'], $args);
             }
@@ -1001,6 +1064,11 @@ class BPubSub extends BClass
     public function dispatch($eventName, $args=array())
     {
         return $this->fire($eventName, $args);
+    }
+
+    public function debug()
+    {
+        echo "<pre>"; print_r($this->_events); echo "</pre>";
     }
 }
 

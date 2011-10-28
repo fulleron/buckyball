@@ -148,6 +148,16 @@ class BLayout extends BClass
         return $this->_views[$to];
     }
 
+    public function on($hookname, $callback, $args=array())
+    {
+        // special case for view name
+        if (is_string($callback) && !is_callable($callback)) {
+            $callback = BLayout::i()->view($callback);
+        }
+        BPubSub::i()->on('BLayout::on.'.$hookname, $callback, $args);
+        return $this;
+    }
+
     /**
     * Dispatch layout event, for both general observers and route specific observers
     *
@@ -361,7 +371,23 @@ class BView extends BClass
     }
 
     /**
+    * Collect output from subscribers of a layout event
+    *
+    * @param string $hookname
+    * @param array $args
+    * @return string
+    */
+    public function hook($hookname, $args=array())
+    {
+        $args['_viewname'] = $this->param('name');
+        $result = BPubSub::i()->fire('BLayout::on.'.$hookname, $args);
+        return join('', $result);
+    }
+
+    /**
     * View class specific rendering
+    *
+    * Can be overridden for different template engines (Smarty, etc)
     *
     * @return string
     */
@@ -392,11 +418,25 @@ class BView extends BClass
         if (($modName = $this->param('module_name'))) {
             BModuleRegistry::i()->currentModule($modName);
         }
+        if (!$this->_beforeRender()) {
+            return false;
+        }
         $result = $this->_render();
+        $this->_afterRender();
         if ($modName) {
             BModuleRegistry::i()->currentModule(null);
         }
         return $result;
+    }
+
+    protected function _beforeRender()
+    {
+        return true;
+    }
+
+    protected function _afterRender()
+    {
+
     }
 
     /**
@@ -498,7 +538,7 @@ class BView extends BClass
                 } elseif (in_array($lh, $availHeaders)) {
                     $headers[$lh] = $m[1].': '.$m[2];
                 }
-                $body = preg_replace('/'.preg_quote($m[0]).'/', '', $body);
+                $body = str_replace($m[0], '', $body);
             }
         }
         foreach ($p as $k=>$v) {

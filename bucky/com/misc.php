@@ -570,14 +570,109 @@ class BUser extends BModel
 */
 class BDebug extends BClass
 {
-    const MODE_DEBUG = 'debug',
-        MODE_DEVELOPMENT = 'development',
-        MODE_STAGING = 'staging',
-        MODE_PRODUCTION = 'production';
+    const EMERGENCY = 0,
+        ALERT       = 1,
+        CRITICAL    = 2,
+        ERROR       = 3,
+        WARNING     = 4,
+        NOTICE      = 5,
+        INFO        = 6,
+        DEBUG       = 7;
 
-    protected $_startTime;
-    protected $_events = array();
-    protected $_mode = 'development';
+    static protected $_levelLabels = array(
+        self::EMERGENCY => 'EMERGENCY',
+        self::ALERT     => 'ALERT',
+        self::CRITICAL  => 'CRITICAL',
+        self::ERROR     => 'ERROR',
+        self::WARNING   => 'WARNING',
+        self::NOTICE    => 'NOTICE',
+        self::INFO      => 'INFO',
+        self::DEBUG     => 'DEBUG',
+    );
+
+    const MEMORY  = 0,
+        FILE      = 2,
+        SYSLOG    = 3,
+        EMAIL     = 5,
+        OUTPUT    = 7,
+        EXCEPTION = 9;
+
+    const MODE_DEBUG     = 'debug',
+        MODE_DEVELOPMENT = 'development',
+        MODE_STAGING     = 'staging',
+        MODE_PRODUCTION  = 'production';
+
+
+    /**
+    * Trigger levels for different actions
+    *
+    * - memory: remember in immedicate script memory
+    * - file: write to debug log file
+    * - email: send email notification to admin
+    * - output: display error in output
+    * - exception: stop script execution by throwing exception
+    *
+    * Default are production values
+    *
+    * @var array
+    */
+    static protected $_level;
+
+    static protected $_levelPreset = array(
+        self::MODE_PRODUCTION => array(
+            self::MEMORY    => false,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => self::ERROR,
+            self::OUTPUT    => self::CRITICAL,
+            self::EXCEPTION => self::ALERT,
+        ),
+        self::MODE_STAGING => array(
+            self::MEMORY    => false,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => self::ERROR,
+            self::OUTPUT    => self::CRITICAL,
+            self::EXCEPTION => self::ALERT,
+        ),
+        self::MODE_DEVELOPMENT => array(
+            self::MEMORY    => self::INFO,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => self::CRITICAL,
+            self::OUTPUT    => self::WARNING,
+            self::EXCEPTION => self::ERROR,
+        ),
+        self::MODE_DEBUG => array(
+            self::MEMORY    => self::INFO,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => self::CRITICAL,
+            self::OUTPUT    => self::WARNING,
+            self::EXCEPTION => self::ERROR,
+        ),
+    );
+
+    static protected $_modules = array();
+
+    static protected $_mode = 'development';
+
+    static protected $_startTime;
+    static protected $_events = array();
+
+    static protected $_logDir = null;
+    static protected $_logFile = array(
+        self::EMERGENCY => 'error.log',
+        self::ALERT     => 'error.log',
+        self::CRITICAL  => 'error.log',
+        self::ERROR     => 'error.log',
+        self::WARNING   => 'debug.log',
+        self::NOTICE    => 'debug.log',
+        self::INFO      => 'debug.log',
+        self::DEBUG     => 'debug.log',
+    );
+
+    static protected $_adminEmail = null;
 
     /**
     * Contructor, remember script start time for delta timestamps
@@ -586,7 +681,7 @@ class BDebug extends BClass
     */
     public function __construct()
     {
-        $this->_startTime = microtime(true);
+        self::$_startTime = microtime(true);
         BPubSub::i()->on('BResponse::output.after', array($this, 'afterOutput'));
     }
 
@@ -600,19 +695,118 @@ class BDebug extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
-    public function mode($mode=null)
+    public static function level($type, $level=null)
+    {
+        if (!isset(static::$_level[$type])) {
+            throw new BException('Invalid debug level type');
+        }
+        if (is_null($level)) {
+            if (is_null(static::$_level)) {
+                static::$_level = static::$_levelPreset[self::MODE_PRODUCTION];
+            }
+            return static::$_level[$type];
+        }
+        static::$_level[$type] = $level;
+    }
+
+    public static function logDir($dir)
+    {
+        self::$_logDir = $dir;
+    }
+
+    public static function adminEmail($email)
+    {
+        self::$_adminEmail = $email;
+    }
+
+    public static function fire($level, $msg, $back=1)
+    {
+        $e = is_string($msg) ? array('msg'=>$msg) : $msg;
+
+        $bt = debug_backtrace(true);
+        $e['level'] = self::$_levelLabels[$level];
+        $e['file'] = $bt[$back]['file'];
+        $e['line'] = $bt[$back]['line'];
+        //$o = $bt[$back]['object'];
+        //$e['object'] = is_object($o) ? get_class($o) : $o;
+
+        $e['ts'] = BDb::now();
+        $e['t'] = microtime(true)-self::$_startTime;
+
+        $message = "{$e['level']}: {$e['msg']} ({$e['file']}:{$e['line']})";
+
+        if (($moduleName = BModuleRegistry::currentModuleName())) {
+            $e['module'] = $moduleName;
+        }
+
+        if (is_null(static::$_level)) {
+            static::$_level = static::$_levelPreset[self::MODE_PRODUCTION];
+        }
+
+        $l = self::$_level[self::MEMORY];
+        if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+            self::$_events[] = $e;
+        }
+
+        $l = self::$_level[self::SYSLOG];
+        if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+            error_log($message, 0, self::$_logDir);
+        }
+
+        if (!is_null(self::$_logDir)) {
+            $l = self::$_level[self::FILE];
+            if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+                /*
+                if (is_null(self::$_logDir)) {
+                    self::$_logDir = sys_get_temp_dir();
+                }
+                */
+                $file = self::$_logDir.'/'.self::$_logFile[$level];
+                if (is_writable(self::$_logDir) || is_writable($file)) {
+                    error_log("{$e['ts']} {$message}\n", 3, $file);
+                } else {
+                    //TODO: anything needs to be done here?
+                }
+            }
+        }
+
+        if (!is_null(self::$_adminEmail)) {
+            $l = self::$_level[self::EMAIL];
+            if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+                error_log(print_r($e, 1), 1, self::$_adminEmail);
+            }
+        }
+
+        $l = self::$_level[self::EXCEPTION];
+        if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+            throw new BException($message);
+        }
+
+        $l = self::$_level[self::OUTPUT];
+        if (false!==$l && (is_array($l) && in_array($level, $l) || $l<=$level)) {
+            echo '<pre style="text-align:left; border:solid 1px red">';
+            echo $message."\n";
+            debug_print_backtrace();
+            echo '</pre>';
+        }
+    }
+
+    public static function mode($mode=null, $setLevels=true)
     {
         if (is_null($mode)) {
-            return $this->_mode;
+            return self::$_mode;
         }
-        $this->_mode = $mode;
+        self::$_mode = $mode;
+        if ($setLevels) {
+            self::$_level = self::$_levelPreset[$mode];
+        }
         return $this;
     }
 
     public function is($modes)
     {
         if (is_string($modes)) $modes = explode(',', $modes);
-        return in_array($this->_mode, $modes);
+        return in_array(self::$_mode, $modes);
     }
 
     /**
@@ -626,7 +820,7 @@ class BDebug extends BClass
         if (!$this->is('debug,development')) {
             return $this;
         }
-        $event['ts'] = microtime(true)-$this->_startTime;
+        $event['ts'] = microtime(true)-self::$_startTime;
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $event['module'] = $moduleName;
         }
@@ -636,7 +830,7 @@ class BDebug extends BClass
             return $this;
         }
         */
-        $this->_events[] = $event;
+        self::$_events[] = $event;
         return $this;
     }
 
@@ -644,7 +838,7 @@ class BDebug extends BClass
     {
         echo '<hr><pre style="border:solid 1px #f00; background:#fff; text-align:left; width:100%">';
         print_r(BORM::get_query_log());
-        print_r($this->_events);
+        print_r(self::$_events);
         echo "</pre>";
     }
 
@@ -655,7 +849,7 @@ class BDebug extends BClass
     */
     public function delta()
     {
-        return microtime(true)-$this->_startTime;
+        return microtime(true)-self::$_startTime;
     }
 
     public static function dump($var)
@@ -674,7 +868,7 @@ class BDebug extends BClass
 
     public function afterOutput()
     {
-        if ($this->_mode=='debug') {
+        if (self::$_mode=='debug') {
             $this->dumpLog();
             if (BResponse::i()->contentType()=='text/html' && !BRequest::i()->xhr()) {
                 echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);

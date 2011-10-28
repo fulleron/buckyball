@@ -754,7 +754,8 @@ class BRouteNode
         if ($multiple || empty($this->_observers)) {
             $this->_observers[] = $observer;
         } else {
-            $this->_observers[0] = BUtil::arrayMerge($this->_observers[0], $observer);
+            //$this->_observers = BUtil::arrayMerge($this->_observers[0], $observer);
+            $this->_observers[0] = $observer;
         }
         return $this;
     }
@@ -1127,6 +1128,11 @@ class BFrontController extends BClass
         if ($attempts==100) {
             throw new BException(BApp::t('Reached 100 route iterations: %s', print_r($callback,1)));
         }
+    }
+
+    public function debug()
+    {
+        echo "<pre>"; print_r($this->_routeTree); echo "</pre>";
     }
 }
 

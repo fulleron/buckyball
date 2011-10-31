@@ -68,6 +68,16 @@ class BRequest extends BClass
     }
 
     /**
+    * Host name from request headers
+    *
+    * @return string
+    */
+    public function httpHost()
+    {
+        return !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : null;
+    }
+
+    /**
     * Whether request is SSL
     *
     * @return bool
@@ -112,11 +122,22 @@ class BRequest extends BClass
     /**
     * Full base URL, including scheme and domain name
     *
+    * @param null|boolean $forceSecure - if not null, force scheme
+    * @param boolean $includeQuery - add origin query string
     * @return string
     */
-    public function baseUrl()
+    public function baseUrl($forceSecure=null, $includeQuery=false)
     {
-        return ($this->https() ? 'https' : 'http').'://'.$this->serverName().$this->webRoot();
+        if (is_null($forceSecure)) {
+            $scheme = $this->https() ? 'https' : 'http';
+        } else {
+            $scheme = $forceSecure ? 'https' : 'http';
+        }
+        $url = $scheme.'://'.$this->serverName().$this->webRoot();
+        if ($includeQuery && ($query = $this->rawGet())) {
+            $url .= '?'.$query;
+        }
+        return $url;
     }
 
     /**
@@ -673,9 +694,15 @@ class BResponse extends BClass
         $this->shutdown(__METHOD__);
     }
 
+    public function httpsRedirect()
+    {
+        $this->redirect(str_replace('http://', 'https://', BApp::baseUrl(true)));
+    }
+
     public function shutdown($lastMethod=null)
     {
         BPubSub::i()->fire('BResponse::shutdown', array('last_method'=>$lastMethod));
+        BSession::i()->close();
         exit;
     }
 }
@@ -900,7 +927,7 @@ class BFrontController extends BClass
     {
         list($method, $route) = explode(' ', $route, 2);
         if (($module = BModuleRegistry::i()->currentModule())) {
-            $route = trim($module->url_prefix, '/').'/'.$route;
+            $route = trim($module->url_prefix, '/').$route;
         }
         $route = ltrim($route, '/');
 

@@ -77,7 +77,7 @@ $s = $data['result']['state'];
             <?php foreach ($this->rowActions($row) as $a): ?>
                 <a href="<?php echo $a['href'] ?>"><?php echo $a['value']?></a>
             <?php endforeach ?>
-<?php break; default: echo $this->cellData($cell) ?>
+<?php break; default: echo $this->cellData($cell, $rowId, $colId) ?>
 <?php endswitch ?>
         </td>
 <?php endforeach ?>

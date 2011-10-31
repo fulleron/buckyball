@@ -33,7 +33,7 @@ require $comDir.'lib/paris.php';
 require $comDir.'db.php';
 require $comDir.'module.php';
 require $comDir.'controller.php';
-require $comDir.'view.php';
+require $comDir.'layout.php';
 require $comDir.'misc.php';
 
 /**

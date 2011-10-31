@@ -638,7 +638,7 @@ class BDebug extends BClass
             self::MEMORY    => false,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,
-            self::EMAIL     => self::ERROR,
+            self::EMAIL     => false,//self::ERROR,
             self::OUTPUT    => self::CRITICAL,
             self::STOP      => self::ALERT,
         ),
@@ -646,7 +646,7 @@ class BDebug extends BClass
             self::MEMORY    => false,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,
-            self::EMAIL     => self::ERROR,
+            self::EMAIL     => false,//self::ERROR,
             self::OUTPUT    => self::CRITICAL,
             self::STOP      => self::ALERT,
         ),
@@ -654,15 +654,15 @@ class BDebug extends BClass
             self::MEMORY    => self::INFO,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,
-            self::EMAIL     => self::CRITICAL,
+            self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
             self::STOP      => self::ERROR,
         ),
         self::MODE_DEBUG => array(
-            self::MEMORY    => self::INFO,
+            self::MEMORY    => self::DEBUG,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,
-            self::EMAIL     => self::CRITICAL,
+            self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
             self::STOP      => self::ERROR,
         ),
@@ -707,7 +707,7 @@ class BDebug extends BClass
     public function __construct()
     {
         self::$_startTime = microtime(true);
-        BPubSub::i()->on('BResponse::output.after', array($this, 'afterOutput'));
+        BPubSub::i()->on('BResponse::output.after', 'BDebug::afterOutput');
     }
 
     /**
@@ -729,20 +729,21 @@ class BDebug extends BClass
 
     public static function errorHandler($code, $message, $file, $line, $context=null)
     {
-        static::trigger(self::$_phpErrorMap[$code], $message, 2);
+        static::trigger(self::$_phpErrorMap[$code], $message, 1);
         //throw new BErrorException(self::$_phpErrorMap[$code], $message, $file, $line, $context);
     }
 
     public static function exceptionHandler($e)
     {
-        static::trigger($e->getCode(), $e->getMessage(), $e->stackPop+1);
+        //static::trigger($e->getCode(), $e->getMessage(), $e->stackPop+1);
+        static::trigger(self::ERROR, $e->getMessage());
     }
 
     public static function shutdownHandler()
     {
         $e = error_get_last();
         if ($e && ($e['type']===E_ERROR || $e['type']===E_PARSE || $e['type']===E_COMPILE_ERROR || $e['type']===E_COMPILE_WARNING)) {
-            static::trigger($e['type'], $e['message'], 1);
+            static::trigger(self::CRITICAL, $e['message'], 1);
         }
     }
 
@@ -783,7 +784,7 @@ class BDebug extends BClass
 
     public static function trigger($level, $msg, $stackPop=0)
     {
-        $e = is_string($msg) ? array('msg'=>$msg) : $msg;
+        $e = is_scalar($msg) ? array('msg'=>$msg) : $msg;
 
         //$stackPop++;
         $bt = debug_backtrace(true);
@@ -795,6 +796,8 @@ class BDebug extends BClass
 
         $e['ts'] = BDb::now();
         $e['t'] = microtime(true)-self::$_startTime;
+        $e['d'] = null;
+        $e['mem'] = memory_get_usage();
 
         $message = "{$e['level']}: {$e['msg']}".(isset($e['file'])?" ({$e['file']}:{$e['line']})":'');
 
@@ -809,6 +812,7 @@ class BDebug extends BClass
         $l = self::$_level[self::MEMORY];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
             self::$_events[] = $e;
+            $id = sizeof(self::$_events)-1;
         }
 
         $l = self::$_level[self::SYSLOG];
@@ -842,90 +846,98 @@ class BDebug extends BClass
 
         $l = self::$_level[self::OUTPUT];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
-            echo '<pre style="text-align:left; border:solid 1px red">';
+            echo '<div style="text-align:left; border:solid 1px red; font-family:monospace;">';
+            ob_start();
             echo $message."\n";
             debug_print_backtrace();
-            echo '</pre>';
+            echo nl2br(htmlspecialchars(ob_get_clean()));
+            echo '</div>';
         }
 
         $l = self::$_level[self::STOP];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
             die;
         }
+
+        return isset($id) ? $id : null;
     }
 
     public static function alert($msg, $stackPop=0)
     {
-        self::trigger(self::ALERT, $msg, $stackPop+1);
+        return self::trigger(self::ALERT, $msg, $stackPop+1);
     }
 
     public static function critical($msg, $stackPop=0)
     {
-        self::trigger(self::CRITICAL, $msg, $stackPop+1);
+        return self::trigger(self::CRITICAL, $msg, $stackPop+1);
     }
 
     public static function error($msg, $stackPop=0)
     {
-        self::trigger(self::ERROR, $msg, $stackPop+1);
+        return self::trigger(self::ERROR, $msg, $stackPop+1);
     }
 
     public static function warning($msg, $stackPop=0)
     {
-        self::trigger(self::WARNING, $msg, $stackPop+1);
+        return self::trigger(self::WARNING, $msg, $stackPop+1);
     }
 
     public static function notice($msg, $stackPop=0)
     {
-        self::trigger(self::NOTICE, $msg, $stackPop+1);
+        return self::trigger(self::NOTICE, $msg, $stackPop+1);
     }
 
     public static function info($msg, $stackPop=0)
     {
-        self::trigger(self::INFO, $msg, $stackPop+1);
+        return self::trigger(self::INFO, $msg, $stackPop+1);
     }
 
     public static function debug($msg, $stackPop=0)
     {
-        self::trigger(self::DEBUG, $msg, $stackPop+1);
+        return self::trigger(self::DEBUG, $msg, $stackPop+1);
     }
 
-    public function is($modes)
+    public static function profile($id)
+    {
+        if ($id) {
+            self::$_events[$id]['d'] = microtime(true)-self::$_startTime-self::$_events[$id]['t'];
+        }
+    }
+
+    public static function is($modes)
     {
         if (is_string($modes)) $modes = explode(',', $modes);
         return in_array(self::$_mode, $modes);
     }
 
-    /**
-    * Log event for future analysis
-    *
-    * @param array $event
-    * @return BDebug
-    */
-    public function log($event)
+    public static function dumpLog()
     {
-        if (!$this->is('debug,development')) {
-            return $this;
+        if (self::$_mode!=self::MODE_DEBUG
+            || BResponse::i()->contentType()!=='text/html'
+            || BRequest::i()->xhr()
+        ) {
+            return;
         }
-        $event['ts'] = microtime(true)-self::$_startTime;
-        if (($moduleName = BModuleRegistry::currentModuleName())) {
-            $event['module'] = $moduleName;
-        }
-        /*
-        if (class_exists('BFireLogger')) {
-            BFireLogger::channel('buckyball')->log('debug', $event);
-            return $this;
-        }
-        */
-        self::$_events[] = $event;
-        return $this;
-    }
 
-    public function dumpLog()
-    {
-        echo '<hr><pre style="border:solid 1px #f00; background:#fff; text-align:left; width:100%">';
+?><style>
+#buckyball-debug-trigger { position:fixed; top:0; right:0; font:normal 10px Verdana; cursor:pointer; z-index:10000; background:#ffc; }
+#buckyball-debug-console { position:fixed; overflow:auto; top:10px; left:10px; bottom:10px; right:10px; border:solid 2px #f00; padding:4px; text-align:left; opacity:.9; background:#FFC; font:normal 10px Verdana; }
+#buckyball-debug-console table { border-collapse: collapse; }
+#buckyball-debug-console th, #buckyball-debug-console td { font:normal 10px Verdana; border: solid 1px #ccc; padding:2px 5px;}
+#buckyball-debug-console th { font-weight:bold; }
+</style>
+<div id="buckyball-debug-trigger" onclick="var el=document.getElementById('buckyball-debug-console');el.style.display=el.style.display?'':'none'">[DBG]</div><div id="buckyball-debug-console" style="display:none"><?php
+        echo "DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
+        echo "<pre>";
         print_r(BORM::get_query_log());
-        print_r(self::$_events);
+        //BPubSub::i()->debug();
         echo "</pre>";
+        //print_r(self::$_events);
+?><table cellspacing="0"><tr><th>Message</th><th>Rel.Time</th><th>Profile</th><th>Memory</th><th>Level</th><th>Relevant Location</th><th>Module</th></tr><?php
+        foreach (self::$_events as $e) {
+            echo "<tr><td>{$e['msg']}</td><td>".number_format($e['t'], 6)."</td><td>".($e['d']?number_format($e['d'], 6):'')."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
+        }
+?></table></div><?php
     }
 
     /**
@@ -933,7 +945,7 @@ class BDebug extends BClass
     *
     * @return float
     */
-    public function delta()
+    public static function delta()
     {
         return microtime(true)-self::$_startTime;
     }
@@ -952,17 +964,11 @@ class BDebug extends BClass
         }
     }
 
-    public function afterOutput()
+    public static function afterOutput()
     {
-        if (self::$_mode=='debug') {
-            $this->dumpLog();
-            if (BResponse::i()->contentType()=='text/html' && !BRequest::i()->xhr()) {
-                echo "<hr>DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
-            }
-        }
+        static::dumpLog();
     }
 }
-
 
 /**
 * Stub for cache class
@@ -1161,25 +1167,5 @@ class BLocale extends BClass
     public function datetimeDbToLocal($value, $full=false)
     {
         return strftime($full ? '%c' : '%x', strtotime($value));
-    }
-}
-
-class BUnit extends BClass
-{
-    protected $_currentTest;
-
-    /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BUnit
-    */
-    public static function i($new=false, array $args=array())
-    {
-        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
-    }
-
-    public function test($methods)
-    {
-
     }
 }

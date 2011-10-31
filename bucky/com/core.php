@@ -166,19 +166,6 @@ class BApp extends BClass
     }
 
     /**
-    * Shortcut for log facility
-    *
-    * @param string $message Log message, may include argument placeholders
-    * @param string|array $args arguments for message
-    * @param array $data event variables
-    */
-    public static function log($message, $args=array(), $data=array())
-    {
-        $data['message'] = static::t($message, $args);
-        BDebug::i()->log($data);
-    }
-
-    /**
     * Shortcut for translation
     *
     * @param string $string Text to be translated
@@ -246,7 +233,7 @@ class BException extends Exception
     public function __construct($message="", $code=0)
     {
         parent::__construct($message, $code);
-        BApp::log($message, array(), array('event'=>'exception', 'code'=>$code, 'file'=>$this->getFile(), 'line'=>$this->getLine()));
+        //BApp::log($message, array(), array('event'=>'exception', 'code'=>$code, 'file'=>$this->getFile(), 'line'=>$this->getLine()));
     }
 }
 
@@ -966,6 +953,7 @@ class BPubSub extends BClass
             $observer['module_name'] = $moduleName;
         }
         $this->_events[$eventName]['observers'][] = $observer;
+        BDebug::debug('SUBSCRIBE '.$eventName.': '.var_export($callback, 1), 1);
         return $this;
     }
 
@@ -1006,6 +994,7 @@ class BPubSub extends BClass
     */
     public function fire($eventName, $args=array())
     {
+        BDebug::debug('FIRE '.$eventName.(empty($this->_events[$eventName])?' (NO SUBSCRIBERS)':''), 1);
         $result = array();
         if (!empty($this->_events[$eventName])) {
             foreach ($this->_events[$eventName]['observers'] as $observer) {
@@ -1036,10 +1025,10 @@ class BPubSub extends BClass
 
                 // Invoke observer
                 if (is_callable($observer['callback'])) {
+                    BDebug::debug('ON '.$eventName.' : '.var_export($observer['callback'], 1), 1);
                     $result[] = call_user_func($observer['callback'], $args);
                 } else {
-debug_print_backtrace();
-                    BDebug::warning('Invalid callback: '.var_export($observer['callback'], 1));
+                    BDebug::warning('Invalid callback: '.var_export($observer['callback'], 1), 1);
                 }
             }
             // Unset current module
@@ -1124,7 +1113,7 @@ class BSession extends BClass
         session_set_cookie_params(
             !empty($config['timeout']) ? $config['timeout'] : 3600,
             !empty($config['path']) ? $config['path'] : '/',
-            !empty($config['domain']) ? $config['domain'] : 'localhost'
+            !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost()
         );
         session_name(!empty($config['name']) ? $config['name'] : 'buckyball');
         if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
@@ -1227,6 +1216,7 @@ class BSession extends BClass
             session_start();
         }
         $namespace = BConfig::i()->get('cookie/session_namespace');
+        if (!$namespace) $namespace = 'default';
         $_SESSION[$namespace] = $this->data;
         session_write_close();
         $this->_phpSessionOpen = false;

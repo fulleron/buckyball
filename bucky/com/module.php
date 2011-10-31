@@ -272,9 +272,10 @@ class BModuleRegistry extends BClass
             if (!empty($mod->bootstrap['file'])) {
                 require (BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']));
             }
-            BApp::log('Start bootstrap for %s', array($mod->name));
+            $start = BDebug::debug(BApp::t('Start bootstrap for %s', array($mod->name)));
             call_user_func($mod->bootstrap['callback']);
-            BApp::log('End bootstrap for %s', array($mod->name));
+            BDebug::profile($start);
+            BDebug::debug(BApp::t('End bootstrap for %s', array($mod->name)));
         }
         BModuleRegistry::i()->currentModule(null);
         return $this;
@@ -421,7 +422,9 @@ CREATE TABLE {$table} (
 id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
 module_name VARCHAR(100) NOT NULL,
 schema_version VARCHAR(20),
+data_version varchar(20),
 last_upgrade DATETIME,
+last_status varchar(20),
 UNIQUE (module_name)
 ) ENGINE=INNODB;
             ");

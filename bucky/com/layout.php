@@ -6,6 +6,13 @@
 class BLayout extends BClass
 {
     /**
+    * Layouts declarations registry
+    *
+    * @var array
+    */
+    protected $_layouts = array();
+
+    /**
     * View objects registry
     *
     * @var array
@@ -18,6 +25,13 @@ class BLayout extends BClass
     * @var BView
     */
     protected $_rootViewName = 'main';
+
+    /**
+    * Main root dir for view files if operating outside of a module
+    *
+    * @var mixed
+    */
+    protected $_viewRootDir;
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -35,11 +49,19 @@ class BLayout extends BClass
     * @param string $rootDir
     * @return BLayout
     */
-    public function viewRootDir($rootDir)
+    public function viewRootDir($rootDir=null)
     {
         $module = BModuleRegistry::i()->currentModule();
+        if (is_null($rootDir)) {
+            return $module ? $module->view_root_dir : $this->_viewRootDir;
+        }
         $isAbsPath = strpos($rootDir, '/')===0 || strpos($rootDir, ':')===1;
-        $module->view_root_dir = $isAbsPath ? $rootDir : $module->root_dir.'/'.$rootDir;
+        if ($module) {
+            $module->view_root_dir = $isAbsPath ? $rootDir : $module->root_dir.'/'.$rootDir;
+        } else {
+            $this->_viewRootDir = $rootDir;
+        }
+
         return $this;
     }
 
@@ -54,9 +76,11 @@ class BLayout extends BClass
     */
     public function allViews($rootDir, $prefix='')
     {
-        $rootDir = BModuleRegistry::i()->currentModule()->root_dir.'/'.$rootDir;
-
+        if (($curModule = BModuleRegistry::i()->currentModule())) {
+            $rootDir = $curModule->root_dir.'/'.$rootDir;
+        }
         $this->viewRootDir($rootDir);
+
         $files = glob($rootDir.'/*');
         if (!$files) {
             return $this;
@@ -79,7 +103,7 @@ class BLayout extends BClass
     /**
     * Register or retrieve a view object
     *
-    * @param string $viewname
+    * @param string $viewName
     * @param array $params View parameters
     *   - template: optional, for templated views
     *   - view_class: optional, for custom views
@@ -87,30 +111,32 @@ class BLayout extends BClass
     * @param boolean $reset update or reset view params //TODO
     * @return BView|BLayout
     */
-    public function view($viewname, $params=BNULL, $reset=false)
+    public function view($viewName, $params=BNULL, $reset=false)
     {
-        if (is_array($viewname)) {
-            foreach ($viewname as $i=>$view) {
+        if (is_array($viewName)) {
+            foreach ($viewName as $i=>$view) {
                 if (!is_numeric($i)) {
-                    throw new BException(BApp::t('Invalid argument: %s', print_r($viewname,1)));
+                    throw new BException(BApp::t('Invalid argument: %s', print_r($viewName,1)));
                 }
                 $this->view($view[0], $view[1]);
             }
             return $this;
         }
         if (BNULL===$params) {
-            if (!isset($this->_views[$viewname])) {
+            if (!isset($this->_views[$viewName])) {
                 return null;
             }
-            return $this->_views[$viewname];
+            return $this->_views[$viewName];
         }
         if (empty($params['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
             $params['module_name'] = $moduleName;
         }
-        if (!isset($this->_views[$viewname]) || !empty($params['view_class'])) {
-            $this->_views[$viewname] = BView::i()->factory($viewname, $params);
+        if (!isset($this->_views[$viewName]) || !empty($params['view_class'])) {
+            BDebug::debug('REG.VIEW '.$viewName, 1);
+            $this->_views[$viewName] = BView::i()->factory($viewName, $params);
         } else {
-            $this->_views[$viewname]->param($params);
+            BDebug::debug('UPDATE.VIEW '.$viewName, 1);
+            $this->_views[$viewName]->param($params);
         }
         return $this;
     }
@@ -118,18 +144,18 @@ class BLayout extends BClass
     /**
     * Set or retrieve main (root) view object
     *
-    * @param string $viewname
+    * @param string $viewName
     * @return BView|BLayout
     */
-    public function rootView($viewname=BNULL)
+    public function rootView($viewName=BNULL)
     {
-        if (BNULL===$viewname) {
+        if (BNULL===$viewName) {
             return $this->_rootViewName ? $this->view($this->_rootViewName) : null;
         }
-        if (empty($this->_views[$viewname])) {
-            throw new BException(BApp::t('Invalid view name for main view: %s', $viewname));
+        if (empty($this->_views[$viewName])) {
+            throw new BException(BApp::t('Invalid view name for main view: %s', $viewName));
         }
-        $this->_rootViewName = $viewname;
+        $this->_rootViewName = $viewName;
         return $this;
     }
 
@@ -148,18 +174,67 @@ class BLayout extends BClass
         return $this->_views[$to];
     }
 
-    public function on($hookname, $callback, $args=array())
+    public function hook($hookName, $callback, $args=array())
     {
-        // special case for view name
-        if (is_string($callback) && !is_callable($callback)) {
-            $view = BLayout::i()->view($callback);
-            if (!$view) {
-                BDebug::warning('Invalid view name: '.$callback, 1);
-                return $this;
-            }
-            $callback = $view;
+        BPubSub::i()->on('BLayout::hook.'.$hookName, $callback, $args);
+        return $this;
+    }
+
+    public function hookView($hookName, $viewName, $args=array())
+    {
+        $view = BLayout::i()->view($viewName);
+        if (!$view) {
+            BDebug::warning('Invalid view name: '.$viewName, 1);
+            return $this;
         }
-        BPubSub::i()->on('BLayout::on.'.$hookname, $callback, $args);
+        return $this->hook($hookName, $view, $args);
+    }
+
+    public function layout($layoutName, $layout=null)
+    {
+        if (!is_null($layout)) {
+            BDebug::debug('LAYOUT.ADD '.$layoutName);
+            if (!isset($this->_layouts[$layoutName])) {
+                $this->_layouts[$layoutName] = $layout;
+            } else {
+                $this->_layouts[$layoutName] = array_replace_recursive($this->_layout[$layoutName], $layout);
+            }
+            return $this;
+        }
+        if (is_array($layoutName)) {
+            foreach ($layoutName as $l=>$def) {
+                $this->layout($l, $def);
+            }
+            return $this;
+        }
+        if (empty($this->_layouts[$layoutName])) {
+            BDebug::debug('LAYOUT.EMPTY '.$layoutName);
+            return $this;
+        }
+        BDebug::debug('LAYOUT.PROCESS '.$layoutName);
+        foreach ($this->_layouts[$layoutName] as $el) {
+            $type = isset($el[0]) ? $el[0] : $el['type'];
+            $name = isset($el[1]) ? $el[1] : $el['name'];
+            switch ($type) {
+            case 'hook':
+                if (!empty($el['views'])) foreach ($el['views'] as $v) {
+                    $this->hookView($name, $v);
+                }
+                break;
+
+            case 'view':
+                $view = $this->view($name);
+                if (!empty($el['do'])) foreach ($el['do'] as $args) {
+                    $method = array_shift($args);
+                    BDebug::debug('LAYOUT.view.do '.$method);
+                    $view->$method($args);
+                }
+                if (!empty($el['set'])) foreach ($el['set'] as $k=>$v) {
+                    $view->$k = $v;
+                }
+                break;
+            }
+        }
         return $this;
     }
 
@@ -206,6 +281,7 @@ class BLayout extends BClass
         $this->dispatch('render.before', $routeName, $args);
 
         $rootView = $this->rootView();
+        BDebug::debug('LAYOUT.RENDER '.var_export($rootView, 1));
         if (!$rootView) {
             throw new BException(BApp::t('Main view not found: %s', $this->_rootViewName));
         }
@@ -219,8 +295,8 @@ class BLayout extends BClass
 
     public function debugPrintViews()
     {
-        foreach ($this->_views as $viewname=>$view) {
-            echo $viewname.':<pre>'; print_r($view); echo '</pre><hr>';
+        foreach ($this->_views as $viewName=>$view) {
+            echo $viewName.':<pre>'; print_r($view); echo '</pre><hr>';
         }
     }
 }
@@ -230,13 +306,6 @@ class BLayout extends BClass
 */
 class BView extends BClass
 {
-    /**
-    * Default class for the view, overridden in child classes
-    *
-    * @var string
-    */
-    static protected $_defaultClass = __CLASS__;
-
     /**
     * View parameters
     * - view_class
@@ -257,7 +326,7 @@ class BView extends BClass
     static public function factory($viewname, array $params)
     {
         $params['view_name'] = $viewname;
-        $className = !empty($params['view_class']) ? $params['view_class'] : static::$_defaultClass;
+        $className = !empty($params['view_class']) ? $params['view_class'] : get_called_class();
         $view = BClassRegistry::i()->instance($className, $params);
         return $view;
     }
@@ -368,7 +437,7 @@ class BView extends BClass
     */
     public function view($viewname)
     {
-        if ($viewname===$this->param('name')) {
+        if ($viewname===$this->param('view_name')) {
             throw new BException(BApp::t('Circular reference detected: %s', $viewname));
         }
 
@@ -384,8 +453,8 @@ class BView extends BClass
     */
     public function hook($hookname, $args=array())
     {
-        $args['_viewname'] = $this->param('name');
-        $result = BPubSub::i()->fire('BLayout::on.'.$hookname, $args);
+        $args['_viewname'] = $this->param('view_name');
+        $result = BPubSub::i()->fire('BLayout::hook.'.$hookname, $args);
         return join('', $result);
     }
 
@@ -398,9 +467,9 @@ class BView extends BClass
     */
     protected function _render()
     {
-        $module = BModuleRegistry::i()->currentModule();
-        $template = ($module ? $module->view_root_dir.'/' : '');
-        $template .= ($tpl = $this->param('template')) ? $tpl : ($this->param('name').'.php');
+        $template = BLayout::i()->viewRootDir().'/';
+        $template .= ($tpl = $this->param('template')) ? $tpl : ($this->param('view_name').'.php');
+BDebug::debug('TEMPLATE '.$template);
         ob_start();
         include $template;
         return ob_get_clean();
@@ -414,6 +483,7 @@ class BView extends BClass
     */
     public function render(array $args=array())
     {
+        BDebug::debug('RENDER.VIEW '.$this->param('view_name'));
         if ($this->param('raw_text')!==null) {
             return $this->param('raw_text');
         }
@@ -424,6 +494,7 @@ class BView extends BClass
             BModuleRegistry::i()->currentModule($modName);
         }
         if (!$this->_beforeRender()) {
+            BDebug::debug('BEFORE.RENDER failed');
             return false;
         }
         $result = $this->_render();
@@ -565,13 +636,6 @@ class BView extends BClass
 */
 class BViewHead extends BView
 {
-    /**
-    * Default view class name
-    *
-    * @var string
-    */
-    static protected $_defaultClass = __CLASS__;
-
     /**
     * Meta tags
     *
@@ -740,13 +804,6 @@ class BViewHead extends BView
 */
 class BViewList extends BView
 {
-    /**
-    * Default view class name
-    *
-    * @var mixed
-    */
-    static protected $_defaultClass = __CLASS__;
-
     /**
     * Child blocks
     *

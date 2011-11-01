@@ -306,6 +306,8 @@ class BRequest extends BClass
     *   'var3' => array('regex:/[^0-9.]/', '0'), // remove anything not number or .
     * ));
     *
+    * @todo replace with filter_var_array
+    *
     * @param array|object $data Array to be sanitized
     * @param array $config Configuration for sanitizing
     * @param bool $trim Whether to return only variables specified in config
@@ -1319,6 +1321,7 @@ echo "<pre>"; print_r($e); echo "</pre>";
     */
     public function beforeDispatch()
     {
+        BPubSub::i()->fire(__METHOD__);
         return true;
     }
 
@@ -1328,7 +1331,7 @@ echo "<pre>"; print_r($e); echo "</pre>";
     */
     public function afterDispatch()
     {
-
+        BPubSub::i()->fire(__METHOD__);
     }
 
     /**

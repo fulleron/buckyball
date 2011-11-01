@@ -21,6 +21,15 @@ class BuckyUI
     {
         BLayout::i()->viewRootDir('view');
     }
+
+    public function jqgridData($orm)
+    {
+        $p = BRequest::i()->request();
+        $data = $orm->paginate(array('p'=>$p['page'], 'ps'=>$p['rows'], 's'=>$p['sidx'], 'sd'=>$p['sord']));
+        $res = $data['state'];
+        $res['rows'] = BDb::many_as_array($data['rows']);
+        return $res;
+    }
 }
 
 class BViewGrid extends BView

@@ -6,6 +6,13 @@
 class BLayout extends BClass
 {
     /**
+    * Installed themes registry
+    *
+    * @var array
+    */
+    protected $_themes = array();
+
+    /**
     * Layouts declarations registry
     *
     * @var array
@@ -235,6 +242,26 @@ class BLayout extends BClass
                 break;
             }
         }
+        return $this;
+    }
+
+    public function theme($themeName, $params=null)
+    {
+        if (!is_null($params)) {
+            BDebug::debug('THEME.ADD '.$themeName);
+            if (!empty($params['area']) && FCom::area()!=$params['area']) {
+                BDebug::debug('Theme '.$themeName.' can not be used in '.FCom::area());
+                return $this;
+            }
+            $this->_themes[$themeName] = $params;
+            return $this;
+        }
+        if (empty($this->_themes[$themeName])) {
+            BDebug::error('Invalid theme name: '.$themeName);
+            return $this;
+        }
+        BDebug::debug('THEME.LOAD '.$themeName);
+        call_user_func($this->_themes[$themeName]['callback']);
         return $this;
     }
 

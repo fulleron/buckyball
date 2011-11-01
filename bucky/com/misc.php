@@ -697,6 +697,7 @@ class BDebug extends BClass
         E_USER_WARNING => self::WARNING,
         E_USER_NOTICE => self::NOTICE,
         E_STRICT => self::NOTICE,
+        E_RECOVERABLE_ERROR => self::ERROR,
     );
 
     /**
@@ -856,6 +857,7 @@ class BDebug extends BClass
 
         $l = self::$_level[self::STOP];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
+            static::dumpLog();
             die;
         }
 
@@ -935,6 +937,7 @@ class BDebug extends BClass
         //print_r(self::$_events);
 ?><table cellspacing="0"><tr><th>Message</th><th>Rel.Time</th><th>Profile</th><th>Memory</th><th>Level</th><th>Relevant Location</th><th>Module</th></tr><?php
         foreach (self::$_events as $e) {
+            if (empty($e['file'])) { $e['file'] = ''; $e['line'] = ''; }
             echo "<tr><td>{$e['msg']}</td><td>".number_format($e['t'], 6)."</td><td>".($e['d']?number_format($e['d'], 6):'')."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
         }
 ?></table></div><?php

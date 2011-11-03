@@ -51,7 +51,9 @@ class Blog
 
     public static function redirect($url, $status, $msg, $msgArgs=array())
     {
-        BResponse::i()->redirect(BApp::baseUrl().$url.'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs)));
+        $url = BApp::m('demo.blog')->baseUrl().$url;
+        $url .= '?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs));
+        BResponse::i()->redirect($url);
     }
 
     public static function q($str)
@@ -83,7 +85,7 @@ CREATE TABLE IF NOT EXISTS `".BlogPost::table()."` (
   `posted_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `posted_at` (`posted_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 CREATE TABLE IF NOT EXISTS `".BlogPostComment::table()."` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
@@ -95,7 +97,7 @@ CREATE TABLE IF NOT EXISTS `".BlogPostComment::table()."` (
   PRIMARY KEY (`id`),
   KEY `post_id` (`post_id`,`approved`,`posted_at`),
   CONSTRAINT `FK_".BlogPostComment::table()."_post` FOREIGN KEY (`post_id`) REFERENCES `".BlogPost::table()."` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
         ");
     }
@@ -113,7 +115,7 @@ class Blog_Public extends BActionController
         $layout->hookView('body', 'index');
         $layout->view('index')->posts = BlogPost::factory()->table_alias('b')
             ->select('id')->select('title')->select('preview')->select('posted_at')
-            ->select_expr('(select count(*) from '.BDb::t('blog_post_comment').' where post_id=b.id and approved)', 'comment_count')
+            ->select_expr('(select count(*) from '.BlogPostComment::table().' where post_id=b.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
             ->find_many();
 

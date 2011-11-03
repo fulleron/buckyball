@@ -29,7 +29,7 @@
             </div>
         <?php endif ?>
 
-        <?php echo $this->view('body') ?>
+        <?php echo $this->hook('body') ?>
         </div>
     </body>
 </html>

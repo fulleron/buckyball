@@ -37,7 +37,6 @@ class Blog
         BLayout::i()
             ->allViews('protected/view')
             ->view('head', array('view_class'=>'BViewHead'))
-            ->view('body', array('view_class'=>'BViewList'))
         ;
 
         BPubSub::i()->on('BLayout::render.before', 'Blog::layout_render_before');
@@ -76,7 +75,7 @@ class Blog
     {
         BDb::install('0.1.0', "
 
-CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post')."` (
+CREATE TABLE IF NOT EXISTS `".BlogPost::table()."` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `title` text,
   `preview` text,
@@ -86,7 +85,7 @@ CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post')."` (
   KEY `posted_at` (`posted_at`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8;
 
-CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post_comment')."` (
+CREATE TABLE IF NOT EXISTS `".BlogPostComment::table()."` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `post_id` int(10) unsigned NOT NULL,
   `name` varchar(255) DEFAULT NULL,
@@ -95,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `".BDb::t('blog_post_comment')."` (
   `approved` tinyint(4) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `post_id` (`post_id`,`approved`,`posted_at`),
-  CONSTRAINT `FK_".BDb::t('blog_post_comment')."_post` FOREIGN KEY (`post_id`) REFERENCES `".BDb::t('blog_post')."` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CONSTRAINT `FK_".BlogPostComment::table()."_post` FOREIGN KEY (`post_id`) REFERENCES `".BlogPost::table()."` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8;
 
         ");
@@ -111,7 +110,7 @@ class Blog_Public extends BActionController
     public function action_index()
     {
         $layout = BLayout::i();
-        $layout->view('body')->append('index');
+        $layout->hookView('body', 'index');
         $layout->view('index')->posts = BlogPost::factory()->table_alias('b')
             ->select('id')->select('title')->select('preview')->select('posted_at')
             ->select_expr('(select count(*) from '.BDb::t('blog_post_comment').' where post_id=b.id and approved)', 'comment_count')
@@ -139,7 +138,7 @@ class Blog_Public extends BActionController
         $comments = $commentsORM->find_many();
 
         $layout = BLayout::i();
-        $layout->view('body')->append('post');
+        $layout->hookView('body', 'post');
         $layout->view('post')->post = $post;
         $layout->view('post')->comments = $comments;
 
@@ -175,7 +174,7 @@ class Blog_Public extends BActionController
 
     public function action_noroute()
     {
-        BLayout::i()->view('body')->append('404');
+        BLayout::i()->hookView('body', '404');
         BResponse::i()->status(404);
     }
 }

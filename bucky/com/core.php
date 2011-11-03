@@ -997,7 +997,7 @@ class BPubSub extends BClass
         BDebug::debug('FIRE '.$eventName.(empty($this->_events[$eventName])?' (NO SUBSCRIBERS)':''), 1);
         $result = array();
         if (!empty($this->_events[$eventName])) {
-            foreach ($this->_events[$eventName]['observers'] as $observer) {
+            foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
 
                 if (!empty($this->_events[$eventName]['args'])) {
                     $args = array_merge($this->_events[$eventName]['args'], $args);
@@ -1017,9 +1017,15 @@ class BPubSub extends BClass
 
                 // Special singleton syntax
                 if (is_string($observer['callback'])) {
-                    $r = explode('.', $observer['callback']);
-                    if (sizeof($r)==2) {
-                        $observer['callback'] = array($r[0]::i(), $r[1]);
+                    foreach (array('.', '->') as $sep) {
+                        $r = explode($sep, $observer['callback']);
+                        if (sizeof($r)==2) {
+                            $cb = array($r[0]::i(), $r[1]);
+                            $observer['callback'] = $cb;
+                            // remember for next call, don't want to use &$observer
+                            $this->_events[$eventName]['observers'][$i]['callback'] = $cb;
+                            break;
+                        }
                     }
                 }
 
@@ -1119,7 +1125,11 @@ class BSession extends BClass
         if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
             session_id($id);
         }
-        @session_start();
+        if (headers_sent()) {
+            BDebug::warning("Headers already sent, can't start session");
+        } else {
+            session_start();
+        }
         $this->_phpSessionOpen = true;
         $this->_sessionId = session_id();
 
@@ -1158,6 +1168,7 @@ class BSession extends BClass
         if (BNULL===$flag) {
             return $this->_dirty;
         }
+        BDebug::debug('SESSION.DIRTY', 2);
         $this->_dirty = $flag;
         return $this;
     }
@@ -1213,7 +1224,11 @@ class BSession extends BClass
             return;
         }
         if (!$this->_phpSessionOpen) {
-            session_start();
+            if (headers_sent()) {
+                BDebug::warning("Headers already sent, can't start session");
+            } else {
+                session_start();
+            }
         }
         $namespace = BConfig::i()->get('cookie/session_namespace');
         if (!$namespace) $namespace = 'default';

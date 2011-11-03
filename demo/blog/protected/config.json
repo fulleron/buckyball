@@ -8,12 +8,5 @@
         "password": "",
         "logging": true
     },
-    "cookie": {
-        "domain": "a.dev",
-        "path": "/buckyball/demo/blog",
-        "timeout": 86400,
-        "name": "frontend",
-        "session_namespace": "blog"
-    },
     "modules": ["blog"]
 }

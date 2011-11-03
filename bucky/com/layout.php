@@ -139,11 +139,15 @@ class BLayout extends BClass
             $params['module_name'] = $moduleName;
         }
         if (!isset($this->_views[$viewName]) || !empty($params['view_class'])) {
-            BDebug::debug('REG.VIEW '.$viewName, 1);
             $this->_views[$viewName] = BView::i()->factory($viewName, $params);
+            BPubSub::i()->fire('BLayout::view.add: '.$viewName, array(
+                'view'=>$this->_views[$viewName],
+            ));
         } else {
-            BDebug::debug('UPDATE.VIEW '.$viewName, 1);
             $this->_views[$viewName]->param($params);
+            BPubSub::i()->fire('BLayout::view.update: '.$viewName, array(
+                'view'=>$this->_views[$viewName],
+            ));
         }
         return $this;
     }

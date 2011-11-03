@@ -1135,8 +1135,13 @@ class BFrontController extends BClass
                     return;
                 }
                 if (is_string($callback)) {
-                    $r = explode('.', $callback);
-                    if (sizeof($r)==2) $callback = $r;
+                    foreach (array('.', '->') as $sep) {
+                        $r = explode($sep, $callback);
+                        if (sizeof($r)==2) {
+                            $callback = $r;
+                            break;
+                        }
+                    }
                 }
                 $controllerName = $callback[0];
                 $actionName = $callback[1];

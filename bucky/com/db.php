@@ -524,14 +524,14 @@ class BDb
                     BDb::transaction();
                 */
                     BDebug::debug('DB.MIGRATE '.$script);
-                    if (class_exists($script, true)) {
-                        $script::i()->run();
-                    } elseif (is_callable($script)) {
+                    if (is_callable($script)) {
                         call_user_func($script);
                     } elseif (is_file($module->root_dir.'/'.$script)) {
                         include_once($module->root_dir.'/'.$script);
                     } elseif (is_dir($module->root_dir.'/'.$script)) {
                         //TODO: process directory of migration scripts
+                    } elseif (class_exists($script, true)) {
+                        $script::i()->run();
                     }
                 /*
                     BDb::commit();

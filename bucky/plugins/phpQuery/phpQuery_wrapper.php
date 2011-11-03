@@ -40,9 +40,16 @@ class BphpQuery extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    public function ready($callback, $args=array())
+    {
+        BPubSub::i()->on('phpQuery.render', $callback, $args);
+        return $this;
+    }
+
     public function observer_layout_render_after($args)
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
+        $args['doc'] = $this->doc();
 
         BPubSub::i()->fire('phpQuery.render', $args);
 

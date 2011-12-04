@@ -3,7 +3,7 @@
 /**
 * Sometimes NULL is a value too.
 */
-define('BNULL', 'THIS IS A DUMMY VALUE TO DISTINCT BETWEEN LACK OF ARGUMENT/VALUE AND PHP NULL VALUE');
+define('BNULL', '!@BNULL#$');
 
 /**
 * Base class that allows easy singleton/instance creation and method overrides (decorator)
@@ -744,7 +744,6 @@ class BClassRegistry extends BClass
     }
 }
 
-
 /**
 * Decorator class to allow easy method overrides
 *
@@ -886,6 +885,43 @@ class BClassDecorator
     }
 }
 
+class BClassAutoload extends BClass
+{
+    public $root_dir;
+    public $filename_cb;
+    public $module_name;
+
+    public function __construct($params)
+    {
+        foreach ($params as $k=>$v) {
+            $this->$k = $v;
+        }
+        spl_autoload_register(array($this, 'callback'), false);
+    }
+
+    /**
+    * Default autoload callback
+    *
+    * @param string $class
+    */
+    public function callback($class)
+    {
+        if ($this->filename_cb) {
+            $file = call_user_func($this->filename_cb, $class);
+        } else {
+            $file = str_replace('_', '/', $class).'.php';
+        }
+        if ($file) {
+            if ($file[0]!=='/' && $file[1]!==':') {
+                $file = $this->root_dir.'/'.$file;
+            }
+            if (file_exists($file)) {
+                include ($file);
+            }
+        }
+    }
+}
+
 /**
 * Events and observers registry
 */
@@ -1007,18 +1043,22 @@ class BPubSub extends BClass
                 }
 
                 // Set current module to be used in observer callback
-                BModuleRegistry::i()->currentModule(!empty($observer['module_name']) ? $observer['module_name'] : null);
+                if (!empty($observer['module_name'])) {
+                    BModuleRegistry::i()->pushModule($observer['module_name']);
+                }
+
+                $cb = $observer['callback'];
 
                 // For cases like BView
-                if (is_object($observer['callback'])) {
-                    $result[] = (string)$observer['callback'];
+                if (is_object($cb) && !$cb instanceof Closure) {
+                    $result[] = (string)$cb;
                     continue;
                 }
 
                 // Special singleton syntax
-                if (is_string($observer['callback'])) {
+                if (is_string($cb)) {
                     foreach (array('.', '->') as $sep) {
-                        $r = explode($sep, $observer['callback']);
+                        $r = explode($sep, $cb);
                         if (sizeof($r)==2) {
                             $cb = array($r[0]::i(), $r[1]);
                             $observer['callback'] = $cb;
@@ -1030,15 +1070,17 @@ class BPubSub extends BClass
                 }
 
                 // Invoke observer
-                if (is_callable($observer['callback'])) {
-                    BDebug::debug('ON '.$eventName.' : '.var_export($observer['callback'], 1), 1);
-                    $result[] = call_user_func($observer['callback'], $args);
+                if (is_callable($cb)) {
+                    BDebug::debug('ON '.$eventName/*.' : '.var_export($cb, 1)*/, 1);
+                    $result[] = call_user_func($cb, $args);
                 } else {
-                    BDebug::warning('Invalid callback: '.var_export($observer['callback'], 1), 1);
+                    BDebug::warning('Invalid callback: '.var_export($cb, 1), 1);
+                }
+
+                if (!empty($observer['module_name'])) {
+                    BModuleRegistry::i()->popModule();
                 }
             }
-            // Unset current module
-            BModuleRegistry::i()->currentModule(null);
         }
         return $result;
     }
@@ -1168,7 +1210,7 @@ class BSession extends BClass
         if (BNULL===$flag) {
             return $this->_dirty;
         }
-        BDebug::debug('SESSION.DIRTY', 2);
+        BDebug::debug('SESSION.DIRTY '.($flag?'TRUE':'FALSE'), 2);
         $this->_dirty = $flag;
         return $this;
     }
@@ -1220,9 +1262,10 @@ class BSession extends BClass
     */
     public function close()
     {
-        if (!$this->dirty()) {
+        if (!$this->_dirty) {
             return;
         }
+#ob_start(); debug_print_backtrace(); BDebug::debug(nl2br(ob_get_clean()));
         if (!$this->_phpSessionOpen) {
             if (headers_sent()) {
                 BDebug::warning("Headers already sent, can't start session");
@@ -1233,6 +1276,7 @@ class BSession extends BClass
         $namespace = BConfig::i()->get('cookie/session_namespace');
         if (!$namespace) $namespace = 'default';
         $_SESSION[$namespace] = $this->data;
+        BDebug::debug(__METHOD__);
         session_write_close();
         $this->_phpSessionOpen = false;
         $this->dirty(false);

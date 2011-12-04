@@ -8,5 +8,9 @@
         "password": "",
         "logging": true
     },
-    "modules": ["blog"]
+    "modules": {
+        "demo.blog": {
+            "run_level": "REQUIRED"
+        }
+    }
 }

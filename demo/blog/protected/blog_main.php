@@ -35,6 +35,7 @@ class Blog
         ;
 
         BLayout::i()
+            ->rootView('main')
             ->allViews('protected/view')
             ->view('head', array('view_class'=>'BViewHead'))
         ;
@@ -51,7 +52,7 @@ class Blog
 
     public static function redirect($url, $status, $msg, $msgArgs=array())
     {
-        $url = BApp::m('demo.blog')->baseUrl().$url;
+        $url = BApp::m('demo.blog')->baseHref().$url;
         $url .= '?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs));
         BResponse::i()->redirect($url);
     }
@@ -68,8 +69,10 @@ class Blog
 
         $request = BRequest::i();
         if ($request->get('status') && $request->get('msg')) {
-            $layout->view('main')->messageClass = $request->get('status');
-            $layout->view('main')->message = $request->get('msg');
+            $layout->view('main')->set(array(
+                'messageClass' => $request->get('status'),
+                'message' => $request->get('msg'),
+            ));
         }
     }
 
@@ -141,8 +144,7 @@ class Blog_Public extends BActionController
 
         $layout = BLayout::i();
         $layout->hookView('body', 'post');
-        $layout->view('post')->post = $post;
-        $layout->view('post')->comments = $comments;
+        $layout->view('post')->set(array('post'=>$post, 'comments'=>$comments));
 
         BResponse::i()->output();
     }

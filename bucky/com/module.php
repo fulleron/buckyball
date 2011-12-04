@@ -6,11 +6,18 @@
 class BModuleRegistry extends BClass
 {
     /**
-    * Module manifests
+    * Module information collected from manifests
     *
     * @var array
     */
     protected $_modules = array();
+
+    /**
+    * Manifest files cache
+    *
+    * @var array
+    */
+    protected $_manifestCache = array();
 
     /**
     * Current module name, not BNULL when:
@@ -21,6 +28,18 @@ class BModuleRegistry extends BClass
     * @var string
     */
     protected static $_currentModuleName = BNULL;
+
+    /**
+    * Current module stack trace
+    *
+    * @var array
+    */
+    protected static $_currentModuleStack = array();
+
+    public function __construct()
+    {
+        BPubSub::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
+    }
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -52,31 +71,110 @@ class BModuleRegistry extends BClass
         }
         $params['name'] = $modName;
         if (!empty($this->_modules[$modName])) {
-            $rootDir = $this->_modules[$modName]->root_dir;
-            $file = $this->_modules[$modName]->bootstrap['file'];
-            throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
+            $mod = $this->_modules[$modName];
+            if (empty($params['update'])) {
+                $rootDir = $mod->root_dir;
+                $file = $mod->bootstrap['file'];
+                throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
+            } else {
+                BDebug::debug('MODULE UPDATE: '.$modName);
+                foreach ($params as $k=>$v) {
+                    if (is_array($mod->$k)) {
+                        $mod->$k = array_merge_recursive($mod->$k, $v);
+                    } else {
+                        $mod->$k = $v;
+                        //TODO: make more flexible without sacrificing performance
+                        switch ($k) {
+                        case 'url_prefix':
+                            $mod->base_href = BApp::baseUrl().($v ? '/'.$v : '');
+                            break;
+                        }
+                    }
+                }
+                return $this;
+            }
         }
+        if (($params = $this->_prepareModuleParams($params))) {
+            $this->_modules[$modName] = BModule::i(true, $params);
+        }
+        return $this;
+    }
+
+    protected function _prepareModuleParams($params)
+    {
+        $modName = $params['name'];
         if (empty($params['bootstrap']['callback'])) {
-            BApp::log('Missing bootstrap information, skipping module: %s', $modName);
-            return $this;
+            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
+            return false;
         }
+
+        static $baseUrl, $docRoot;
+        if (!$baseUrl) $baseUrl = '//'.BRequest::i()->httpHost();
+        if (!$docRoot) $docRoot = BRequest::i()->docRoot();
+
+        if (empty($params['manifest_file'])) {
+            $bt = debug_backtrace();
+            foreach ($bt as $i=>$t) {
+                if ($t['method'] = 'module') {
+                    $t1 = $bt[$i+1];
+                    break;
+                }
+            }
+            if (!empty($t1)) {
+                $params['manifest_file'] = $t1['file'];
+            }
+        }
+        $file = $params['manifest_file'];
+        if (empty($this->_manifestCache[$file])) {
+            $dir = dirname(realpath($file));
+            $path = str_replace($docRoot, '', $dir);
+            $this->_manifestCache[$file] = array(
+                'root_dir' => $dir,
+                'root_path' => $path,
+                'base_src' => $baseUrl.$path,
+            );
+        }
+        $m = $this->_manifestCache[$file];
         if (empty($params['bootstrap']['file'])) {
             $params['bootstrap']['file'] = null;
         }
         if (empty($params['root_dir'])) {
-            $params['root_dir'] = '.';
+            $params['root_dir'] = '';
         }
         if (empty($params['view_root_dir'])) {
-            $params['view_root_dir'] = '.';
+            $params['view_root_dir'] = '';
         }
         if (empty($params['url_prefix'])) {
             $params['url_prefix'] = '';
         }
-        if (empty($params['base_url'])) {
-            $params['base_url'] = BApp::baseUrl().$params['url_prefix'];
+        //TODO: optimize path calculations
+        if (!BUtil::isPathAbsolute($params['root_dir'])) {
+//echo "{$m['root_dir']}, {$params['root_dir']}\n";
+            $params['root_dir'] = BUtil::normalizePath($m['root_dir'].'/'.$params['root_dir']);
         }
-        $this->_modules[$modName] = BModule::i(true, $params);
-        return $this;
+        $params['view_root_dir'] = $params['root_dir'];
+
+        if (empty($params['base_src'])) {
+            $params['base_src'] = rtrim($m['base_src'].str_replace($m['root_dir'], '', $params['root_dir']), '/');
+            $params['base_src'] = BUtil::normalizePath($params['base_src']);
+        }
+        if (empty($params['base_href'])) {
+            $params['base_href'] = BApp::baseUrl();
+            if (!empty($params['url_prefix'])) {
+                $params['base_href'] .= '/'.$params['url_prefix'];
+            }
+        }
+
+        $modConfig = BConfig::i()->get('modules/'.$modName);
+        if (!isset($params['run_level'])) {
+            $params['run_level'] = isset($modConfig['run_level']) ? $modConfig['run_level'] : BModule::ONDEMAND;
+        }
+        if (!isset($params['run_status'])) {
+            $params['run_status'] = BModule::IDLE;
+        }
+
+#echo "<hr>"; print_r($params);
+        return $params;
     }
 
     /**
@@ -92,27 +190,31 @@ class BModuleRegistry extends BClass
     public function scan($source)
     {
         // if $source does not end with .json, assume it is a folder
-        if (substr($source, -5)!=='.json') {
-            $source .= '/manifest.json';
+        if (substr($source, -5)!=='.json' && substr($source, -4)!=='.php') {
+            $source .= '/manifest.*';
         }
-        $manifests = glob($source);
+        $manifests = glob($source, GLOB_BRACE);
+        BDebug::debug('MODULE.SCAN '.$source.': '.print_r($manifests, 1));
         if (!$manifests) {
             return $this;
         }
         foreach ($manifests as $file) {
-            $json = file_get_contents($file);
-            $manifest = BUtil::fromJson($json);
+            $ext = pathinfo($file, PATHINFO_EXTENSION);
+            switch ($ext) {
+                case 'php':
+                    $manifest = include($file);
+                    break;
+                case 'json':
+                    $json = file_get_contents($file);
+                    $manifest = BUtil::fromJson($json);
+                    break;
+                default: throw new BException(BApp::t("Unknown manifest file format: %s", $file));
+            }
             if (empty($manifest['modules'])) {
                 throw new BException(BApp::t("Could not read manifest file: %s", $file));
             }
-            $basePath = !empty($manifest['base_path']) ? $manifest['base_path'] : dirname($file);
-            $rootDir = dirname(realpath($file));
             foreach ($manifest['modules'] as $modName=>$params) {
-                $params['name'] = $modName;
-                $modRootDir = (!empty($params['root_dir']) ? $params['root_dir'] : '');
-                $params['root_dir'] = BUtil::normalizePath($rootDir.'/'.$modRootDir);
-                $params['view_root_dir'] = $params['root_dir'];
-                $params['base_url'] = BUtil::normalizePath(BApp::baseUrl().'/'.$basePath.'/'.$modRootDir);
+                $params['manifest_file'] = $file;
                 $this->module($modName, $params);
             }
         }
@@ -126,52 +228,84 @@ class BModuleRegistry extends BClass
     */
     public function checkDepends()
     {
-        $config = BConfig::i();
-        $reqModules = (array)$config->get('bootstrap/modules');
-
+        // validate required modules
+        foreach ((array)BConfig::i()->get('modules') as $modName=>$modConfig) {
+            if (!empty($modConfig['run_level'])) {
+                if ($modConfig['run_level']===BModule::REQUIRED && empty($this->_modules[$modName])) {
+                    throw new BException('Module is required but not found: '.$modName);
+                }
+                $this->_modules[$modName]->run_level = $modConfig['run_level'];
+            }
+        }
         // scan for dependencies
         foreach ($this->_modules as $modName=>$mod) {
+            // normalize dependencies format
             foreach ($mod->depends as &$dep) {
                 if (is_string($dep)) {
                     $dep = array('name'=>$dep);
                 }
             }
-            if ((empty($reqModules) || in_array($modName, $reqModules)) && !empty($mod->depends)) {
+            unset($dep);
+            // is currently iterated module required?
+            if ($mod->run_level===BModule::REQUIRED) {
+                $mod->run_status = BModule::PENDING;
+            }
+            $depsMet = true;
+            // iterate over module dependencies
+            if (!empty($mod->depends)) {
                 foreach ($mod->depends as &$dep) {
-                    if (!empty($this->_modules[$dep['name']])) {
-                        if (!empty($dep['version'])) {
-                            $depVer = $dep['version'];
-                            if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
-                                || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
-                                || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
-                            ) {
-                                $dep['error'] = array('type'=>'version');
-                            }
-                        }
-                        $mod->parents[] = $dep['name'];
-                        $this->_modules[$dep['name']]->children[] = $modName;
-                        if (!empty($reqModules)) {
-                            BConfig::i()->add(array('bootstrap'=>array('depends'=>array($dep['name']))));
-                        }
-                    } else {
+                    $depMod = !empty($this->_modules[$dep['name']]) ? $this->_modules[$dep['name']] : false;
+                    // is the module missing
+                    if (!$depMod) {
                         $dep['error'] = array('type'=>'missing');
+                        $depsMet = false;
+                        continue;
+                    // is the module disabled
+                    } elseif ($depMod->run_level===BModule::DISABLED) {
+                        $dep['error'] = array('type'=>'disabled');
+                        $depsMet = false;
+                        continue;
+                    // is the module version not valid
+                    } elseif (!empty($dep['version'])) {
+                        $depVer = $dep['version'];
+                        if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
+                            || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
+                            || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
+                        ) {
+                            $dep['error'] = array('type'=>'version');
+                            $depsMet = false;
+                            continue;
+                        }
                     }
+                    // for ordering by dependency
+                    $mod->parents[] = $dep['name'];
+                    $depMod->children[] = $modName;
+                    if ($mod->run_status===BModule::PENDING) {
+                        $depMod->run_status = BModule::PENDING;
+                    }
+                    // add dependency information to bootstrap config
+                    //if (!empty($reqModules)) {
+                    //    BConfig::i()->add(array('bootstrap'=>array('depends'=>array($dep['name']))));
+                    //}
+
                 }
-                unset($dep);
             }
-        }
-        if (!empty($reqModules)) {
-            foreach ($reqModules as $modName) {
-                if (empty($this->_modules[$modName])) {
-                    throw new BException('Invalid module name: '.$modName);
-                }
+            if ($depsMet && $mod->run_level===BModule::REQUESTED) {
+                $mod->run_status = BModule::PENDING;
             }
+            unset($dep);
         }
         // propagate dependencies into subdependent modules
         foreach ($this->_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
-                if (!empty($dep['error']) && empty($dep['error']['propagated'])) {
-                    $this->propagateDepends($modName, $dep);
+                if (!empty($dep['error'])) {
+                    if (empty($dep['error']['propagated'])) {
+                        $this->propagateDepends($modName, $dep);
+                    }
+                } else {
+                    if ($mod->run_status===BModule::PENDING) {
+                        $this->_modules[$dep['name']]->run_status = BModule::PENDING;
+                    }
                 }
             }
             unset($dep);
@@ -191,10 +325,13 @@ class BModuleRegistry extends BClass
         if (empty($this->_modules[$modName])) {
             return $this;
         }
-        $this->_modules[$modName]->error = 'depends';
+        $mod = $this->_modules[$modName];
+        $mod->run_status = BModule::ERROR;
+        $mod->error = 'depends';
+        $mod->action = !empty($dep['action']) ? $dep['action'] : 'error';
         $dep['error']['propagated'] = true;
-        if (!empty($this->_modules[$modName]->depends)) {
-            foreach ($this->_modules[$modName]->depends as &$subDep) {
+        if (!empty($mod->depends)) {
+            foreach ($mod->depends as &$subDep) {
                 if (empty($subDep['error'])) {
                     $subDep['error'] = array('type'=>'parent');
                     $this->propagateDepends($dep['name'], $subDep);
@@ -220,6 +357,8 @@ class BModuleRegistry extends BClass
                 $rootModules[] = $mod;
             }
         }
+#echo "<pre>"; print_r($this->_modules); echo "</pre>";
+#echo "<pre>"; print_r($rootModules); echo "</pre>";
         // begin algorithm
         $sorted = array();
         while ($modules) {
@@ -243,6 +382,7 @@ class BModuleRegistry extends BClass
             unset($modules[$n->name]);
         }
         $this->_modules = $sorted;
+
         return $this;
     }
 
@@ -256,28 +396,23 @@ class BModuleRegistry extends BClass
         $this->checkDepends();
         $this->sortDepends();
 
-        $config = BConfig::i()->get('bootstrap');
         foreach ($this->_modules as $mod) {
-            if (!empty($mod->error)) {
-                BApp::log($mod->name.': '.$mod->error);
+            if ($mod->run_status!==BModule::PENDING) {
                 continue;
             }
-            if (!empty($config['modules'])
-                && !in_array($mod->name, (array)$config['modules'])
-                && !empty($config['depends']) && !in_array($mod->name, $config['depends'])
-            ) {
-                continue;
-            }
-            $this->currentModule($mod->name);
+            $this->pushModule($mod->name);
             if (!empty($mod->bootstrap['file'])) {
-                require (BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']));
+                $includeFile = BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']);
+                BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
+                require ($includeFile);
             }
             $start = BDebug::debug(BApp::t('Start bootstrap for %s', array($mod->name)));
             call_user_func($mod->bootstrap['callback']);
+            #$mod->run_status = BModule::LOADED;
             BDebug::profile($start);
             BDebug::debug(BApp::t('End bootstrap for %s', array($mod->name)));
+            $this->popModule();
         }
-        BModuleRegistry::i()->currentModule(null);
         return $this;
     }
 
@@ -295,15 +430,41 @@ class BModuleRegistry extends BClass
     {
         if (BNULL===$name) {
 #echo '<hr><pre>'; debug_print_backtrace(); echo static::$_currentModuleName.' * '; print_r($this->module(static::$_currentModuleName)); #echo '</pre>';
-            return static::$_currentModuleName ? $this->module(static::$_currentModuleName) : false;
+            $name = static::currentModuleName();
+            return $name ? $this->module($name) : false;
         }
         static::$_currentModuleName = $name;
         return $this;
     }
 
+    public function pushModule($name)
+    {
+        array_push(self::$_currentModuleStack, $name);
+        return $this;
+    }
+
+    public function popModule()
+    {
+        array_pop(self::$_currentModuleStack);
+        return $this;
+    }
+
     static public function currentModuleName()
     {
+        if (!empty(self::$_currentModuleStack)) {
+            return self::$_currentModuleStack[sizeof(self::$_currentModuleStack)-1];
+        }
         return static::$_currentModuleName;
+    }
+
+    public function onBeforeDispatch()
+    {
+        $front = BFrontController::i();
+        foreach ($this->_modules as $module) {
+            if (($prefix = $module->url_prefix)) {
+                $front->redirect('GET /'.$prefix, $prefix.'/');
+            }
+        }
     }
 
     public function debug()
@@ -318,17 +479,33 @@ class BModuleRegistry extends BClass
 class BModule extends BClass
 {
     public $name;
+    public $run_level;
+    public $run_status;
     public $bootstrap;
     public $version;
-    public $db_name;
+    public $db_connection_name;
     public $root_dir;
-    public $autoload_root_dir;
-    public $autoload_filename_cb;
     public $view_root_dir;
-    public $base_url;
+    public $base_src;
+    public $base_href;
     public $depends = array();
     public $parents = array();
     public $children = array();
+    public $update;
+
+    const
+        // run_level
+        DISABLED  = 'DISABLED',
+        ONDEMAND  = 'ONDEMAND',
+        REQUESTED = 'REQUESTED',
+        REQUIRED  = 'REQUIRED',
+
+        // run_status
+        IDLE    = 'IDLE',
+        PENDING = 'PENDING',
+        LOADED  = 'LOADED',
+        ERROR   = 'ERROR'
+    ;
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -361,30 +538,17 @@ class BModule extends BClass
     */
     public function autoload($rootDir='', $callback=null)
     {
-        $this->autoload_root_dir = rtrim((!$rootDir || $rootDir[0]!=='/' && $rootDir[1]!==':' ? $this->root_dir.'/' : '').$rootDir, '/');
-        $this->autoload_filename_cb = $callback;
-        spl_autoload_register(array($this, 'autoloadCallback'), false);
+        if (!$rootDir) {
+            $rootDir = $this->root_dir;
+        } elseif (!BUtil::isPathAbsolute($rootDir)) {
+            $rootDir = $this->root_dir.'/'.$rootDir;
+        }
+        BClassAutoload::i(true, array(
+            'module_name' => $this->name,
+            'root_dir' => rtrim($rootDir, '/'),
+            'filename_cb' => $callback,
+        ));
         return $this;
-    }
-
-    /**
-    * Default autoload callback
-    *
-    * @param string $class
-    */
-    public function autoloadCallback($class)
-    {
-        if ($this->autoload_filename_cb) {
-            $file = call_user_func($this->autoload_filename_cb, $class);
-        } else {
-            $file = str_replace('_', '/', $class).'.php';
-        }
-        if ($file) {
-            if ($file[0]!=='/' && $file[1]!==':') {
-                $file = $this->autoload_root_dir.'/'.$file;
-            }
-            include ($file);
-        }
     }
 
     /**
@@ -392,9 +556,35 @@ class BModule extends BClass
     *
     * @return string
     */
-    public function baseUrl()
+    public function baseSrc()
     {
-        return $this->base_url;
+        return $this->base_src;
+    }
+
+    public function baseHref()
+    {
+        return $this->base_href;
+    }
+
+    public function runLevel($level=BNULL, $updateConfig=false)
+    {
+        if (BNULL===$level) {
+            return $this->run_level;
+        }
+        $this->run_level = $level;
+        if ($updateConfig) {
+            BConfig::i()->add(array('modules'=>array($this->name=>array('run_level'=>$level))));
+        }
+        return $this;
+    }
+
+    public function runStatus($status=BNULL)
+    {
+        if (BNULL===$status) {
+            return $this->run_status;
+        }
+        $this->run_status = $status;
+        return $this;
     }
 
     public function _($string, $args=array())
@@ -416,7 +606,7 @@ class BDbModule extends BModel
     {
         $table = BDb::t(static::$_table);
         BDb::connect();
-        if (!BDb::ddlTableExists($table)) {
+        if (BDebug::is('debug,development') && !BDb::ddlTableExists($table)) {
             BDb::run("
 CREATE TABLE {$table} (
 id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

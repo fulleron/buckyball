@@ -14,28 +14,28 @@ class BDb
     *
     * @var array
     */
-    protected static $_namedDbs = array();
+    protected static $_namedConnections = array();
 
     /**
     * Necessary configuration for each DB connection name
     *
     * @var array
     */
-    protected static $_namedDbConfig = array();
+    protected static $_namedConnectionConfig = array();
 
     /**
     * Default DB connection name
     *
     * @var string
     */
-    protected static $_defaultDbName = 'DEFAULT';
+    protected static $_defaultConnectionName = 'DEFAULT';
 
     /**
     * DB name which is currently referenced in BORM::$_db
     *
     * @var string
     */
-    protected static $_currentDbName;
+    protected static $_currentConnectionName;
 
     /**
     * Current DB configuration
@@ -110,23 +110,23 @@ class BDb
     */
     public static function connect($name=null)
     {
-        if (!$name && static::$_currentDbName) { // continue connection to current db, if no value
+        if (!$name && static::$_currentConnectionName) { // continue connection to current db, if no value
             return BORM::get_db();
         }
         if (is_null($name)) { // if first time connection, connect to default db
-            $name = static::$_defaultDbName;
+            $name = static::$_defaultConnectionName;
         }
-        if ($name===static::$_currentDbName) { // if currently connected to requested db, return
+        if ($name===static::$_currentConnectionName) { // if currently connected to requested db, return
             return BORM::get_db();
         }
-        if (!empty(static::$_namedDbs[$name])) { // if connection already exists, switch to it
+        if (!empty(static::$_namedConnections[$name])) { // if connection already exists, switch to it
             BDebug::debug('DB.SWITCH '.$name);
-            static::$_currentDbName = $name;
-            static::$_config = static::$_namedDbConfig[$name];
-            BORM::set_db(static::$_namedDbs[$name], static::$_config);
+            static::$_currentConnectionName = $name;
+            static::$_config = static::$_namedConnectionConfig[$name];
+            BORM::set_db(static::$_namedConnections[$name], static::$_config);
             return BORM::get_db();
         }
-        $config = BConfig::i()->get($name===static::$_defaultDbName ? 'db' : 'db/named/'.$name);
+        $config = BConfig::i()->get($name===static::$_defaultConnectionName ? 'db' : 'db/named/'.$name);
         if (!$config) {
             throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
         }
@@ -154,8 +154,8 @@ class BDb
                     throw new BException(BApp::t('Invalid DB engine: %s', $engine));
             }
         }
-        BDebug::debug('DB.CONNECT '.$name.': '.print_r($config,1));
-        static::$_currentDbName = $name;
+        $profile = BDebug::debug('DB.CONNECT '.$name.': '.print_r($config,1));
+        static::$_currentConnectionName = $name;
 
         BORM::configure($dsn);
         BORM::configure('username', !empty($config['username']) ? $config['username'] : 'root');
@@ -163,12 +163,14 @@ class BDb
         BORM::configure('logging', !empty($config['logging']));
         BORM::set_db(null);
         BORM::setup_db();
-        static::$_namedDbs[$name] = BORM::get_db();
-        static::$_config = static::$_namedDbConfig[$name] = array(
+        static::$_namedConnections[$name] = BORM::get_db();
+        static::$_config = static::$_namedConnectionConfig[$name] = array(
             'dbname' => !empty($config['dbname']) ? $config['dbname'] : null,
             'table_prefix' => !empty($config['table_prefix']) ? $config['table_prefix'] : '',
         );
-        return BORM::get_db();
+        $db = BORM::get_db();
+        BDebug::profile($profile);
+        return $db;
     }
 
     /**
@@ -382,7 +384,7 @@ class BDb
     public static function ddlTableExists($fullTableName)
     {
         if (!static::dbName()) {
-            static::connect(static::$_defaultDbName);
+            static::connect(static::$_defaultConnectionName);
         }
         $a = explode('.', $fullTableName);
         $dbName = empty($a[1]) ? static::dbName() : $a[0];
@@ -452,8 +454,8 @@ class BDb
             $moduleName = BModuleRegistry::currentModuleName();
         }
         $module = BModuleRegistry::i()->module($moduleName);
-        $dbName = $module->db_name ? $module->db_name : 'DEFAULT';
-        static::$_migration[$dbName][$moduleName]['script'] = $script;
+        $connectionName = $module->db_connection_name ? $module->db_connection_name : 'DEFAULT';
+        static::$_migration[$connectionName][$moduleName]['script'] = $script;
     }
 
     /**
@@ -485,13 +487,13 @@ class BDb
         $modReg = BModuleRegistry::i();
         // initialize module tables
         // find all installed modules
-        foreach (static::$_migration as $dbName=>&$modules) {
+        foreach (static::$_migration as $connectionName=>&$modules) {
             // collect module code versions
             foreach ($modules as $modName=>&$m) {
                 if (($version = $modReg->module($modName)->version)) {
                     $m['code_version'] = $version;
                     $m['module_name'] = $modName;
-                    $m['db_name'] = $dbName;
+                    $m['connection_name'] = $connectionName;
                 } else {
                     unset($modules[$modName]);
                 }
@@ -500,7 +502,7 @@ class BDb
 
             if (!$modules) continue; // skip database if none of the modules needs migration
 
-            BDb::connect($dbName);
+            BDb::connect($connectionName);
             BDbModule::init();
             $dbModules = BDbModule::i()->factory()->find_many();
 
@@ -515,6 +517,10 @@ class BDb
 
             // run required migration scripts
             foreach ($modules as $modName=>$mod) {
+                if (empty($mod['script'])) {
+                    BDebug::warning('No migration script found: '.$modName);
+                    continue;
+                }
                 $modReg->currentModule($modName);
                 $script = $mod['script'];
                 $module = $modReg->module($modName);
@@ -755,6 +761,13 @@ class BORM extends ORMWrapper
     protected static $_instance;
 
     /**
+    * ID for profiling of the last run query
+    *
+    * @var int
+    */
+    protected static $_last_profile;
+
+    /**
     * Default class name for direct ORM calls
     *
     * @var string
@@ -766,14 +779,14 @@ class BORM extends ORMWrapper
     *
     * @var string|null
     */
-    protected $_readDbName;
+    protected $_readConnectionName;
 
     /**
     * Write DB connection for updates (master)
     *
     * @var string|null
     */
-    protected $_writeDbName;
+    protected $_writeConnectionName;
 
     /**
     * Shortcut factory for generic instance
@@ -856,6 +869,13 @@ class BORM extends ORMWrapper
         return $this;
     }
 
+    protected static function _log_query($query, $parameters)
+    {
+        $result = parent::_log_query($query, $parameters);
+        static::$_last_profile = BDebug::debug('DB.RUN: '.static::$_last_query);
+        return $result;
+    }
+
     /**
     * Execute the SELECT query that has been built up by chaining methods
     * on this class. Return an array of rows as associative arrays.
@@ -866,8 +886,11 @@ class BORM extends ORMWrapper
     */
     protected function _run()
     {
-        BDb::connect($this->_readDbName);
-        return parent::_run();
+        BDb::connect($this->_readConnectionName);
+        $result = parent::_run();
+        BDebug::profile(static::$_last_profile);
+        static::$_last_profile = null;
+        return $result;
     }
     /**
     * Add a column to the list of columns returned by the SELECT
@@ -905,7 +928,7 @@ class BORM extends ORMWrapper
     */
     public function execute()
     {
-        BDb::connect($this->_readDbName);
+        BDb::connect($this->_readConnectionName);
         $query = $this->_build_select();
         static::_log_query($query, $this->_values);
         $statement = static::$_db->prepare($query);
@@ -1006,7 +1029,7 @@ exit;
      */
     public function save()
     {
-        BDb::connect($this->_writeDbName);
+        BDb::connect($this->_writeConnectionName);
         $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
         return parent::save();
     }
@@ -1020,7 +1043,7 @@ exit;
      */
     public function delete()
     {
-        BDb::connect($this->_writeDbName);
+        BDb::connect($this->_writeConnectionName);
         return parent::delete();
     }
 
@@ -1038,9 +1061,9 @@ exit;
     public function raw_query($query, $parameters)
     {
         if (preg_match('#^\s*(SELECT|SHOW)#i', $query)) {
-            BDb::connect($this->_readDbName);
+            BDb::connect($this->_readConnectionName);
         } else {
-            BDb::connect($this->_writeDbName);
+            BDb::connect($this->_writeConnectionName);
         }
         return parent::raw_query($query, $parameters);
     }
@@ -1135,20 +1158,20 @@ exit;
 */
 class BModel extends Model
 {
-    protected static $_dbName = 'DEFAULT';
+    protected static $_connectionName = 'DEFAULT';
     /**
     * DB name for reads. Set in class declaration
     *
     * @var string|null
     */
-    protected static $_readDbName = null;
+    protected static $_readConnectionName = null;
 
     /**
     * DB name for writes. Set in class declaration
     *
     * @var string|null
     */
-    protected static $_writeDbName = null;
+    protected static $_writeConnectionName = null;
 
     /**
     * Final table name cache with prefix
@@ -1196,7 +1219,7 @@ class BModel extends Model
     */
     public static function readDb()
     {
-        return BDb::connect(static::$_readDbName ? static::$_readDbName : static::$_dbName);
+        return BDb::connect(static::$_readConnectionName ? static::$_readConnectionName : static::$_connectionName);
     }
 
     /**
@@ -1206,7 +1229,7 @@ class BModel extends Model
     */
     public static function writeDb()
     {
-        return BDb::connect(static::$_writeDbName ? static::$_writeDbName : static::$_dbName);
+        return BDb::connect(static::$_writeConnectionName ? static::$_writeConnectionName : static::$_connectionName);
     }
 
     /**
@@ -1228,8 +1251,8 @@ class BModel extends Model
         $wrapper->set_class_name($class_name);
         $wrapper->use_id_column(static::_get_id_column_name($class_name));
         $wrapper->set_rw_db_names( // ADDED
-            static::$_readDbName ? static::$_readDbName : static::$_dbName,
-            static::$_writeDbName ? static::$_writeDbName : static::$_dbName
+            static::$_readConnectionName ? static::$_readConnectionName : static::$_connectionName,
+            static::$_writeConnectionName ? static::$_writeConnectionName : static::$_connectionName
         );
         return $wrapper;
     }

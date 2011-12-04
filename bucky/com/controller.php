@@ -108,6 +108,16 @@ class BRequest extends BClass
     }
 
     /**
+    * Web server document root dir
+    *
+    * @return string
+    */
+    public function docRoot()
+    {
+        return !empty($_SERVER['DOCUMENT_ROOT']) ? $_SERVER['DOCUMENT_ROOT'] : null;
+    }
+
+    /**
     * Web root path for current application
     *
     * If request is /folder1/folder2/index.php, return /folder1/folder2/
@@ -917,6 +927,17 @@ class BFrontController extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    public function processRoutePath($route, $args=array())
+    {
+        if (!empty($args['module_name'])) {
+            $module = BModuleRegistry::i()->module($args['module_name']);
+            if ($module && ($prefix = $module->url_prefix)) {
+                $route = $prefix.$route;
+            }
+        }
+        return $route;
+    }
+
     /**
     * Save RESTful route in tree
     *
@@ -928,9 +949,7 @@ class BFrontController extends BClass
     public function saveRoute($route, $callback=null, $args=null, $multiple=false)
     {
         list($method, $route) = explode(' ', $route, 2);
-        if (($module = BModuleRegistry::i()->currentModule())) {
-            $route = trim($module->url_prefix, '/').$route;
-        }
+        $route = $this->processRoutePath($route, $args);
         $route = ltrim($route, '/');
 
         if (!isset($this->_routeTree[$method])) {
@@ -940,8 +959,9 @@ class BFrontController extends BClass
         $node = $this->_routeTree[$method];
         $routeArr = explode('/', $route);
         foreach ($routeArr as $r) {
-            if ($r!=='' && ($r[0]===':' || $r[0]==='*' || $r[0]==='.')) {
-                $node = $node->child($r[0], $r, true);
+            $r0 = $r!=='' ? $r[0] : false;
+            if ($r0===':' || $r0==='*' || $r0==='.') {
+                $node = $node->child($r0, $r, true);
             } else {
                 $node = $node->child('/', $r==='' ? '__EMPTY__' : $r, true);
             }
@@ -1063,13 +1083,62 @@ class BFrontController extends BClass
             return;
         }
 
-        $this->saveRoute($route, $callback, $args, false);
+        if (empty($args['module_name'])) {
+            $args['module_name'] = BModuleRegistry::currentModuleName();
+        }
+        BDebug::debug('ROUTE '.$route.': '.print_r($args,1));
+        $this->_routes[$route][] = array('cb'=>$callback, 'args'=>$args, 'name'=>$name);
 
-        $this->_routes[$route] = $callback; // TODO: remove, for debugging purposes only
         if (!is_null($name)) {
             $this->_urlTemplates[$name] = $route;
         }
         return $this;
+    }
+
+    public function forward($from, $to, $args=array())
+    {
+        $args['target'] = $to;
+        $this->route($from, array($this, '_forwardCallback'), $args);
+        /*
+        $this->route($from, function($args) {
+            return array('forward'=>$this->processRoutePath($args['target'], $args));
+        }, $args);
+        */
+        return $this;
+    }
+
+    protected function _forwardCallback($args)
+    {
+        return array('forward'=>$this->processRoutePath($args['target'], $args));
+    }
+
+    public function redirect($from, $to, $args=array())
+    {
+        $args['target'] = $to;
+        $this->route($from, array($this, '_redirectCallback'), $args);
+        /*
+        $this->route($from, function($args) {
+            if (!empty($args['module_name'])) {
+                $module = BModuleRegistry::i()->module($args['module_name']);
+                $baseUrl = $module ? $module->baseHref() : BApp::i()->baseUrl();
+            } else {
+                $baseUrl = BApp::i()->baseHref();
+            }
+            BResponse::i()->redirect($baseUrl.'/'.$args['target']);
+        }, $args);
+        */
+        return $this;
+    }
+
+    protected function _redirectCallback($args)
+    {#print_r($args); exit;
+        if (!empty($args['module_name'])) {
+            $module = BModuleRegistry::i()->module($args['module_name']);
+            $baseUrl = $module ? $module->baseHref() : BApp::i()->baseUrl();
+        } else {
+            $baseUrl = BApp::i()->baseHref();
+        }
+        BResponse::i()->redirect($baseUrl.'/'.$args['target']);
     }
 
     /**
@@ -1101,6 +1170,21 @@ class BFrontController extends BClass
     }
 
     /**
+    * Convert collected routes into tree
+    *
+    * @return BFrontController
+    */
+    public function processRoutes()
+    {
+        foreach ($this->_routes as $name=>$routes) {
+            foreach ($routes as $route) {
+                $this->saveRoute($name, $route['cb'], $route['args'], false);
+            }
+        }
+        return $this;
+    }
+
+    /**
     * Dispatch current route
     *
     * @param string $route optional route for explicit route dispatch
@@ -1108,6 +1192,10 @@ class BFrontController extends BClass
     */
     public function dispatch($route=null)
     {
+        BPubSub::i()->fire(__METHOD__.'.before');
+
+        $this->processRoutes();
+
         $attempts = 0;
         $forward = true; // null: no forward, true: try next route, array: forward without new route
         while (($attempts++<100) && $forward) {
@@ -1131,8 +1219,10 @@ class BFrontController extends BClass
                     }
                 }
                 if (is_callable($callback)) {
-                    call_user_func_array($callback, $args);
-                    return;
+                    BModuleRegistry::i()->currentModule(null);
+                    $result = call_user_func($callback, $args);
+                    $forward = is_array($result) && !empty($result['forward']) ? $result['forward'] : false;
+                    continue;
                 }
                 if (is_string($callback)) {
                     foreach (array('.', '->') as $sep) {

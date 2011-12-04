@@ -471,6 +471,27 @@ class BUtil
         }
         return $path;
     }
+
+    public static function globRecursive($pattern, $flags=0)
+    {
+        $files = glob($pattern, $flags);
+        foreach (glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT) as $dir) {
+            $files = array_merge($files, self::globRecursive($dir.'/'.basename($pattern), $flags));
+        }
+        return $files;
+    }
+
+    public static function isPathAbsolute($path)
+    {
+        return !empty($path) && $path[0]==='/' || !empty($path[2]) && $path[2]===':';
+    }
+
+    public static function ensureDir($dir)
+    {
+        if (!is_dir($dir) && !is_file($dir)) {
+            mkdir($dir, 0777, true);
+        }
+    }
 }
 
 /**
@@ -798,6 +819,7 @@ class BDebug extends BClass
         $e['ts'] = BDb::now();
         $e['t'] = microtime(true)-self::$_startTime;
         $e['d'] = null;
+        $e['c'] = null;
         $e['mem'] = memory_get_usage();
 
         $message = "{$e['level']}: {$e['msg']}".(isset($e['file'])?" ({$e['file']}:{$e['line']})":'');
@@ -896,13 +918,15 @@ class BDebug extends BClass
 
     public static function debug($msg, $stackPop=0)
     {
+        if ('debug'!==self::$_mode) return; // to speed things up
         return self::trigger(self::DEBUG, $msg, $stackPop+1);
     }
 
     public static function profile($id)
     {
-        if ($id) {
+        if ($id && !empty(self::$_events[$id])) {
             self::$_events[$id]['d'] = microtime(true)-self::$_startTime-self::$_events[$id]['t'];
+            self::$_events[$id]['c']++;
         }
     }
 
@@ -914,7 +938,7 @@ class BDebug extends BClass
 
     public static function dumpLog()
     {
-        if (self::$_mode!=self::MODE_DEBUG
+        if ((self::$_mode!==self::MODE_DEBUG && self::$_mode!==self::MODE_DEVELOPMENT)
             || BResponse::i()->contentType()!=='text/html'
             || BRequest::i()->xhr()
         ) {
@@ -923,7 +947,7 @@ class BDebug extends BClass
 
 ?><style>
 #buckyball-debug-trigger { position:fixed; top:0; right:0; font:normal 10px Verdana; cursor:pointer; z-index:10001; background:#ffc; }
-#buckyball-debug-console { position:fixed; overflow:auto; top:10px; left:10px; bottom:10px; right:10px; border:solid 2px #f00; padding:4px; text-align:left; opacity:.9; background:#FFC; font:normal 10px Verdana; z-index:10000; }
+#buckyball-debug-console { position:fixed; overflow:auto; top:10px; left:10px; bottom:10px; right:10px; border:solid 2px #f00; padding:4px; text-align:left; opacity:1; background:#FFC; font:normal 10px Verdana; z-index:10000; }
 #buckyball-debug-console table { border-collapse: collapse; }
 #buckyball-debug-console th, #buckyball-debug-console td { font:normal 10px Verdana; border: solid 1px #ccc; padding:2px 5px;}
 #buckyball-debug-console th { font-weight:bold; }
@@ -938,7 +962,8 @@ class BDebug extends BClass
 ?><table cellspacing="0"><tr><th>Message</th><th>Rel.Time</th><th>Profile</th><th>Memory</th><th>Level</th><th>Relevant Location</th><th>Module</th></tr><?php
         foreach (self::$_events as $e) {
             if (empty($e['file'])) { $e['file'] = ''; $e['line'] = ''; }
-            echo "<tr><td>{$e['msg']}</td><td>".number_format($e['t'], 6)."</td><td>".($e['d']?number_format($e['d'], 6):'')."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
+            $profile = $e['d'] ? number_format($e['d'], 6).($e['c']>1 ? ' ('.$e['c'].')' : '') : '';
+            echo "<tr><td>".htmlentities($e['msg'])."</td><td>".number_format($e['t'], 6)."</td><td>".$profile."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
         }
 ?></table></div><?php
     }

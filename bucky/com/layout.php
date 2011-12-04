@@ -31,7 +31,7 @@ class BLayout extends BClass
     *
     * @var BView
     */
-    protected $_rootViewName = 'main';
+    protected $_rootViewName = 'root';
 
     /**
     * Main root dir for view files if operating outside of a module
@@ -39,6 +39,14 @@ class BLayout extends BClass
     * @var mixed
     */
     protected $_viewRootDir;
+
+    protected static $_metaDirectives = array(
+        'callback' => 'BLayout::metaDirectiveCallback',
+        'layout' => 'BLayout::metaDirectiveLayoutCallback',
+        'root' => 'BLayout::metaDirectiveRootCallback',
+        'hook' => 'BLayout::metaDirectiveHookCallback',
+        'view' => 'BLayout::metaDirectiveViewCallback',
+    );
 
     /**
     * Shortcut to help with IDE autocompletion
@@ -68,7 +76,6 @@ class BLayout extends BClass
         } else {
             $this->_viewRootDir = $rootDir;
         }
-
         return $this;
     }
 
@@ -78,6 +85,7 @@ class BLayout extends BClass
     * View objects will be named by template file paths, stripped of extension (.php)
     *
     * @param string $rootDir Folder with view templates, relative to current module root
+    *                        Can end with slash or not - make sure to specify
     * @param string $prefix Optional: add prefix to view names
     * @return BLayout
     */
@@ -88,18 +96,15 @@ class BLayout extends BClass
         }
         $this->viewRootDir($rootDir);
 
-        $files = glob($rootDir.'/*');
+        $files = BUtil::globRecursive($rootDir.'/*');
         if (!$files) {
             return $this;
         }
-        for ($i=0; $i<count($files); $i++) {
-            if (is_dir($files[$i])) {
-                $add = glob($files[$i] . '/*');
-                $files = array_merge($files, $add);
-            }
-        }
 
         foreach ($files as $file) {
+            if (!is_file($file)) {
+                continue;
+            }
             if (preg_match('#^('.preg_quote($rootDir.'/', '#').')(.*)(\.php)$#', $file, $m)) {
                 $this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
             }
@@ -138,15 +143,16 @@ class BLayout extends BClass
         if (empty($params['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
             $params['module_name'] = $moduleName;
         }
-        if (!isset($this->_views[$viewName]) || !empty($params['view_class'])) {
-            $this->_views[$viewName] = BView::i()->factory($viewName, $params);
-            BPubSub::i()->fire('BLayout::view.add: '.$viewName, array(
-                'view'=>$this->_views[$viewName],
+        $viewAlias = !empty($params['view_alias']) ? $params['view_alias'] : $viewName;
+        if (!isset($this->_views[$viewAlias]) || !empty($params['view_class'])) {
+            $this->_views[$viewAlias] = BView::i()->factory($viewName, $params);
+            BPubSub::i()->fire('BLayout::view.add: '.$viewAlias, array(
+                'view'=>$this->_views[$viewAlias],
             ));
         } else {
-            $this->_views[$viewName]->param($params);
-            BPubSub::i()->fire('BLayout::view.update: '.$viewName, array(
-                'view'=>$this->_views[$viewName],
+            $this->_views[$viewAlias]->param($params);
+            BPubSub::i()->fire('BLayout::view.update: '.$viewAlias, array(
+                'view'=>$this->_views[$viewAlias],
             ));
         }
         return $this;
@@ -163,9 +169,11 @@ class BLayout extends BClass
         if (BNULL===$viewName) {
             return $this->_rootViewName ? $this->view($this->_rootViewName) : null;
         }
+        /*
         if (empty($this->_views[$viewName])) {
             throw new BException(BApp::t('Invalid view name for main view: %s', $viewName));
         }
+        */
         $this->_rootViewName = $viewName;
         return $this;
     }
@@ -193,6 +201,11 @@ class BLayout extends BClass
 
     public function hookView($hookName, $viewName, $args=array())
     {
+        if (is_array($viewName)) {
+            $params = $viewName;
+            $viewName = array_shift($params);
+            BLayout::i()->view($viewName, $params);
+        }
         $view = BLayout::i()->view($viewName);
         if (!$view) {
             BDebug::warning('Invalid view name: '.$viewName, 1);
@@ -204,11 +217,12 @@ class BLayout extends BClass
     public function layout($layoutName, $layout=null)
     {
         if (!is_null($layout)) {
-            BDebug::debug('LAYOUT.ADD '.$layoutName);
             if (!isset($this->_layouts[$layoutName])) {
+                BDebug::debug('LAYOUT.ADD '.$layoutName);
                 $this->_layouts[$layoutName] = $layout;
             } else {
-                $this->_layouts[$layoutName] = array_replace_recursive($this->_layout[$layoutName], $layout);
+                BDebug::debug('LAYOUT.UPDATE '.$layoutName);
+                $this->_layouts[$layoutName] = array_merge_recursive($this->_layouts[$layoutName], $layout);
             }
             return $this;
         }
@@ -223,34 +237,82 @@ class BLayout extends BClass
             return $this;
         }
         BDebug::debug('LAYOUT.PROCESS '.$layoutName);
-        foreach ($this->_layouts[$layoutName] as $el) {
-            $type = isset($el[0]) ? $el[0] : $el['type'];
-            $name = isset($el[1]) ? $el[1] : $el['name'];
-            switch ($type) {
-            case 'hook':
-                if (!empty($el['views'])) foreach ($el['views'] as $v) {
-                    $this->hookView($name, $v);
-                }
-                break;
-
-            case 'view':
-                $view = $this->view($name);
-                if (!empty($el['do'])) foreach ($el['do'] as $args) {
-                    $method = array_shift($args);
-                    BDebug::debug('LAYOUT.view.do '.$method);
-                    $view->$method($args);
-                }
-                if (!empty($el['set'])) foreach ($el['set'] as $k=>$v) {
-                    $view->$k = $v;
-                }
-                break;
+        foreach ($this->_layouts[$layoutName] as $d) {
+            if (empty($d['type']) && !empty($d[0])) {
+                $d['type'] = $d[0];
             }
+            if (empty(self::$_metaDirectives[$d['type']])) {
+                BDebug::error('Unknown directive: '.$d['type']);
+                continue;
+            }
+            if (empty($d['name']) && !empty($d[1])) {
+                $d['name'] = $d[1];
+            }
+            $d['layout_name'] = $layoutName;
+            $callback = self::$_metaDirectives[$d['type']];
+            call_user_func($callback, $d);
         }
         return $this;
     }
 
+    public function metaDirectiveCallback($d)
+    {
+        call_user_func($d['name']);
+    }
+
+    public function metaDirectiveLayoutCallback($d)
+    {
+        if ($d['name']==$d['layout_name']) { // simple 1 level recursion stop
+            BDebug::error('Layout recursion detected: '.$d['name']);
+            return;
+        }
+        $this->layout($d['name']);
+    }
+
+    public function metaDirectiveRootCallback($d)
+    {
+        $this->rootView($d['name']);
+    }
+
+    public function metaDirectiveHookCallback($d)
+    {
+        if (!empty($d['callbacks'])) {
+            foreach ($d['callbacks'] as $cb) {
+                $this->hook($d['name'], $cb);
+            }
+        }
+        if (!empty($d['views'])) {
+            foreach ($d['views'] as $v) {
+                $this->hookView($d['name'], $v);
+            }
+        }
+    }
+
+    public function metaDirectiveViewCallback($d)
+    {
+        $view = $this->view($d['name']);
+        if (!empty($d['do'])) {
+            foreach ($d['do'] as $args) {
+                $method = array_shift($args);
+                BDebug::debug('LAYOUT.view.do '.$method);
+                call_user_func_array(array($view, $method), $args);
+            }
+        }
+        if (!empty($d['set'])) {
+            foreach ($d['set'] as $k=>$v) {
+                $view->$k = $v;
+            }
+        }
+    }
+
     public function theme($themeName, $params=null)
     {
+        if (is_array($themeName)) {
+            foreach ($themeName as $n) {
+                $this->theme($n);
+            }
+            return $this;
+        }
         if (!is_null($params)) {
             BDebug::debug('THEME.ADD '.$themeName);
             if (!empty($params['area']) && FCom::area()!=$params['area']) {
@@ -265,7 +327,9 @@ class BLayout extends BClass
             return $this;
         }
         BDebug::debug('THEME.LOAD '.$themeName);
+        BPubSub::i()->fire('BLayout::theme.load.before', array('theme_name'=>$themeName));
         call_user_func($this->_themes[$themeName]['callback']);
+        BPubSub::i()->fire('BLayout::theme.load.after', array('theme_name'=>$themeName));
         return $this;
     }
 
@@ -314,12 +378,14 @@ class BLayout extends BClass
         $rootView = $this->rootView();
         BDebug::debug('LAYOUT.RENDER '.var_export($rootView, 1));
         if (!$rootView) {
-            throw new BException(BApp::t('Main view not found: %s', $this->_rootViewName));
+            BDebug::error(BApp::t('Main view not found: %s', $this->_rootViewName));
         }
         $result = $rootView->render($args);
 
         $args['output'] =& $result;
         $this->dispatch('render.after', $routeName, $args);
+
+        BSession::i()->dirty(false); // disallow session change during layout render
 
         return $result;
     }
@@ -329,6 +395,11 @@ class BLayout extends BClass
         foreach ($this->_views as $viewName=>$view) {
             echo $viewName.':<pre>'; print_r($view); echo '</pre><hr>';
         }
+    }
+
+    public function debugPrintLayouts()
+    {
+        echo "<pre>"; print_r($this->_layouts); echo "</pre>";
     }
 }
 
@@ -354,9 +425,9 @@ class BView extends BClass
     * @param string $viewname
     * @param array $params
     */
-    static public function factory($viewname, array $params)
+    static public function factory($viewName, array $params)
     {
-        $params['view_name'] = $viewname;
+        $params['view_name'] = $viewName;
         $className = !empty($params['view_class']) ? $params['view_class'] : get_called_class();
         $view = BClassRegistry::i()->instance($className, $params);
         return $view;
@@ -514,7 +585,7 @@ BDebug::debug('TEMPLATE '.$template);
     */
     public function render(array $args=array())
     {
-        BDebug::debug('RENDER.VIEW '.$this->param('view_name'));
+        $timer = BDebug::debug('RENDER.VIEW '.$this->param('view_name'));
         if ($this->param('raw_text')!==null) {
             return $this->param('raw_text');
         }
@@ -522,17 +593,25 @@ BDebug::debug('TEMPLATE '.$template);
             $this->_params['args'][$k] = $v;
         }
         if (($modName = $this->param('module_name'))) {
-            BModuleRegistry::i()->currentModule($modName);
+            BModuleRegistry::i()->pushModule($modName);
         }
         if (!$this->_beforeRender()) {
             BDebug::debug('BEFORE.RENDER failed');
             return false;
         }
-        $result = $this->_render();
+
+        $result = '';
+        $result .= join('', BPubSub::i()->fire('BView::render.before', array('view'=>$this)));
+        $result .= $this->_render();
+        $result .= join('', BPubSub::i()->fire('BView::render.after', array('view'=>$this)));
+
+        BDebug::profile($timer);
+
         $this->_afterRender();
         if ($modName) {
-            BModuleRegistry::i()->currentModule(null);
+            BModuleRegistry::i()->popModule();
         }
+
         return $result;
     }
 
@@ -543,7 +622,7 @@ BDebug::debug('TEMPLATE '.$template);
 
     protected function _afterRender()
     {
-
+        BPubSub::i()->fire('BView::afterRender', array('view'=>$this));
     }
 
     /**
@@ -688,7 +767,10 @@ class BViewHead extends BView
     */
     protected $_defaultTag = array(
         'js' => '<script type="text/javascript" src="%s" %a></script>',
+        'js_raw' => '<script type="text/javascript" %a>%c</script>',
         'css' => '<link rel="stylesheet" type="text/css" href="%s" %a/>',
+        'css_raw' => '<style type="text/css" %a>%c</style>',
+        'less' => '<link rel="stylesheet" type="text/less" href="%s" %a/>',
     );
 
     /**
@@ -706,12 +788,12 @@ class BViewHead extends BView
     * @param bool $httpEquiv Whether the tag is http-equiv
     * @return BViewHead
     */
-    public function meta($name=BNULL, $content=BNULL, $httpEquiv=false)
+    public function meta($name=null, $content=null, $httpEquiv=false)
     {
-        if (BNULL===$name) {
+        if (is_null($name)) {
             return join("\n", $this->_meta);
         }
-        if (BNULL===$content) {
+        if (is_null($content)) {
             return !empty($this->_meta[$name]) ? $this->_meta[$name] : null;
         }
         if ($httpEquiv) {
@@ -733,33 +815,33 @@ class BViewHead extends BView
     *   - module_name: Optional: module where the resource is declared
     *   - if: IE <!--[if]--> context
     * @return BViewHead|array|string
+    * @todo remove coupling with $type (to preserve requested load order)
     */
-    protected function _externalResource($type, $name=BNULL, $args=BNULL)
+    public function item($type=null, $name=null, $args=null)
     {
-        if (BNULL===$name) {
-            if (empty($this->_elements[$type])) {
-                return '';
-            }
+        if (is_null($type)) {
             $result = '';
-            foreach ($this->_elements[$type] as $name=>$args) {
-                $result .= $this->_externalResource($type, $name, BNULL)."\n";
+            foreach ($this->_elements as $typeName=>$els) {
+                list($type, $name) = explode(':', $typeName, 2);
+                $result .= $this->item($type, $name)."\n";
             }
             return $result;
         }
-        if (BNULL===$args) {
-            if (empty($this->_elements[$type][$name])) {
+        if (is_null($args)) {
+            if (!isset($this->_elements[$type.':'.$name])) {
                 return null;
             }
-            $args = $this->_elements[$type][$name];
+            $args = $this->_elements[$type.':'.$name];
             $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $file = !empty($args['file']) ? $args['file'] : $name;
             $params = !empty($args['params']) ? $args['params'] : '';
             if (strpos($file, 'http:')===false && strpos($file, 'https:')===false && $file[0]!=='/') {
                 $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;
-                $baseUrl = $module ? $module->base_url : BApp::baseUrl();
+                $baseUrl = $module ? $module->baseSrc() : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
             $tag = str_replace('%s', htmlspecialchars($file), $tag);
+            $tag = str_replace('%c', !empty($args['content']) ? $args['content'] : '', $tag);
             $tag = str_replace('%a', $params, $tag);
             if (!empty($args['if'])) {
                 $tag = '<!--[if '.$args['if'].']>'.$tag.'<![endif]-->';
@@ -774,7 +856,10 @@ class BViewHead extends BView
         if ($this->_currentIfContext) {
             $args['if'] = $this->_currentIfContext;
         }
-        $this->_elements[$type][$name] = $args;
+        $args['type'] = $type;
+        $this->_elements[$type.':'.$name] = $args;
+
+BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
         return $this;
     }
 
@@ -785,9 +870,9 @@ class BViewHead extends BView
     * @param array $args If ommited, return tag by $name
     * @return BViewHead|array|string
     */
-    public function js($name=BNULL, $args=BNULL)
+    public function js($name=null, $args=null)
     {
-        return $this->_externalResource('js', $name, $args);
+        return $this->item('js', $name, $args);
     }
 
     /**
@@ -797,9 +882,14 @@ class BViewHead extends BView
     * @param array $args If ommited, return tag by $name
     * @return BViewHead|array|string
     */
-    public function css($name=BNULL, $args=BNULL)
+    public function css($name=null, $args=null)
     {
-        return $this->_externalResource('css', $name, $args);
+        return $this->item('css', $name, $args);
+    }
+
+    public function less($name=null, $args=null)
+    {
+        return $this->item('less', $name, $args);
     }
 
     /**
@@ -824,7 +914,7 @@ class BViewHead extends BView
     public function render(array $args=array())
     {
         if (!$this->param('template')) {
-            return $this->meta()."\n".$this->css()."\n".$this->js();
+            return $this->meta()."\n".$this->item();
         }
         return parent::render($args);
     }
@@ -832,6 +922,8 @@ class BViewHead extends BView
 
 /**
 * View subclass to store and render lists of views
+*
+* @deprecated by BLayout::i()->hook()
 */
 class BViewList extends BView
 {

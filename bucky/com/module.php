@@ -141,9 +141,6 @@ class BModuleRegistry extends BClass
         if (empty($params['root_dir'])) {
             $params['root_dir'] = '';
         }
-        if (empty($params['view_root_dir'])) {
-            $params['view_root_dir'] = '';
-        }
         if (empty($params['url_prefix'])) {
             $params['url_prefix'] = '';
         }
@@ -152,7 +149,9 @@ class BModuleRegistry extends BClass
 //echo "{$m['root_dir']}, {$params['root_dir']}\n";
             $params['root_dir'] = BUtil::normalizePath($m['root_dir'].'/'.$params['root_dir']);
         }
-        $params['view_root_dir'] = $params['root_dir'];
+        if (empty($params['view_root_dir'])) {
+            $params['view_root_dir'] = $params['root_dir'];
+        }
 
         if (empty($params['base_src'])) {
             $params['base_src'] = rtrim($m['base_src'].str_replace($m['root_dir'], '', $params['root_dir']), '/');
@@ -594,6 +593,18 @@ class BModule extends BClass
             $tr = BUtil::sprintfn($tr, $args);
         }
         return $tr;
+    }
+
+    public function set($key, $value)
+    {
+        if (is_array($key)) {
+            foreach ($key as $k=>$v) {
+                $this->$k = $v;
+            }
+            return $this;
+        }
+        $this->$key = $value;
+        return $this;
     }
 }
 

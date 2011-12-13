@@ -101,6 +101,10 @@ class BLayout extends BClass
             return $this;
         }
 
+        if ($prefix) {
+            $prefix = rtrim($prefix, '/').'/';
+        }
+
         foreach ($files as $file) {
             if (!is_file($file)) {
                 continue;

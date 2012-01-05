@@ -6,6 +6,13 @@
 class BModuleRegistry extends BClass
 {
     /**
+    * Relevant environment variables cache
+    *
+    * @var array
+    */
+    protected $_env = array();
+
+    /**
     * Module information collected from manifests
     *
     * @var array
@@ -100,23 +107,19 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
-    protected function _prepareModuleParams($params)
+    protected function _getManifestData(&$params)
     {
-        $modName = $params['name'];
-        if (empty($params['bootstrap']['callback'])) {
-            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
-            return false;
+        if (empty($this->_env)) {
+            $this->_env['doc_root'] = BRequest::i()->docRoot();
+            $this->_env['http_host'] = BRequest::i()->httpHost();
+            $basePath = BConfig::i()->get('web/base_path');
+            $this->_env['base_href'] = '//'.$this->_env['http_host'].($basePath ? $basePath : $this->_env['doc_root']);
         }
-
-        static $baseUrl, $docRoot;
-        if (!$baseUrl) $baseUrl = '//'.BRequest::i()->httpHost();
-        if (!$docRoot) $docRoot = BRequest::i()->docRoot();
-
         if (empty($params['manifest_file'])) {
             $bt = debug_backtrace();
             foreach ($bt as $i=>$t) {
                 if ($t['method'] = 'module') {
-                    $t1 = $bt[$i+1];
+                    $t1 = $bt[$i+2];
                     break;
                 }
             }
@@ -125,21 +128,31 @@ class BModuleRegistry extends BClass
             }
         }
         $file = $params['manifest_file'];
+
         if (empty($this->_manifestCache[$file])) {
             $dir = dirname(realpath($file));
-            $path = str_replace($docRoot, '', $dir);
             $this->_manifestCache[$file] = array(
                 'root_dir' => $dir,
-                'root_path' => $path,
-                'base_src' => $baseUrl.$path,
+                'base_src' => '//'.$this->_env['http_host'].str_replace($this->_env['doc_root'], '', $dir),
             );
         }
-        $m = $this->_manifestCache[$file];
+        return $this->_manifestCache[$file];
+    }
+
+    protected function _prepareModuleParams($params)
+    {
+        $modName = $params['name'];
+        if (empty($params['bootstrap']['callback'])) {
+            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
+            return false;
+        }
+
+        $m = $this->_getManifestData($params);
         if (empty($params['bootstrap']['file'])) {
             $params['bootstrap']['file'] = null;
         }
         if (empty($params['root_dir'])) {
-            $params['root_dir'] = '';
+            $params['root_dir'] = $m['root_dir'];
         }
         if (empty($params['url_prefix'])) {
             $params['url_prefix'] = '';
@@ -158,7 +171,7 @@ class BModuleRegistry extends BClass
             $params['base_src'] = BUtil::normalizePath($params['base_src']);
         }
         if (empty($params['base_href'])) {
-            $params['base_href'] = BApp::baseUrl();
+            $params['base_href'] = $this->_env['base_href'];
             if (!empty($params['url_prefix'])) {
                 $params['base_href'] .= '/'.$params['url_prefix'];
             }
@@ -207,10 +220,11 @@ class BModuleRegistry extends BClass
                     $json = file_get_contents($file);
                     $manifest = BUtil::fromJson($json);
                     break;
-                default: throw new BException(BApp::t("Unknown manifest file format: %s", $file));
+                default:
+                    BDebug::error(BApp::t("Unknown manifest file format: %s", $file));
             }
             if (empty($manifest['modules'])) {
-                throw new BException(BApp::t("Could not read manifest file: %s", $file));
+                BDebug::error(BApp::t("Could not read manifest file: %s", $file));
             }
             foreach ($manifest['modules'] as $modName=>$params) {
                 $params['manifest_file'] = $file;
@@ -231,7 +245,7 @@ class BModuleRegistry extends BClass
         foreach ((array)BConfig::i()->get('modules') as $modName=>$modConfig) {
             if (!empty($modConfig['run_level'])) {
                 if ($modConfig['run_level']===BModule::REQUIRED && empty($this->_modules[$modName])) {
-                    throw new BException('Module is required but not found: '.$modName);
+                    BDebug::error('Module is required but not found: '.$modName);
                 }
                 $this->_modules[$modName]->run_level = $modConfig['run_level'];
             }

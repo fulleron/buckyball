@@ -73,7 +73,7 @@ class BApp extends BClass
             break;
 
         default:
-            throw new BException(BApp::t('Unknown feature: %s', $feature));
+            BDebug::error(BApp::t('Unknown feature: %s', $feature));
         }
         static::$_compat[$feature] = $compat;
         return $compat;
@@ -116,7 +116,7 @@ class BApp extends BClass
         } elseif (is_string($config) && is_file($config)) {
             BConfig::i()->addFile($config);
         } else {
-            throw new BException("Invalid configuration argument");
+            BDebug::error("Invalid configuration argument");
         }
         return $this;
     }
@@ -279,13 +279,36 @@ class BConfig extends BClass
     public function addFile($filename)
     {
         if (!is_readable($filename)) {
-            throw new BException(BApp::t('Invalid configuration file name: %s', $filename));
+            BDebug::error(BApp::t('Invalid configuration file name: %s', $filename));
         }
         $config = BUtil::fromJson(file_get_contents($filename));
         if (!$config) {
-            throw new BException(BApp::t('Invalid configuration contents: %s', $filename));
+            BDebug::error(BApp::t('Invalid configuration contents: %s', $filename));
         }
         $this->add($config);
+        return $this;
+    }
+
+    /**
+    * Set configuration data in $path location
+    *
+    * @param string $path slash separated path to the config node
+    * @param mixed $value scalar or array value
+    * @param boolean $merge merge new value to old?
+    */
+    public function set($path, $value, $merge=false)
+    {
+        $root =& $this->_config;
+        foreach (explode('/', $path) as $key) {
+            $root =& $root[$key];
+        }
+        if ($merge) {
+            $root = (array)$root;
+            $value = (array)$root;
+            $root = BUtil::arrayMerge($root, $value);
+        } else {
+            $root = $value;
+        }
         return $this;
     }
 
@@ -350,7 +373,7 @@ class BConfig extends BClass
 
         // Write contents
         if (!file_put_contents($filename, $contents, LOCK_EX)) {
-            throw new BException('Error writing configuration file: '.$filename);
+            BDebug::error('Error writing configuration file: '.$filename);
         }
     }
 }
@@ -551,10 +574,10 @@ class BClassRegistry extends BClass
     public function augmentProperty($class, $property, $op, $type, $callback)
     {
         if ($op!=='set' && $op!=='get') {
-            throw new BException(BApp::t('Invalid property augmentation operator: %s', $op));
+             BDebug::error(BApp::t('Invalid property augmentation operator: %s', $op));
         }
         if ($type!=='override' && $type!=='before' && $type!=='after') {
-            throw new BException(BApp::t('Invalid property augmentation type: %s', $type));
+            BDebug::error(BApp::t('Invalid property augmentation type: %s', $type));
         }
         $entry = array(
             'module_name' => BModuleRegistry::currentModuleName(),
@@ -726,7 +749,7 @@ class BClassRegistry extends BClass
         // get original or overridden class instance
         $className = $this->className($class);
         if (!class_exists($className, true)) {
-            throw new BException(BApp::t('Invalid class name: %s', $className));
+            BDebug::error(BApp::t('Invalid class name: %s', $className));
         }
         $instance = new $className($args);
 

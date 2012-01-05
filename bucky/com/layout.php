@@ -13,6 +13,13 @@ class BLayout extends BClass
     protected $_themes = array();
 
     /**
+    * Default theme name (current area / main module)
+    *
+    * @var string|array
+    */
+    protected $_defaultTheme;
+
+    /**
     * Layouts declarations registry
     *
     * @var array
@@ -309,8 +316,23 @@ class BLayout extends BClass
         }
     }
 
-    public function theme($themeName, $params=null)
+    public function defaultTheme($themeName=null)
     {
+        if (is_null($themeName)) {
+            return $this->_defaultTheme;
+        }
+        $this->_defaultTheme = $themeName;
+        return $this;
+    }
+
+    public function theme($themeName=null, $params=null)
+    {
+        if (is_null($themeName)) {
+            if (!$this->_defaultTheme) {
+                BDebug::error('Empty theme supplied and no default theme is set');
+            }
+            $themeName = $this->_defaultTheme;
+        }
         if (is_array($themeName)) {
             foreach ($themeName as $n) {
                 $this->theme($n);
@@ -319,8 +341,9 @@ class BLayout extends BClass
         }
         if (!is_null($params)) {
             BDebug::debug('THEME.ADD '.$themeName);
-            if (!empty($params['area']) && FCom::area()!=$params['area']) {
-                BDebug::debug('Theme '.$themeName.' can not be used in '.FCom::area());
+            $area = FCom::i()->area();
+            if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
+                BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
                 return $this;
             }
             $this->_themes[$themeName] = $params;

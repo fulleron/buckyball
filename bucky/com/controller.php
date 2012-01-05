@@ -1201,7 +1201,6 @@ class BFrontController extends BClass
         while (($attempts++<100) && $forward) {
             if (true===$forward) { // if first time or try next route
                 $node = $this->findRoute($route);
-
                 $this->_currentRoute = $node;
 
                 if (!$node) {

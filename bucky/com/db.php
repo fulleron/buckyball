@@ -887,7 +887,9 @@ class BORM extends ORMWrapper
     protected function _run()
     {
         BDb::connect($this->_readConnectionName);
+        #$timer = microtime(true); // file log
         $result = parent::_run();
+        #BDebug::log((microtime(true)-$timer).' '.static::$_last_query); // file log
         BDebug::profile(static::$_last_profile);
         static::$_last_profile = null;
         return $result;
@@ -1020,6 +1022,30 @@ exit;
     }
 
     /**
+    * Class to table map cache
+    *
+    * @var array
+    */
+    protected static $_classTableMap = array();
+
+    /**
+     * Add a simple JOIN source to the query
+     */
+    public function join($table, $constraint, $table_alias=null) {
+        if (!isset(self::$_classTableMap[$table])) {
+            if (class_exists($table) && is_subclass_of($table, 'BModel')) {
+                self::$_classTableMap[$table] = $table::table();
+            } else {
+                self::$_classTableMap[$table] = false;
+            }
+        }
+        if (self::$_classTableMap[$table]) {
+            $table = self::$_classTableMap[$table];
+        }
+        return parent::join($table, $constraint, $table_alias);
+    }
+
+    /**
      * Save any fields which have been modified on this object
      * to the database.
      *
@@ -1031,7 +1057,8 @@ exit;
     {
         BDb::connect($this->_writeConnectionName);
         $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
-        return parent::save();
+        $result = parent::save();
+        return $result;
     }
 
     /**

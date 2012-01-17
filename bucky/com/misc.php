@@ -788,6 +788,11 @@ class BDebug extends BClass
         self::$_logDir = $dir;
     }
 
+    public static function log($msg, $file='debug.log')
+    {
+        error_log($msg."\n", 3, self::$_logDir.'/'.$file);
+    }
+
     public static function adminEmail($email)
     {
         self::$_adminEmail = $email;

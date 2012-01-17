@@ -327,6 +327,7 @@ class BLayout extends BClass
 
     public function theme($themeName=null, $params=null)
     {
+#$bt = debug_backtrace();BDebug::debug(print_r($bt[1], 1));
         if (is_null($themeName)) {
             if (!$this->_defaultTheme) {
                 BDebug::error('Empty theme supplied and no default theme is set');
@@ -774,6 +775,13 @@ BDebug::debug('TEMPLATE '.$template);
 class BViewHead extends BView
 {
     /**
+    * Substitution variables
+    *
+    * @var array
+    */
+    protected $_subst = array();
+
+    /**
     * Meta tags
     *
     * @var array
@@ -806,6 +814,15 @@ class BViewHead extends BView
     * @var string
     */
     protected $_currentIfContext = null;
+
+    public function subst($from, $to=null)
+    {
+        if (is_null($to)) {
+            return str_replace(array_keys($this->_subst), array_values($this->_subst), $from);
+        }
+        $this->_subst['{'.$from.'}'] = $to;
+        return $this;
+    }
 
     /**
     * Add meta tag, or return meta tag(s)
@@ -862,6 +879,9 @@ class BViewHead extends BView
             $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $file = !empty($args['file']) ? $args['file'] : $name;
             $params = !empty($args['params']) ? $args['params'] : '';
+            if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
+                $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
+            }
             if (strpos($file, 'http:')===false && strpos($file, 'https:')===false && $file[0]!=='/') {
                 $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;
                 $baseUrl = $module ? $module->baseSrc() : BApp::baseUrl();

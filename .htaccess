@@ -7,5 +7,5 @@
     RewriteCond %{REQUEST_FILENAME} !-l
 
     RewriteRule (.*) index.php/$1 [L]
-
 </IfModule>
+#php_value disable_functions exec,passthru,system,proc_open,popen,curl_exec,curl_multi_exec,parse_ini_file,show_source

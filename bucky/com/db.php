@@ -1174,6 +1174,17 @@ exit;
         return array('state'=>$s, 'rows'=>$rows);
     }
 
+    public function jqGridData($r=null)
+    {
+        if (is_null($r)) {
+            $r = BRequest::i()->request();
+        }
+        $data = $this->paginate(array('p'=>$p['page'], 'ps'=>$p['rows'], 's'=>$p['sidx'], 'sd'=>$p['sord']));
+        $res = $data['state'];
+        $res['rows'] = BDb::many_as_array($data['rows']);
+        return $res;
+    }
+
     public function __destruct()
     {
         unset($this->_data);

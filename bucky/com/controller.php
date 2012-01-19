@@ -662,7 +662,6 @@ class BResponse extends BClass
     */
     public function output($type=null)
     {
-        BPubSub::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
         if (!is_null($type)) {
             $this->contentType($type);
         }
@@ -674,11 +673,13 @@ class BResponse extends BClass
             $this->_content = BLayout::i()->render();
         }
 
+        BPubSub::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
+
         echo $this->_contentPrefix;
         print_r($this->_content);
         echo $this->_contentSuffix;
 
-        BPubSub::i()->fire('BResponse::output.after', array('content'=>&$this->_content));
+        BPubSub::i()->fire('BResponse::output.after', array('content'=>$this->_content));
 
         $this->shutdown(__METHOD__);
     }

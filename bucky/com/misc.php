@@ -941,7 +941,7 @@ class BDebug extends BClass
         return in_array(self::$_mode, $modes);
     }
 
-    public static function dumpLog()
+    public static function dumpLog($return=false)
     {
         if ((self::$_mode!==self::MODE_DEBUG && self::$_mode!==self::MODE_DEVELOPMENT)
             || BResponse::i()->contentType()!=='text/html'
@@ -949,7 +949,7 @@ class BDebug extends BClass
         ) {
             return;
         }
-
+        ob_start();
 ?><style>
 #buckyball-debug-trigger { position:fixed; top:0; right:0; font:normal 10px Verdana; cursor:pointer; z-index:10001; background:#ffc; }
 #buckyball-debug-console { position:fixed; overflow:auto; top:10px; left:10px; bottom:10px; right:10px; border:solid 2px #f00; padding:4px; text-align:left; opacity:1; background:#FFC; font:normal 10px Verdana; z-index:10000; }
@@ -971,6 +971,12 @@ class BDebug extends BClass
             echo "<tr><td>".htmlentities($e['msg'])."</td><td>".number_format($e['t'], 6)."</td><td>".$profile."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
         }
 ?></table></div><?php
+        $html = ob_get_clean();
+        if ($return) {
+            return $html;
+        } else {
+            echo $html;
+        }
     }
 
     /**
@@ -997,9 +1003,10 @@ class BDebug extends BClass
         }
     }
 
-    public static function afterOutput()
+    public static function afterOutput($args)
     {
         static::dumpLog();
+        //$args['content'] = str_replace('</body>', static::dumpLog(true).'</body>', $args['content']);
     }
 }
 

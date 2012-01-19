@@ -274,7 +274,7 @@ class BDb
         $res = array();
         foreach ((array)$rows as $i=>$r) {
             if (!$r instanceof BModel) {
-                echo "<pre>"; print_r($r);
+                echo "Rows are not models: <pre>"; print_r($r);
                 debug_print_backtrace();
                 exit;
             }
@@ -1174,14 +1174,17 @@ exit;
         return array('state'=>$s, 'rows'=>$rows);
     }
 
-    public function jqGridData($r=null)
+    public function jqGridData($r=null, $d=array())
     {
         if (is_null($r)) {
             $r = BRequest::i()->request();
         }
-        $data = $this->paginate(array('p'=>$p['page'], 'ps'=>$p['rows'], 's'=>$p['sidx'], 'sd'=>$p['sord']));
+        $data = $this->paginate(array('p'=>$r['page'], 'ps'=>$r['rows'], 's'=>$r['sidx'], 'sd'=>$r['sord']), $d);
         $res = $data['state'];
-        $res['rows'] = BDb::many_as_array($data['rows']);
+        $res['rows'] = $data['rows'];
+        if (empty($d['as_array'])) {
+            $res['rows'] = BDb::many_as_array($res['rows']);
+        }
         return $res;
     }
 

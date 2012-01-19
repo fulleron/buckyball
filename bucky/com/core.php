@@ -1346,7 +1346,7 @@ class BSession extends BClass
         $msgs = array();
         foreach ($tags as $tag) {
             if (empty($this->data['_messages'][$tag])) continue;
-            foreach ($avail[$tag] as $i=>$m) {
+            foreach ($this->data['_messages'][$tag] as $i=>$m) {
                 $msgs[] = $m;
                 unset($this->data['_messages'][$tag][$i]);
                 $this->dirty(true);

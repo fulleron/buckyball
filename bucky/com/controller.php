@@ -122,11 +122,18 @@ class BRequest extends BClass
     *
     * If request is /folder1/folder2/index.php, return /folder1/folder2/
     *
+    * @param $parent if required a parent of current web root, specify depth
     * @return string
     */
-    public function webRoot()
+    public function webRoot($parentDepth=null)
     {
-        return !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
+        $root = !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
+        if ($parentDepth) {
+            $arr = explode('/', $root);
+            $len = sizeof($arr)-$parentDepth;
+            $root = $len>1 ? join('/', array_slice($arr, 0, $len)) : '/';
+        }
+        return $root;
     }
 
     /**

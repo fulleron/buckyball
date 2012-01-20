@@ -41,7 +41,7 @@ class BUtil
     protected static $_hashSep = '$';
 
     /**
-    * Convert any data to JSON
+    * Convert any data to JSON string
     *
     * @param mixed $data
     * @return string
@@ -62,6 +62,45 @@ class BUtil
     {
         $obj = json_decode($json);
         return $asObject ? $obj : static::objectToArray($obj);
+    }
+
+    /**
+    * Convert data to JavaScript string
+    *
+    * Notable difference from toJson: allows raw function callbacks
+    *
+    * @param mixed $val
+    * @return string
+    */
+    public static function toJavaScript($val)
+    {
+        if (is_null($val)) {
+            return 'null';
+        } elseif (is_bool($val)) {
+            return $val ? 'true' : 'false';
+        } elseif (is_string($val)) {
+            if (preg_match('#^\s*function\s*\(#', $val)) {
+                return $val;
+            } else {
+                return "'".addslashes($val)."'";
+            }
+        } elseif (is_int($val) || is_float($val)) {
+            return $val;
+        } elseif (($isObj = is_object($val)) || is_array($val)) {
+            $out = array();
+            if ($isObj || array_keys($val) !== range(0, count($val)-1)) { // assoc?
+                foreach ($val as $k=>$v) {
+                    $out[] = "'".addslashes($k)."':".static::toJavaScript($v);
+                }
+                return '{'.join(',', $out).'}';
+            } else {
+                foreach ($val as $k=>$v) {
+                    $out[] = static::toJavaScript($v);
+                }
+                return '['.join(',', $out).']';
+            }
+        }
+        return '"UNSUPPORTED TYPE"';
     }
 
     /**

@@ -302,16 +302,16 @@ class BLayout extends BClass
     public function metaDirectiveViewCallback($d)
     {
         $view = $this->view($d['name']);
+        if (!empty($d['set'])) {
+            foreach ($d['set'] as $k=>$v) {
+                $view->$k = $v;
+            }
+        }
         if (!empty($d['do'])) {
             foreach ($d['do'] as $args) {
                 $method = array_shift($args);
                 BDebug::debug('LAYOUT.view.do '.$method);
                 call_user_func_array(array($view, $method), $args);
-            }
-        }
-        if (!empty($d['set'])) {
-            foreach ($d['set'] as $k=>$v) {
-                $view->$k = $v;
             }
         }
     }

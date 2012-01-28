@@ -6,7 +6,7 @@
     <body>
         <div class="header">
         <?php if (!Blog::user()): ?>
-            <form class="login-form" method="post" action="<?php echo BApp::baseUrl().'/login' ?>"><fieldset>
+            <form class="login-form" method="post" action="<?php echo BApp::url('Blog', '/login') ?>"><fieldset>
                 <label for="username">User:</label>
                 <input type="text" id="username" name="username" value="admin"/>
                 <label for="password">Password:</label>
@@ -16,11 +16,11 @@
         <?php else: ?>
             <div class="logged-in-welcome">
                 Welcome, <strong><?php echo $this->q(Blog::user()) ?></strong>!
-                <a href="<?php echo BApp::baseUrl().'/logout' ?>">Log Out</a>
+                <a href="<?php echo BApp::url('Blog', '/logout') ?>">Log Out</a>
             </div>
         <?php endif ?>
 
-        <h1><a href="<?php echo BApp::baseUrl() ?>">Our First Blog!</a></h1>
+        <h1><a href="<?php echo BApp::url('Blog') ?>">Our First Blog!</a></h1>
         </div>
         <div class="main">
         <?php if ($this->message): ?>

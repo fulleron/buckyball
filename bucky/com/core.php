@@ -190,6 +190,19 @@ class BApp extends BClass
     }
 
     /**
+    * Shortcut to generate URL of module base and custom path
+    *
+    * @param string $modName
+    * @param string $url
+    * @param string $method
+    * @return string
+    */
+    public static function url($modName, $url='', $method='baseHref')
+    {
+        return BApp::m($modName)->$method() . $url;
+    }
+
+    /**
     * Shortcut for base URL to use in views and controllers
     *
     * @return string

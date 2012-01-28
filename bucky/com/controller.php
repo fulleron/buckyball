@@ -87,6 +87,11 @@ class BRequest extends BClass
         return !empty($_SERVER['HTTPS']);
     }
 
+    public function scheme()
+    {
+        return $this->https() ? 'https' : 'http';
+    }
+
     /**
     * Whether request is AJAX
     *
@@ -290,6 +295,44 @@ class BRequest extends BClass
     public function referrer($default=null)
     {
         return !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : $default;
+    }
+
+    /**
+    * Check whether the request can be CSRF attack
+    *
+    * Uses HTTP_REFERER header to compare with current host and path.
+    * By default only POST, DELETE, PUT requests are protected
+    * Only these methods should be used for data manipulation.
+    *
+    * The following specific cases will return csrf true:
+    * - posting from different host or web root path
+    * - posting from https to http
+    *
+    * @see http://en.wikipedia.org/wiki/Cross-site_request_forgery
+    *
+    * @param array $methods Methods to check for CSRF attack
+    * @return boolean
+    */
+    public function csrf($methods=array('POST','DELETE','PUT'))
+    {
+        if (!in_array($this->method(), $methods)) {
+            return false; // not one of checked methods, pass
+        }
+        if (!($ref = $this->referrer())) {
+            return true; // no referrer sent, high prob. csrf
+        }
+        $p = parse_url($ref);
+        $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
+        if ($p['host']!==$this->httpHost() || strpos($p['path'], $this->webRoot())!==0) {
+            return true; // referrer host or doc root path do not match, high prob. csrf
+        }
+        return false; // not csrf
+    }
+
+    public function currentUrl()
+    {
+        return $this->scheme().'://'.$this->httpHost().$this->webRoot().$this->rawPath()
+            .(($q = $this->rawGet()) ? '?'.$q : '');
     }
 
     /**
@@ -637,7 +680,7 @@ class BResponse extends BClass
     *
     * @param int $status Status code number
     * @param string $message Message to be sent to client
-    * @param bool $output Proceed to output content and exit
+    * @param bool|string $output Proceed to output content and exit
     * @return BResponse|exit
     */
     public function status($status, $message=null, $output=true)
@@ -655,7 +698,10 @@ class BResponse extends BClass
         }
         header("HTTP/1.0 {$status} {$message}");
         header("Status: {$status} {$message}");
-        if ($output) {
+        if (is_string($output)) {
+            echo $output;
+            exit;
+        } elseif ($output) {
             $this->output();
         }
         return $this;
@@ -717,6 +763,13 @@ class BResponse extends BClass
     public function httpsRedirect()
     {
         $this->redirect(str_replace('http://', 'https://', BApp::baseUrl(true)));
+    }
+
+    public function nocache()
+    {
+        header("Cache-Control: no-cache, must-revalidate"); // HTTP/1.1
+        header("Expires: Sat, 26 Jul 1997 05:00:00 GMT"); // Date in the past
+        return $this;
     }
 
     public function shutdown($lastMethod=null)

@@ -110,10 +110,12 @@ class BModuleRegistry extends BClass
     protected function _getManifestData(&$params)
     {
         if (empty($this->_env)) {
-            $this->_env['doc_root'] = BRequest::i()->docRoot();
-            $this->_env['http_host'] = BRequest::i()->httpHost();
+            $r = BRequest::i();
+            $this->_env['doc_root'] = $r->docRoot();
+            $this->_env['web_root'] = $r->webRoot();
+            $this->_env['http_host'] = $r->httpHost();
             $basePath = BConfig::i()->get('web/base_path');
-            $this->_env['base_href'] = '//'.$this->_env['http_host'].($basePath ? $basePath : $this->_env['doc_root']);
+            $this->_env['base_href'] = '//'.$this->_env['http_host'].($basePath ? $basePath : $this->_env['web_root']);
         }
         if (empty($params['manifest_file'])) {
             $bt = debug_backtrace();

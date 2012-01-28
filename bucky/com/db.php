@@ -303,6 +303,9 @@ class BDb
     * // (f1 IN (1,2,3)) AND NOT ((f2 IS NULL) OR (f2=10))
     * $w = BDb::where(array('f1'=>array(1,2,3)), 'NOT'=>array('OR'=>array("f2 IS NULL", 'f2'=>10)));
     *
+    * // ((A OR B) AND (C OR D))
+    * $w = BDb::where(array('AND', array('OR', 'A', 'B'), array('OR', 'C', 'D')));
+    *
     * @param array $conds
     * @param boolean $or
     * @return array (query, params)
@@ -317,15 +320,28 @@ class BDb
         if (is_array($conds)) {
             foreach ($conds as $f=>$v) {
                 if (is_int($f)) {
-                    if (is_string($v)) {
+                    if (is_string($v)) { // freeform
                         $where[] = '('.$v.')';
-                    } elseif (is_array($v)) {
-                        $where[] = array_shift($v);
-                        $params = array_merge($params, $v);
+                        continue;
+                    }
+                    if (is_array($v)) { // [freeform|arguments]
+                        $sql = array_shift($v);
+                        if ('AND'===$sql || 'OR'===$sql || 'NOT'===$sql) {
+                            $f = $sql;
+                        } else {
+                            if (isset($v[0]) && is_array($v[0])) { // `field` IN (?)
+                                $v = $v[0];
+                                $sql = str_replace('(?)', "(".str_pad('', sizeof($v)*2-1, '?,')."))", $sql);
+                            }
+                            $where[] = $sql;
+                            $params = array_merge($params, $v);
+                            continue;
+                        }
                     } else {
                         throw new BException('Invalid token: '.print_r($v,1));
                     }
-                } elseif ('AND'===$f) {
+                }
+                if ('AND'===$f) {
                     list($w, $p) = static::where($v);
                     $where[] = '('.$w.')';
                     $params = array_merge($params, $p);
@@ -976,13 +992,16 @@ exit;
     public function where_complex($conds, $or=false)
     {
         list($where, $params) = BDb::where($conds, $or);
+        if (!$where) {
+            return $this;
+        }
         return $this->where_raw($where, $params);
     }
 
     /**
     * Find many records and return as associated array
     *
-    * @param string $key
+    * @param string|array $key if array, will create multi-dimensional array (currently 2D)
     * @param string|null $labelColumn
     * @param array $options (key_lower, key_trim)
     * @return array
@@ -991,12 +1010,25 @@ exit;
     {
         $objects = $this->find_many();
         $array = array();
-        $idColumn = !empty($key) ? $key : $this->_get_id_column_name();
+        if (empty($key)) {
+            $key = $this->_get_id_column_name();
+        }
         foreach ($objects as $r) {
-            $key = $r->$idColumn;
-            if (!empty($options['key_lower'])) $key = strtolower($key);
-            if (!empty($options['key_trim'])) $key = trim($key);
-            $array[$key] = is_null($labelColumn) ? $r : $r->$labelColumn;
+            $value = is_null($labelColumn) ? $r : $r->$labelColumn;
+            if (!is_array($key)) { // save on performance for 1D keys
+                $v = $r->$key;
+                if (!empty($options['key_lower'])) $v = strtolower($v);
+                if (!empty($options['key_trim'])) $v = trim($v);
+                $array[$v] = $value;
+            } else {
+                $v1 = $r->{$key[0]};
+                if (!empty($options['key_lower'])) $v1 = strtolower($v1);
+                if (!empty($options['key_trim'])) $v1 = trim($v1);
+                $v2 = $r->{$key[1]};
+                if (!empty($options['key_lower'])) $v2 = strtolower($v2);
+                if (!empty($options['key_trim'])) $v1 = trim($v2);
+                $array[$v1][$v2] = $value;
+            }
         }
         return $array;
     }
@@ -1031,10 +1063,11 @@ exit;
     /**
      * Add a simple JOIN source to the query
      */
-    public function join($table, $constraint, $table_alias=null) {
+    public function _add_join_source($join_operator, $table, $constraint, $table_alias=null) {
         if (!isset(self::$_classTableMap[$table])) {
             if (class_exists($table) && is_subclass_of($table, 'BModel')) {
-                self::$_classTableMap[$table] = $table::table();
+                $class = BClassRegistry::i()->className($table);
+                self::$_classTableMap[$table] = $class::table();
             } else {
                 self::$_classTableMap[$table] = false;
             }
@@ -1042,7 +1075,7 @@ exit;
         if (self::$_classTableMap[$table]) {
             $table = self::$_classTableMap[$table];
         }
-        return parent::join($table, $constraint, $table_alias);
+        return parent::_add_join_source($join_operator, $table, $constraint, $table_alias);
     }
 
     /**
@@ -1254,6 +1287,13 @@ class BModel extends Model
     protected $_instanceCache = array();
 
     /**
+    * TRUE after save if a new record
+    *
+    * @var boolean
+    */
+    protected $_newRecord;
+
+    /**
     * PDO object of read DB connection
     *
     * @return BPDO
@@ -1378,6 +1418,7 @@ class BModel extends Model
     /**
     * Placeholder for after creae callback
     *
+    * Called not after new object save, but after creation of the object in memory
     */
     public function afterCreate()
     {
@@ -1391,7 +1432,7 @@ class BModel extends Model
     * @param string $field
     * @return BModel
     */
-    public static function load($id, $field=null)
+    public static function load($id, $field=null, $cache=false)
     {
         if (is_null($field)) {
             $field = static::_get_id_column_name(get_called_class());
@@ -1412,7 +1453,10 @@ class BModel extends Model
         }
         if ($record) {
             $record->afterLoad();
-            if (static::$_cacheAuto===true || is_array(static::$_cacheAuto) && in_array($field, static::$_cacheAuto)) {
+            if ($cache
+                || static::$_cacheAuto===true
+                || is_array(static::$_cacheAuto) && in_array($field, static::$_cacheAuto)
+            ) {
                 $record->cacheStore();
             }
         }
@@ -1607,6 +1651,9 @@ class BModel extends Model
         if (!$this->beforeSave()) {
             return $this;
         }
+
+        $this->_newRecord = !$this->get(static::_get_id_column_name(get_called_class()));
+
         parent::save();
 
         $this->afterSave();
@@ -1624,6 +1671,16 @@ class BModel extends Model
     public function afterSave()
     {
         return $this;
+    }
+
+    /**
+    * Was the record just saved to DB?
+    *
+    * @return boolean
+    */
+    public function isNewRecord()
+    {
+        return $this->_newRecord;
     }
 
     /**
@@ -1824,5 +1881,22 @@ class BModel extends Model
     public function __destruct()
     {
         unset($this->_cache, $this->_instanceCache);
+    }
+
+    public function fieldOptions($field, $key=null)
+    {
+        if (!isset($this->_fieldOptions[$field])) {
+            BDebug::warning('Invalid field options type: '.$field);
+            return null;
+        }
+        $options = $this->_fieldOptions[$field];
+        if (!is_null($key)) {
+            if (!isset($options[$key])) {
+                BDebug::warning('Invalid field options key: '.$field.'.'.$key);
+                return null;
+            }
+            return $options[$key];
+        }
+        return $options;
     }
 }

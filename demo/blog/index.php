@@ -9,9 +9,9 @@ BDebug::i()->mode('debug');
 
 BConfig::i()->addFile('protected/config.json');
 
-BModuleRegistry::i()->module('demo.blog', array(
+BModuleRegistry::i()->module('Blog', array(
     'version' => '0.1.0',
-    'bootstrap' => array('file'=>'protected/blog_main.php', 'callback'=>'Blog::init'),
+    'bootstrap' => array('file'=>'protected/Blog.php', 'callback'=>'Blog::init'),
 ));
 
 BApp::i()->run();

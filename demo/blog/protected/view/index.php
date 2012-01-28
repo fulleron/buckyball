@@ -1,5 +1,5 @@
 <?php if (Blog::user()): ?>
-    <form class="post-form create-post-form" method="post" action="<?php echo BApp::baseUrl().'/posts/' ?>"><fieldset>
+    <form class="post-form create-post-form" method="post" action="<?php echo BApp::url('Blog', '/posts/') ?>"><fieldset>
         <h2>Submit a Post</h2>
         <label for="title">Post Title:</label>
         <input type="text" id="title" name="title"/><br/>
@@ -20,10 +20,10 @@
 
 <?php foreach ($this->posts as $post): ?>
     <div class="post-entry">
-        <h2><a href="<?php echo BApp::baseUrl().'/posts/'.$post->id ?>"><?php echo Blog::q($post->title) ?></a></h2>
+        <h2><a href="<?php echo BApp::url('Blog', '/posts/'.$post->id) ?>"><?php echo Blog::q($post->title) ?></a></h2>
         <p class="post-preview"><?php echo Blog::q($post->preview ? $post->preview : $post->body) ?></p>
         <cite>Posted by admin on <?php echo $post->posted_at ?></cite>
-        <a class="comment-count" href="<?php echo BApp::baseUrl().'/posts/'.$post->id.'#comments' ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
+        <a class="comment-count" href="<?php echo BApp::url('Blog', '/posts/'.$post->id.'#comments') ?>"><?php echo $post->comment_count ? $post->comment_count.' comments' : 'Be first to comment!' ?></a>
     </div>
 <?php endforeach ?>
 

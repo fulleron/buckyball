@@ -1,7 +1,7 @@
 
 <?php if (Blog::user()): ?>
 
-<form class="post-form update-post-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id ?>"><fieldset>
+<form class="post-form update-post-form" method="post" action="<?php echo BApp::url('Blog', '/posts/'.$this->post->id) ?>"><fieldset>
     <h2>Update the Post</h2>
     <label for="title">Title:</label>
     <input type="text" id="title" name="title" value="<?php echo $this->q($this->post->title) ?>"/><br/>
@@ -31,7 +31,7 @@
         <blockquote><?php echo nl2br(Blog::q($comment->body)) ?></blockquote>
         <cite>by <?php echo $this->q($comment->name) ?> on <?php echo $comment->posted_at ?></cite>
         <?php if (Blog::user()): ?>
-            <form class="update-comments-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id.'/comments/'.$comment->id ?>"><fieldset>
+            <form class="update-comments-form" method="post" action="<?php echo BApp::url('Blog', '/posts/'.$this->post->id.'/comments/'.$comment->id) ?>"><fieldset>
                 <input type="hidden" name="approved" value="<?php echo $comment->approved ? 0 : 1 ?>"/>
                 <input type="submit" name="action" value="<?php echo $comment->approved ? 'Unapprove' : 'Approve' ?>"/>
                 <input type="submit" name="action" value="Delete" onclick="return confirm('Are you sure?')"/>
@@ -46,7 +46,7 @@
 
 <?php endif ?>
 
-<form class="post-form create-comment-form" method="post" action="<?php echo BApp::baseUrl().'/posts/'.$this->post->id.'/comments/' ?>"><fieldset>
+<form class="post-form create-comment-form" method="post" action="<?php echo BApp::url('Blog', '/posts/'.$this->post->id.'/comments/') ?>"><fieldset>
     <h2>Add a comment</h2>
     <label for="name">Your name:</label>
     <input type="text" id="name" name="name"/><br/>

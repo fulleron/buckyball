@@ -47,6 +47,13 @@ class BLayout extends BClass
     */
     protected $_viewRootDir;
 
+    /**
+    * Default class name for newly created views
+    *
+    * @var string
+    */
+    protected $_defaultViewClass;
+
     protected static $_metaDirectives = array(
         'callback' => 'BLayout::metaDirectiveCallback',
         'layout' => 'BLayout::metaDirectiveLayoutCallback',
@@ -123,6 +130,12 @@ class BLayout extends BClass
         return $this;
     }
 
+    public function defaultViewClass($className)
+    {
+        $this->_defaultViewClass = $className;
+        return $this;
+    }
+
     /**
     * Register or retrieve a view object
     *
@@ -156,6 +169,19 @@ class BLayout extends BClass
         }
         $viewAlias = !empty($params['view_alias']) ? $params['view_alias'] : $viewName;
         if (!isset($this->_views[$viewAlias]) || !empty($params['view_class'])) {
+            if (empty($params['view_class'])) {
+                /*
+                if (!empty($params['module_name'])) {
+                    $viewClass = BApp::m($params['module_name'])->default_view_class;
+                    if ($viewClass) {
+                        $params['view_class'] = $viewClass;
+                    }
+                } else
+                */
+                if (!empty($this->_defaultViewClass)) {
+                    $params['view_class'] = $this->_defaultViewClass;
+                }
+            }
             $this->_views[$viewAlias] = BView::i()->factory($viewName, $params);
             BPubSub::i()->fire('BLayout::view.add: '.$viewAlias, array(
                 'view'=>$this->_views[$viewAlias],
@@ -707,6 +733,26 @@ BDebug::debug('TEMPLATE '.$template);
             return ' ** ERROR ** ';
         }
         return htmlspecialchars($args ? BUtil::sprintfn($str, $args) : $str);
+    }
+
+    public function optionsHtml($options, $default)
+    {
+        $html = '';
+        foreach ($options as $k=>$v) {
+            if (is_array($v) && !empty($v[0])) {
+                $html .= '<optgroup label="'.$this->q($k).'">'
+                    .$this->selectOptions($v, $default)
+                    .'</optgroup>';
+                continue;
+            }
+            if (!is_array($v)) {
+                $v = array('text'=>$v);
+            }
+            $html .= '<option value="'.$this->q($k).'"'.($default===$k ? ' selected' : '')
+                .(!empty($v['style']) ? ' style="'.$v['style'].'"' : '')
+                .'>'.$v['text'].'</option>';
+        }
+        return $html;
     }
 
     /**

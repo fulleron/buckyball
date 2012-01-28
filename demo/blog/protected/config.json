@@ -9,7 +9,7 @@
         "logging": true
     },
     "modules": {
-        "demo.blog": {
+        "Blog": {
             "run_level": "REQUIRED"
         }
     }

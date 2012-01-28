@@ -88,7 +88,7 @@ class BUtil
             return $val;
         } elseif (($isObj = is_object($val)) || is_array($val)) {
             $out = array();
-            if ($isObj || array_keys($val) !== range(0, count($val)-1)) { // assoc?
+            if (!empty($val) && ($isObj || array_keys($val) !== range(0, count($val)-1))) { // assoc?
                 foreach ($val as $k=>$v) {
                     $out[] = "'".addslashes($k)."':".static::toJavaScript($v);
                 }
@@ -204,25 +204,31 @@ class BUtil
      * Numeric entries are appended, not replaced, but only if they are
      * unique
      *
-     * calling: result = array_merge_recursive_distinct(a1, a2, ... aN)
+     * calling: result = BUtil::arrayMerge(a1, a2, ... aN)
      *
-     * @see http://us3.php.net/manual/en/function.array-merge-recursive.php#96201
+     * @param array $array1
+     * @param array $array2...
+     * @return array
      **/
      public static function arrayMerge() {
          $arrays = func_get_args();
          $base = array_shift($arrays);
-         if(!is_array($base)) $base = empty($base) ? array() : array($base);
-         foreach($arrays as $append) {
-             if(!is_array($append)) $append = array($append);
-             foreach($append as $key => $value) {
-                 if(!array_key_exists($key, $base) and !is_numeric($key)) {
-                     $base[$key] = $append[$key];
-                     continue;
-                 }
-                 if(is_array($value) or is_array($base[$key])) {
+         if (!is_array($base))  {
+             $base = empty($base) ? array() : array($base);
+         }
+         foreach ($arrays as $append) {
+             if (!is_array($append)) {
+                 $append = array($append);
+             }
+             foreach ($append as $key => $value) {
+                 if (is_numeric($key)) {
+                     if (!in_array($value, $base)) {
+                        $base[] = $value;
+                     }
+                 } elseif (!array_key_exists($key, $base)) {
+                     $base[$key] = $value;
+                 } elseif (is_array($value) && is_array($base[$key])) {
                      $base[$key] = static::arrayMerge($base[$key], $append[$key]);
-                 } else if(is_numeric($key)) {
-                         if(!in_array($value, $base)) $base[] = $value;
                  } else {
                      $base[$key] = $value;
                  }
@@ -760,6 +766,8 @@ class BDebug extends BClass
         E_RECOVERABLE_ERROR => self::ERROR,
     );
 
+    static protected $_verboseBacktrace = array();
+
     /**
     * Contructor, remember script start time for delta timestamps
     *
@@ -848,6 +856,13 @@ class BDebug extends BClass
         }
     }
 
+    public static function backtraceOn($msg)
+    {
+        foreach ((array)$msg as $m) {
+            static::$_verboseBacktrace[$m] = true;
+        }
+    }
+
     public static function trigger($level, $msg, $stackPop=0)
     {
         $e = is_scalar($msg) ? array('msg'=>$msg) : $msg;
@@ -865,6 +880,12 @@ class BDebug extends BClass
         $e['d'] = null;
         $e['c'] = null;
         $e['mem'] = memory_get_usage();
+
+        if (!empty(static::$_verboseBacktrace[$e['msg']])) {
+            foreach ($bt as $t) {
+                $e['msg'] .= "\n".$t['file'].':'.$t['line'];
+            }
+        }
 
         $message = "{$e['level']}: {$e['msg']}".(isset($e['file'])?" ({$e['file']}:{$e['line']})":'');
 
@@ -1007,7 +1028,7 @@ class BDebug extends BClass
         foreach (self::$_events as $e) {
             if (empty($e['file'])) { $e['file'] = ''; $e['line'] = ''; }
             $profile = $e['d'] ? number_format($e['d'], 6).($e['c']>1 ? ' ('.$e['c'].')' : '') : '';
-            echo "<tr><td>".htmlentities($e['msg'])."</td><td>".number_format($e['t'], 6)."</td><td>".$profile."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
+            echo "<tr><td><xmp style='margin:0'>".$e['msg']."</xmp></td><td>".number_format($e['t'], 6)."</td><td>".$profile."</td><td>".number_format($e['mem'], 0)."</td><td>{$e['level']}</td><td>{$e['file']}:{$e['line']}</td><td>".(!empty($e['module'])?$e['module']:'')."</td></tr>";
         }
 ?></table></div><?php
         $html = ob_get_clean();
@@ -1227,10 +1248,13 @@ class BLocale extends BClass
     {
         if (is_string($fields)) $fields = explode(',', $fields);
         $isObject = is_object($request);
-        $result = $isObject ? clone $request : $request;
+        if ($isObject) $result = clone $request;
         foreach ($request as $k=>$v) {
-            if (!is_null($fields) && !in_array($k, $fields)) continue;
-            $r = $this->datetimeLocalToDb($v);
+            if (is_null($fields) || in_array($k, $fields)) {
+                $r = $this->datetimeLocalToDb($v);
+            } else {
+                $r = $v;
+            }
             if ($isObject) $result->$k = $r; else $result[$k] = $r;
         }
         return $result;

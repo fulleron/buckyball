@@ -1892,7 +1892,7 @@ class BModel extends Model
         $options = $this->_fieldOptions[$field];
         if (!is_null($key)) {
             if (!isset($options[$key])) {
-                BDebug::warning('Invalid field options key: '.$field.'.'.$key);
+                BDebug::debug('Invalid field options key: '.$field.'.'.$key);
                 return null;
             }
             return $options[$key];

@@ -633,26 +633,45 @@ class BResponse extends BClass
         $this->contentType('application/json')->set(BUtil::toJson($data))->render();
     }
 
+    public function fileContentType($fileName)
+    {
+        $type = 'application/octet-stream';
+        switch (strtolower(pathinfo($fileName, PATHINFO_EXTENSION))) {
+            case 'jpeg': case 'jpg': $type = 'image/jpg'; break;
+            case 'png': $type = 'image/png'; break;
+            case 'gif': $type = 'image/gif'; break;
+        }
+        return $type;
+    }
+
     /**
     * Send file download to client
     *
     * @param string $filename
     * @return exit
     */
-    public function sendFile($source, $filename=null)
+    public function sendFile($source, $fileName=null, $disposition='attachment')
     {
         BSession::i()->close();
+
+        if (!$fileName) {
+            $fileName = basename($source);
+        }
+
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Content-Type: application/octet-stream');
         header('Content-Length: ' . filesize($source));
         header('Last-Modified: ' . date('r'));
-        header('Content-Disposition: attachment; filename=' . $filename ? $filename : basename($source));
+        header('Content-Type: '. $this->fileContentType($fileName));
+        header('Content-Disposition: '.$disposition.'; filename=' . $fileName);
+
+        //echo file_get_contents($source);
         $fs = fopen($source, 'rb');
         $fd = fopen('php://output', 'wb');
         while (!feof($fs)) fwrite($fd, fread($fs, 8192));
         fclose($fs);
         fclose($fd);
+
         $this->shutdown(__METHOD__);
     }
 
@@ -662,15 +681,15 @@ class BResponse extends BClass
     * @param string $content
     * @return exit
     */
-    public function sendContent($content, $filename='download.txt')
+    public function sendContent($content, $fileName='download.txt', $disposition='attachment')
     {
         BSession::i()->close();
         header('Pragma: public');
         header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        header('Content-Type: application/octet-stream');
+        header('Content-Type: '.$this->fileContentType($fileName));
         header('Content-Length: ' . strlen($content));
         header('Last-Modified: ' . date('r'));
-        header('Content-Disposition: attachment; filename=' . $filename);
+        header('Content-Disposition: '.$disposition.'; filename=' . $fileName);
         echo $content;
         $this->shutdown(__METHOD__);
     }

@@ -166,7 +166,7 @@ class BModuleRegistry extends BClass
 //echo "{$m['root_dir']}, {$params['root_dir']}\n";
             $params['root_dir'] = BUtil::normalizePath($m['root_dir'].'/'.$params['root_dir']);
         }
-        $modConfig = BConfig::i()->get($modName);
+        $modConfig = BConfig::i()->get('modules/'.$modName);
         if (!isset($params['run_level'])) {
             $params['run_level'] = isset($modConfig['run_level']) ? $modConfig['run_level'] : BModule::ONDEMAND;
         }

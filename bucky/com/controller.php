@@ -781,7 +781,7 @@ class BResponse extends BClass
 
     public function httpsRedirect()
     {
-        $this->redirect(str_replace('http://', 'https://', BApp::baseUrl(true)));
+        $this->redirect(str_replace('http://', 'https://', BRequest::i()->currentUrl()));
     }
 
     /**

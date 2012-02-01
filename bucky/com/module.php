@@ -62,7 +62,7 @@ class BModuleRegistry extends BClass
     * Register or return module object
     *
     * @param string $modName
-    * @param array|callback $params if not supplied, return module by name
+    * @param mixed $params if not supplied, return module by name
     * @return BModule
     */
     public function module($modName, $params=BNULL)
@@ -109,19 +109,11 @@ class BModuleRegistry extends BClass
 
     protected function _getManifestData(&$params)
     {
-        if (empty($this->_env)) {
-            $r = BRequest::i();
-            $this->_env['doc_root'] = $r->docRoot();
-            $this->_env['web_root'] = $r->webRoot();
-            $this->_env['http_host'] = $r->httpHost();
-            $basePath = BConfig::i()->get('web/base_path');
-            $this->_env['base_href'] = '//'.$this->_env['http_host'].($basePath ? $basePath : $this->_env['web_root']);
-        }
         if (empty($params['manifest_file'])) {
             $bt = debug_backtrace();
             foreach ($bt as $i=>$t) {
-                if ($t['method'] = 'module') {
-                    $t1 = $bt[$i+2];
+                if (!empty($t['function']) && $t['function'] === 'module') {
+                    $t1 = $t;
                     break;
                 }
             }
@@ -129,16 +121,29 @@ class BModuleRegistry extends BClass
                 $params['manifest_file'] = $t1['file'];
             }
         }
+        // TODO:eliminate need for manifest file
         $file = $params['manifest_file'];
-
         if (empty($this->_manifestCache[$file])) {
-            $dir = dirname(realpath($file));
-            $this->_manifestCache[$file] = array(
-                'root_dir' => $dir,
-                'base_src' => '//'.$this->_env['http_host'].str_replace($this->_env['doc_root'], '', $dir),
-            );
+            $this->_manifestCache[$file] = array('root_dir' => dirname(realpath($file)));
         }
         return $this->_manifestCache[$file];
+    }
+
+    protected function _initEnvData()
+    {
+        $r = BRequest::i();
+        $this->_env['doc_root'] = $r->docRoot();
+        $this->_env['web_root'] = $r->webRoot();
+        $this->_env['http_host'] = $r->httpHost();
+        $this->_env['base_src'] = '//'.$this->_env['http_host'].BConfig::i()->get('web/base_src');
+        $this->_env['base_href'] = '//'.$this->_env['http_host'].BConfig::i()->get('web/base_href');
+
+        $rootDir = FCom::rootDir();
+        foreach ($this->_manifestCache as &$m) {
+            $m['base_src'] = $this->_env['base_src'].str_replace($rootDir, '', $m['root_dir']);
+        }
+        unset($m);
+        return $this;
     }
 
     protected function _prepareModuleParams($params)
@@ -156,30 +161,12 @@ class BModuleRegistry extends BClass
         if (empty($params['root_dir'])) {
             $params['root_dir'] = $m['root_dir'];
         }
-        if (empty($params['url_prefix'])) {
-            $params['url_prefix'] = '';
-        }
         //TODO: optimize path calculations
         if (!BUtil::isPathAbsolute($params['root_dir'])) {
 //echo "{$m['root_dir']}, {$params['root_dir']}\n";
             $params['root_dir'] = BUtil::normalizePath($m['root_dir'].'/'.$params['root_dir']);
         }
-        if (empty($params['view_root_dir'])) {
-            $params['view_root_dir'] = $params['root_dir'];
-        }
-
-        if (empty($params['base_src'])) {
-            $params['base_src'] = rtrim($m['base_src'].str_replace($m['root_dir'], '', $params['root_dir']), '/');
-            $params['base_src'] = BUtil::normalizePath($params['base_src']);
-        }
-        if (empty($params['base_href'])) {
-            $params['base_href'] = $this->_env['base_href'];
-            if (!empty($params['url_prefix'])) {
-                $params['base_href'] .= '/'.$params['url_prefix'];
-            }
-        }
-
-        $modConfig = BConfig::i()->get('modules/'.$modName);
+        $modConfig = BConfig::i()->get($modName);
         if (!isset($params['run_level'])) {
             $params['run_level'] = isset($modConfig['run_level']) ? $modConfig['run_level'] : BModule::ONDEMAND;
         }
@@ -187,8 +174,29 @@ class BModuleRegistry extends BClass
             $params['run_status'] = BModule::IDLE;
         }
 
-#echo "<hr>"; print_r($params);
         return $params;
+    }
+
+    protected function _prepareModuleEnvData($mod)
+    {
+        $m = $this->_manifestCache[$mod->manifest_file];
+
+        if (empty($mod->url_prefix)) {
+            $mod->url_prefix = '';
+        }
+        if (empty($mod->view_root_dir)) {
+            $mod->view_root_dir = $mod->root_dir;
+        }
+        if (empty($mod->base_src)) {
+            $mod->base_src = BUtil::normalizePath(rtrim($m['base_src'].str_replace($m['root_dir'], '', $mod->root_dir), '/'));
+        }
+        if (empty($mod->base_href)) {
+            $mod->base_href = $this->_env['base_href'];
+            if (!empty($mod->url_prefix)) {
+                $mod->base_href .= '/'.$mod->url_prefix;
+            }
+        }
+        return $this;
     }
 
     /**
@@ -410,11 +418,19 @@ class BModuleRegistry extends BClass
     {
         $this->checkDepends();
         $this->sortDepends();
+/*
+echo "<pre>";
+print_r(BConfig::i()->get());
+print_r($this->_modules);
+echo "</pre>"; exit;
+*/
+        $this->_initEnvData();
 
         foreach ($this->_modules as $mod) {
             if ($mod->run_status!==BModule::PENDING) {
                 continue;
             }
+            $this->_prepareModuleEnvData($mod);
             $this->pushModule($mod->name);
             if (!empty($mod->bootstrap['file'])) {
                 $includeFile = BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']);
@@ -476,7 +492,7 @@ class BModuleRegistry extends BClass
     {
         $front = BFrontController::i();
         foreach ($this->_modules as $module) {
-            if (($prefix = $module->url_prefix)) {
+            if ($module->run_status===BModule::PENDING && ($prefix = $module->url_prefix)) {
                 $front->redirect('GET /'.$prefix, $prefix.'/');
             }
         }
@@ -501,6 +517,7 @@ class BModule extends BClass
     public $db_connection_name;
     public $root_dir;
     public $view_root_dir;
+    public $url_prefix;
     public $base_src;
     public $base_href;
     public $depends = array();

@@ -784,6 +784,17 @@ class BResponse extends BClass
         $this->redirect(str_replace('http://', 'https://', BApp::baseUrl(true)));
     }
 
+    /**
+    * Send HTTP STS header
+    *
+    * @see http://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security
+    */
+    public function httpSTS()
+    {
+        header('Strict-Transport-Security: max-age=500; includeSubDomains');
+        return $this;
+    }
+
     public function nocache()
     {
         header("Cache-Control: no-cache, must-revalidate"); // HTTP/1.1

@@ -933,6 +933,7 @@ class BClassAutoload extends BClass
             $this->$k = $v;
         }
         spl_autoload_register(array($this, 'callback'), false);
+        BDebug::debug('AUTOLOAD: '.print_r($this,1));
     }
 
     /**

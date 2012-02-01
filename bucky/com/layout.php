@@ -103,11 +103,15 @@ class BLayout extends BClass
     * @param string $prefix Optional: add prefix to view names
     * @return BLayout
     */
-    public function allViews($rootDir, $prefix='')
+    public function allViews($rootDir=null, $prefix='')
     {
-        if (($curModule = BModuleRegistry::i()->currentModule())) {
-            $rootDir = $curModule->root_dir.'/'.$rootDir;
+        if (is_null($rootDir)) {
+            return $this->_views;
         }
+        if (($curModule = BModuleRegistry::i()->currentModule())) {
+            $rootDir = realpath($curModule->root_dir.'/'.$rootDir);
+        }
+
         $this->viewRootDir($rootDir);
 
         $files = BUtil::globRecursive($rootDir.'/*');
@@ -118,13 +122,15 @@ class BLayout extends BClass
         if ($prefix) {
             $prefix = rtrim($prefix, '/').'/';
         }
-
+        $re = '#^('.preg_quote(realpath($rootDir).'/', '#').')(.*)(\.php)$#';
         foreach ($files as $file) {
             if (!is_file($file)) {
                 continue;
             }
-            if (preg_match('#^('.preg_quote($rootDir.'/', '#').')(.*)(\.php)$#', $file, $m)) {
-                $this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
+            if (preg_match($re, $file, $m)) {
+#echo $re.', '.$file; print_r($m); echo '<hr>';
+                //$this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
+                $this->view($prefix.$m[2], array('template'=>$file));
             }
         }
         return $this;
@@ -623,8 +629,10 @@ class BView extends BClass
     */
     protected function _render()
     {
-        $template = BLayout::i()->viewRootDir().'/';
-        $template .= ($tpl = $this->param('template')) ? $tpl : ($this->param('view_name').'.php');
+        $template = ($tpl = $this->param('template')) ? $tpl : ($this->param('view_name').'.php');
+        if (!BUtil::isPathAbsolute($template)) {
+            $template = BLayout::i()->viewRootDir().'/'.$template;
+        }
 BDebug::debug('TEMPLATE '.$template);
         ob_start();
         include $template;

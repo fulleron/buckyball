@@ -109,8 +109,13 @@ class BLayout extends BClass
             return $this->_views;
         }
         if (($curModule = BModuleRegistry::i()->currentModule())) {
-            $rootDir = realpath($curModule->root_dir.'/'.$rootDir);
+            $rootDir = $curModule->root_dir.'/'.$rootDir;
         }
+        if (!is_dir($rootDir)) {
+            BDebug::warning('Not a valid directory: '.$rootDir);
+            return $this;
+        }
+        $rootDir = realpath($rootDir);
 
         $this->viewRootDir($rootDir);
 

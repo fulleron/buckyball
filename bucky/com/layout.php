@@ -855,6 +855,16 @@ class BViewHead extends BView
     protected $_elements = array();
 
     /**
+    * Support for head.js
+    *
+    * Points to head.js record whenever it is loaded, proxies loading of other scripts through it.
+    *
+    * @see http://headjs.com/
+    * @var string
+    */
+    protected $_headJs = array('enabled'=>true, 'loaded'=>false, 'jquery'=>null, 'scripts'=>array());
+
+    /**
     * Default tag templates for JS and CSS resources
     *
     * @var array
@@ -880,6 +890,12 @@ class BViewHead extends BView
             return str_replace(array_keys($this->_subst), array_values($this->_subst), $from);
         }
         $this->_subst['{'.$from.'}'] = $to;
+        return $this;
+    }
+
+    public function headJs($enable=true)
+    {
+        $this->_headJs['enable'] = $enable;
         return $this;
     }
 
@@ -918,7 +934,6 @@ class BViewHead extends BView
     *   - module_name: Optional: module where the resource is declared
     *   - if: IE <!--[if]--> context
     * @return BViewHead|array|string
-    * @todo remove coupling with $type (to preserve requested load order)
     */
     public function item($type=null, $name=null, $args=null)
     {
@@ -935,9 +950,8 @@ class BViewHead extends BView
                 return null;
             }
             $args = $this->_elements[$type.':'.$name];
-            $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
+
             $file = !empty($args['file']) ? $args['file'] : $name;
-            $params = !empty($args['params']) ? $args['params'] : '';
             if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
                 $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
             }
@@ -946,6 +960,21 @@ class BViewHead extends BView
                 $baseUrl = $module ? $module->baseSrc() : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
+
+            $params = !empty($args['params']) ? $args['params'] : '';
+
+            if ($type==='js' && empty($args['tag']) && empty($args['params'])
+                && $this->_headJs['loaded'] && $this->_headJs['loaded']!==$name
+            ) {
+                if (!$this->_headJs['jquery'] && strpos($name, 'jquery')!==false) {
+                    $this->_headJs['jquery'] = $file;
+                } else {
+                    $this->_headJs['scripts'][] = $file;
+                }
+                return '';
+            }
+
+            $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $tag = str_replace('%s', htmlspecialchars($file), $tag);
             $tag = str_replace('%c', !empty($args['content']) ? $args['content'] : '', $tag);
             $tag = str_replace('%a', $params, $tag);
@@ -965,6 +994,10 @@ class BViewHead extends BView
         $args['type'] = $type;
         $this->_elements[$type.':'.$name] = $args;
 
+        $basename = basename($name);
+        if ($basename==='head.js' || $basename==='head.min.js' || $basename==='head.load.min.js') {
+            $this->_headJs['loaded'] = $name;
+        }
 BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
         return $this;
     }
@@ -1020,7 +1053,18 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
     public function render(array $args=array())
     {
         if (!$this->param('template')) {
-            return $this->meta()."\n".$this->item();
+            $html = $this->meta()."\n".$this->item();
+
+            if ($this->_headJs['scripts']) {
+                $scripts = 'head.js("'.join('", "', $this->_headJs['scripts']).'");';
+
+                if ($this->_headJs['jquery']) {
+                    $scripts = 'head.js({jquery:"'.$this->_headJs['jquery'].'"}, function() { jQuery.fn.ready = head; '.$scripts.'});';
+                }
+                $html .= "<script>{$scripts}</script>";
+            }
+
+            return $html;
         }
         return parent::render($args);
     }

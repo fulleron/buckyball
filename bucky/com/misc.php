@@ -798,6 +798,9 @@ class BDebug extends BClass
 
     public static function errorHandler($code, $message, $file, $line, $context=null)
     {
+        if (!(error_reporting() & $code)) {
+            return;
+        }
         static::trigger(self::$_phpErrorMap[$code], $message, 1);
         //throw new BErrorException(self::$_phpErrorMap[$code], $message, $file, $line, $context);
     }

@@ -132,15 +132,16 @@ class BModuleRegistry extends BClass
     protected function _initEnvData()
     {
         $r = BRequest::i();
+        $c = BConfig::i();
         $this->_env['doc_root'] = $r->docRoot();
         $this->_env['web_root'] = $r->webRoot();
         $this->_env['http_host'] = $r->httpHost();
-        $this->_env['base_src'] = '//'.$this->_env['http_host'].BConfig::i()->get('web/base_src');
-        $this->_env['base_href'] = '//'.$this->_env['http_host'].BConfig::i()->get('web/base_href');
+        $this->_env['root_dir'] = $c->get('root_dir');
+        $this->_env['base_src'] = '//'.$this->_env['http_host'].$c->get('web/base_src');
+        $this->_env['base_href'] = '//'.$this->_env['http_host'].$c->get('web/base_href');
 
-        $rootDir = FCom::rootDir();
         foreach ($this->_manifestCache as &$m) {
-            $m['base_src'] = $this->_env['base_src'].str_replace($rootDir, '', $m['root_dir']);
+            $m['base_src'] = $this->_env['base_src'].str_replace($this->_env['root_dir'], '', $m['root_dir']);
         }
         unset($m);
         return $this;

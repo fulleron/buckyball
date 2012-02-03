@@ -875,6 +875,7 @@ class BViewHead extends BView
         'css' => '<link rel="stylesheet" type="text/css" href="%s" %a/>',
         'css_raw' => '<style type="text/css" %a>%c</style>',
         'less' => '<link rel="stylesheet" type="text/less" href="%s" %a/>',
+        'icon' => '<link rel="icon" href="%s" type="image/x-icon" %a/><link rel="shortcut icon" href="%s" type="image/x-icon" %a/>',
     );
 
     /**
@@ -941,11 +942,11 @@ class BViewHead extends BView
             $result = '';
             foreach ($this->_elements as $typeName=>$els) {
                 list($type, $name) = explode(':', $typeName, 2);
-                $result .= $this->item($type, $name)."\n";
+                $result .= $this->item($type, $name, true)."\n";
             }
             return $result;
         }
-        if (is_null($args)) {
+        if (true===$args) {
             if (!isset($this->_elements[$type.':'.$name])) {
                 return null;
             }
@@ -982,7 +983,7 @@ class BViewHead extends BView
                 $tag = '<!--[if '.$args['if'].']>'.$tag.'<![endif]-->';
             }
             return $tag;
-        } elseif (!is_array($args)) {
+        } elseif (!is_null($args) && !is_array($args)) {
             throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }
         if (($moduleName = BModuleRegistry::currentModuleName())) {
@@ -992,7 +993,7 @@ class BViewHead extends BView
             $args['if'] = $this->_currentIfContext;
         }
         $args['type'] = $type;
-        $this->_elements[$type.':'.$name] = $args;
+        $this->_elements[$type.':'.$name] = (array)$args;
 
         $basename = basename($name);
         if ($basename==='head.js' || $basename==='head.min.js' || $basename==='head.load.min.js') {
@@ -1003,32 +1004,19 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
     }
 
     /**
-    * Add or return JS resources
+    * Enable direct call of different item types as methods (js, css, icon, less)
     *
-    * @param string $name If ommited, return all JS tags
-    * @param array $args If ommited, return tag by $name
-    * @return BViewHead|array|string
+    * @param string $name
+    * @param array $args
     */
-    public function js($name=null, $args=null)
+    public function __call($name, $args)
     {
-        return $this->item('js', $name, $args);
-    }
-
-    /**
-    * Add or return CSS resources
-    *
-    * @param string $name If ommited, return all CSS tags
-    * @param array $args If ommited, return tag by $name
-    * @return BViewHead|array|string
-    */
-    public function css($name=null, $args=null)
-    {
-        return $this->item('css', $name, $args);
-    }
-
-    public function less($name=null, $args=null)
-    {
-        return $this->item('less', $name, $args);
+        if (!empty($this->_defaultTag[$name])) {
+            array_unshift($args, $name);
+            return call_user_func_array(array($this, 'item'), $args);
+        } else {
+            BDebug::error('Invalid method: '.$name);
+        }
     }
 
     /**

@@ -1212,6 +1212,15 @@ class BSession extends BClass
         $this->_phpSessionOpen = true;
         $this->_sessionId = session_id();
 
+        if (!empty($config['session_check_ip'])) {
+            $ip = BRequest::i()->ip();
+            if (empty($_SESSION['_ip'])) {
+                $_SESSION['_ip'] = $ip;
+            } elseif ($_SESSION['_ip']!==$ip) {
+                BResponse::i()->status(403, "Remote IP doesn't match session", "Remote IP doesn't match session");
+            }
+        }
+
         $namespace = !empty($config['session_namespace']) ? $config['session_namespace'] : 'default';
         $this->data = !empty($_SESSION[$namespace]) ? $_SESSION[$namespace] : array();
 

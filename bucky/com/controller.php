@@ -1430,24 +1430,26 @@ class BActionController extends BClass
         if (is_callable($actionName)) {
             try {
                 call_user_func($actionName);
-            } catch (DActionException $e) {
-                $this->sendError($e->getMessage());
             } catch (Exception $e) {
-echo "<pre>"; print_r($e); echo "</pre>";
+                $this->sendError($e->getMessage());
             }
             return $this;
         }
         $actionMethod = $this->_actionMethodPrefix.$actionName;
+        if (($reqMethod = BRequest::i()->method())!=='GET') {
+            $tmpMethod = $actionMethod.'__'.$reqMethod;
+            if (is_callable(array($this, $tmpMethod))) {
+                $actionMethod = $tmpMethod;
+            }
+        }
         if (!is_callable(array($this, $actionMethod))) {
             $this->forward('noroute');
             return $this;
         }
         try {
             $this->$actionMethod($args);
-        } catch (DActionException $e) {
-            $this->sendError($e->getMessage());
         } catch (Exception $e) {
-echo "<pre>"; print_r($e); echo "</pre>";
+            $this->sendError($e->getMessage());
         }
         return $this;
     }

@@ -984,6 +984,8 @@ class BPubSub extends BClass
     /**
     * Declare event with default arguments in bootstrap function
     *
+    * This method is optional and currently not used.
+    *
     * @param string|array $eventName accepts multiple events in form of non-associative array
     * @param array $args
     * @return BPubSub

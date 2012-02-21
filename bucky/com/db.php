@@ -452,7 +452,7 @@ class BDb
         $result = array();
         foreach ($data as $k=>$v) {
             if (BDb::ddlFieldInfo($table, $k)) {
-                $result[$k] = $isObject ? $data->$k : $data[$k];
+                $result[$k] = $isObject ? $data->get($k) : $data[$k];
             }
         }
         return $result;
@@ -1014,17 +1014,17 @@ exit;
             $key = $this->_get_id_column_name();
         }
         foreach ($objects as $r) {
-            $value = is_null($labelColumn) ? $r : $r->$labelColumn;
+            $value = is_null($labelColumn) ? $r : $r->get($labelColumn);
             if (!is_array($key)) { // save on performance for 1D keys
-                $v = $r->$key;
+                $v = $r->get($key);
                 if (!empty($options['key_lower'])) $v = strtolower($v);
                 if (!empty($options['key_trim'])) $v = trim($v);
                 $array[$v] = $value;
             } else {
-                $v1 = $r->{$key[0]};
+                $v1 = $r->get($key[0]);
                 if (!empty($options['key_lower'])) $v1 = strtolower($v1);
                 if (!empty($options['key_trim'])) $v1 = trim($v1);
-                $v2 = $r->{$key[1]};
+                $v2 = $r->get($key[1]);
                 if (!empty($options['key_lower'])) $v2 = strtolower($v2);
                 if (!empty($options['key_trim'])) $v1 = trim($v2);
                 $array[$v1][$v2] = $value;
@@ -1533,7 +1533,7 @@ class BModel extends Model
         foreach ($collection as $r) {
             $key = null;
             if (is_object($r)) {
-                $key = $r->$fk;
+                $key = $r->get($fk);
             } elseif (is_array($r)) {
                 $key = isset($r[$fk]) ? $r[$fk] : null;
             } elseif (is_scalar($r)) {
@@ -1560,7 +1560,7 @@ class BModel extends Model
         $cache =& static::i()->_cache;
         $lower = !empty(static::$_cacheFlags[$toKey]['key_lower']);
         foreach ($cache[$fromKey] as $r) {
-            $key = $r->$toKey;
+            $key = $r->get($toKey);
             if ($lower) $key = strtolower($key);
             $cache[$toKey][$key] = $r;
         }
@@ -1618,7 +1618,7 @@ class BModel extends Model
             }
             return $this;
         }
-        $key = $this->$field;
+        $key = $this->get($field);
         if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
         $cache[$field][$key] = $this;
         return $this;
@@ -1700,7 +1700,7 @@ class BModel extends Model
         }
         if (($cache =& static::i()->_cache)) {
             foreach ($cache as $k=>$cache) {
-                $key = $this->$k;
+                $key = $this->get($k);
                 if (!empty(static::$_cacheFlags[$k]['key_lower'])) $key = strtolower($key);
                 unset($cache[$k][$key]);
             }
@@ -1870,10 +1870,10 @@ class BModel extends Model
     */
     public function childById($var, $id, $idField='id')
     {
-        $collection = $this->$var;
+        $collection = $this->get($var);
         if (!$collection) return null;
         foreach ($collection as $k=>$v) {
-            if ($v->$idField==$id) return $v;
+            if ($v->get($idField)==$id) return $v;
         }
         return null;
     }

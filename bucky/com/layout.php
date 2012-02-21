@@ -855,6 +855,16 @@ class BViewHead extends BView
     protected $_elements = array();
 
     /**
+    * Support for head.js
+    *
+    * Points to head.js record whenever it is loaded, proxies loading of other scripts through it.
+    *
+    * @see http://headjs.com/
+    * @var string
+    */
+    protected $_headJs = array('enabled'=>true, 'loaded'=>false, 'jquery'=>null, 'scripts'=>array());
+
+    /**
     * Default tag templates for JS and CSS resources
     *
     * @var array
@@ -865,6 +875,7 @@ class BViewHead extends BView
         'css' => '<link rel="stylesheet" type="text/css" href="%s" %a/>',
         'css_raw' => '<style type="text/css" %a>%c</style>',
         'less' => '<link rel="stylesheet" type="text/less" href="%s" %a/>',
+        'icon' => '<link rel="icon" href="%s" type="image/x-icon" %a/><link rel="shortcut icon" href="%s" type="image/x-icon" %a/>',
     );
 
     /**
@@ -880,6 +891,12 @@ class BViewHead extends BView
             return str_replace(array_keys($this->_subst), array_values($this->_subst), $from);
         }
         $this->_subst['{'.$from.'}'] = $to;
+        return $this;
+    }
+
+    public function headJs($enable=true)
+    {
+        $this->_headJs['enable'] = $enable;
         return $this;
     }
 
@@ -918,7 +935,6 @@ class BViewHead extends BView
     *   - module_name: Optional: module where the resource is declared
     *   - if: IE <!--[if]--> context
     * @return BViewHead|array|string
-    * @todo remove coupling with $type (to preserve requested load order)
     */
     public function item($type=null, $name=null, $args=null)
     {
@@ -926,18 +942,17 @@ class BViewHead extends BView
             $result = '';
             foreach ($this->_elements as $typeName=>$els) {
                 list($type, $name) = explode(':', $typeName, 2);
-                $result .= $this->item($type, $name)."\n";
+                $result .= $this->item($type, $name, true)."\n";
             }
             return $result;
         }
-        if (is_null($args)) {
+        if (true===$args) {
             if (!isset($this->_elements[$type.':'.$name])) {
                 return null;
             }
             $args = $this->_elements[$type.':'.$name];
-            $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
+
             $file = !empty($args['file']) ? $args['file'] : $name;
-            $params = !empty($args['params']) ? $args['params'] : '';
             if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
                 $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
             }
@@ -946,6 +961,21 @@ class BViewHead extends BView
                 $baseUrl = $module ? $module->baseSrc() : BApp::baseUrl();
                 $file = $baseUrl.'/'.$file;
             }
+
+            $params = !empty($args['params']) ? $args['params'] : '';
+
+            if ($type==='js' && empty($args['tag']) && empty($args['params'])
+                && $this->_headJs['loaded'] && $this->_headJs['loaded']!==$name
+            ) {
+                if (!$this->_headJs['jquery'] && strpos($name, 'jquery')!==false) {
+                    $this->_headJs['jquery'] = $file;
+                } else {
+                    $this->_headJs['scripts'][] = $file;
+                }
+                return '';
+            }
+
+            $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $tag = str_replace('%s', htmlspecialchars($file), $tag);
             $tag = str_replace('%c', !empty($args['content']) ? $args['content'] : '', $tag);
             $tag = str_replace('%a', $params, $tag);
@@ -953,7 +983,7 @@ class BViewHead extends BView
                 $tag = '<!--[if '.$args['if'].']>'.$tag.'<![endif]-->';
             }
             return $tag;
-        } elseif (!is_array($args)) {
+        } elseif (!is_null($args) && !is_array($args)) {
             throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }
         if (($moduleName = BModuleRegistry::currentModuleName())) {
@@ -963,39 +993,30 @@ class BViewHead extends BView
             $args['if'] = $this->_currentIfContext;
         }
         $args['type'] = $type;
-        $this->_elements[$type.':'.$name] = $args;
+        $this->_elements[$type.':'.$name] = (array)$args;
 
+        $basename = basename($name);
+        if ($basename==='head.js' || $basename==='head.min.js' || $basename==='head.load.min.js') {
+            $this->_headJs['loaded'] = $name;
+        }
 BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
         return $this;
     }
 
     /**
-    * Add or return JS resources
+    * Enable direct call of different item types as methods (js, css, icon, less)
     *
-    * @param string $name If ommited, return all JS tags
-    * @param array $args If ommited, return tag by $name
-    * @return BViewHead|array|string
+    * @param string $name
+    * @param array $args
     */
-    public function js($name=null, $args=null)
+    public function __call($name, $args)
     {
-        return $this->item('js', $name, $args);
-    }
-
-    /**
-    * Add or return CSS resources
-    *
-    * @param string $name If ommited, return all CSS tags
-    * @param array $args If ommited, return tag by $name
-    * @return BViewHead|array|string
-    */
-    public function css($name=null, $args=null)
-    {
-        return $this->item('css', $name, $args);
-    }
-
-    public function less($name=null, $args=null)
-    {
-        return $this->item('less', $name, $args);
+        if (!empty($this->_defaultTag[$name])) {
+            array_unshift($args, $name);
+            return call_user_func_array(array($this, 'item'), $args);
+        } else {
+            BDebug::error('Invalid method: '.$name);
+        }
     }
 
     /**
@@ -1020,7 +1041,18 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
     public function render(array $args=array())
     {
         if (!$this->param('template')) {
-            return $this->meta()."\n".$this->item();
+            $html = $this->meta()."\n".$this->item();
+
+            if ($this->_headJs['scripts']) {
+                $scripts = 'head.js("'.join('", "', $this->_headJs['scripts']).'");';
+
+                if ($this->_headJs['jquery']) {
+                    $scripts = 'head.js({jquery:"'.$this->_headJs['jquery'].'"}, function() { jQuery.fn.ready = head; '.$scripts.'});';
+                }
+                $html .= "<script>{$scripts}</script>";
+            }
+
+            return $html;
         }
         return parent::render($args);
     }

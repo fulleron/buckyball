@@ -278,8 +278,8 @@ class BRequest extends BClass
 
         $config = BConfig::i()->get('cookie');
         $lifespan = !is_null($lifespan) ? $lifespan : $config['timeout'];
-        $path = !is_null($path) ? $path : $config['path'];
-        $domain = !is_null($domain) ? $domain : $config['domain'];
+        $path = !is_null($path) ? $path : (!empty($config['path']) ? $config['path'] : BRequest::i()->webRoot());
+        $domain = !is_null($domain) ? $domain : (!empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost());
 
         setcookie($name, $value, time()+$lifespan, $path, $domain);
         return $this;
@@ -744,7 +744,6 @@ class BResponse extends BClass
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
-
         BPubSub::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
 
         echo $this->_contentPrefix;

@@ -318,7 +318,7 @@
          */
         public function __get($property) {
 /*if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }*/
-if (memory_get_usage()>500000000) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }
+//if (memory_get_usage()>500000000) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }
             return $this->orm->get($property);
         }
 

@@ -92,14 +92,6 @@ So, yada yada.
 * Already implemented:
   * [Idiorm & Paris](http://j4mie.github.com/idiormandparis/)
   * [phpQuery](http://code.google.com/p/phpquery/)
-* Planned, currently successfully in use for a private project:
-  * [HeadJS](http://headjs.com/)
-  * [jQuery](http://jquery.com) / [jQuery UI](http://jqueryui.com)
-  * [jQuery AutoResize](http://plugins.jquery.com/plugin-tags/autoresize)
-  * [jQuery Growl](http://plugins.jquery.com/project/Growl)
-  * [LessCss (PHP or JS)](http://lesscss.org/)
-  * [AngularJS](http://angularjs.org)
-  * [Uploadify](http://www.uploadify.com/)
 
 ## Application Demo ##
 
@@ -134,7 +126,7 @@ BFrontController::i()
     ->route('GET /', 'DemoController.index')
     ->route('GET /test1/:param', 'DemoController.test1')
     ->route('GET /test2/*param', 'DemoController.anything')
-    ->route('GET /test3/.action/:param', 'DemoController', array('post_test'=>'POST'))
+    ->route('GET /crud/.action/:param', 'DemoController')
 ;
 
 class DemoController extends BActionController
@@ -157,6 +149,11 @@ class DemoController extends BActionController
     public function action_test2()
     {
         BResponse::i()->set('Hello, '.BRequest::i()->params('param'));
+    }
+
+    public function action_crud()
+    {
+
     }
 }
 

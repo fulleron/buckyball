@@ -86,6 +86,8 @@ class BUtil
             }
         } elseif (is_int($val) || is_float($val)) {
             return $val;
+        } elseif ($val instanceof BType) {
+            return $val->toPlain();
         } elseif (($isObj = is_object($val)) || is_array($val)) {
             $out = array();
             if (!empty($val) && ($isObj || array_keys($val) !== range(0, count($val)-1))) { // assoc?
@@ -536,6 +538,31 @@ class BUtil
         if (!is_dir($dir) && !is_file($dir)) {
             mkdir($dir, 0777, true);
         }
+    }
+}
+
+/**
+* Helper class to designate a variable a custom type
+*/
+class BType
+{
+    public $content;
+    public $type;
+
+    public function __construct($content, $type='string')
+    {
+        $this->content = $content;
+        $this->type = $type;
+    }
+
+    public function toPlain()
+    {
+        return $this->content;
+    }
+
+    public function __toString()
+    {
+        return (string)$this->toPlain();
     }
 }
 

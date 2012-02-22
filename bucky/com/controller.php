@@ -1032,16 +1032,31 @@ class BFrontController extends BClass
     /**
     * Save RESTful route in tree
     *
-    * @param string $route "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    * @param string|array $fullRoute "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+    *           OR array('GET', '/part1/part2')
+    *           Accepts multiple methods separated with pipe: 'GET|POST /part1/part2'
     * @param mixed $callback PHP callback
     * @param array $args Route arguments
     * @param mixed $multiple Allow multiple callbacks for the same route
     */
-    public function saveRoute($route, $callback=null, $args=null, $multiple=false)
+    public function saveRoute($fullRoute, $callback=null, $args=null, $multiple=false)
     {
-        list($method, $route) = explode(' ', $route, 2);
-        $route = $this->processRoutePath($route, $args);
-        $route = ltrim($route, '/');
+        if (is_string($fullRoute)) {
+            $fullRoute = explode(' ', $fullRoute, 2);
+        }
+        list($method, $route) = $fullRoute;
+        if (empty($args['_processed'])) {
+            $route = $this->processRoutePath($route, $args);
+            $route = ltrim($route, '/');
+        }
+
+        if (strpos($method, '|')) {
+            $args['_processed'] = true;
+            foreach (explode('|', $method) as $m) {
+                $this->saveRoute(array($m, $route), $callback, $args, $multiple);
+            }
+            return $this;
+        }
 
         if (!isset($this->_routeTree[$method])) {
             $this->_routeTree[$method] = new BRouteNode();

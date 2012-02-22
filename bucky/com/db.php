@@ -969,14 +969,18 @@ exit;
     * Iterate over select result with callback on each row
     *
     * @param mixed $callback
+    * @param string $type
     * @return BORM
     */
-    public function iterate($callback)
+    public function iterate($callback, $type='callback')
     {
         $statement = $this->execute();
         while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
             $model = $this->row_to_model($row);
-            call_user_func($callback, $model);
+            switch ($type) {
+                case 'callback': call_user_func($callback, $model); break;
+                case 'method': $model->$callback(); break;
+            }
         }
         return $this;
     }
@@ -1047,7 +1051,12 @@ exit;
      * database when save() is called.
      */
     public function set($key, $value) {
-        if (!array_key_exists($key, $this->_data) || $this->_data[$key] !== $value) {
+        if (!array_key_exists($key, $this->_data)
+            || is_null($this->_data[$key]) && !is_null($value)
+            || !is_null($this->_data[$key]) && is_null($value)
+            || is_scalar($this->_data[$key]) && is_scalar($value)
+                && ((string)$this->_data[$key] !== (string)$value)
+        ) {
             $this->_dirty_fields[$key] = $value;
         }
         $this->_data[$key] = $value;
@@ -1092,6 +1101,16 @@ exit;
         $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
         $result = parent::save();
         return $result;
+    }
+
+    /**
+    * Return dirty fields for debugging
+    *
+    * @return array
+    */
+    public function dirty_fields()
+    {
+        return $this->_dirty_fields;
     }
 
     /**
@@ -1341,11 +1360,16 @@ class BModel extends Model
     /**
     * Alias for self::factory()
     *
-    * return BORM
+    * @param string $alias table alias
+    * @return BORM
     */
-    public static function orm()
+    public static function orm($alias=null)
     {
-        return static::i()->factory();
+        $orm = static::i()->factory();
+        if ($alias) {
+            $orm->table_alias($alias);
+        }
+        return $orm;
     }
 
     /**
@@ -1728,7 +1752,7 @@ class BModel extends Model
     */
     public static function table()
     {
-        $class = get_called_class();
+        $class = BClassRegistry::i()->className(get_called_class());
         if (empty(static::$_tableNames[$class])) {
             static::$_tableNames[$class] = BDb::t(static::_get_table_name($class));
         }

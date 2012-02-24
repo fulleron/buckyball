@@ -3,8 +3,6 @@
 /**
 * Wrapper for idiorm/paris
 *
-* For multiple connections waiting on: https://github.com/j4mie/idiorm/issues#issue/15
-*
 * @see http://j4mie.github.com/idiormandparis/
 */
 class BDb
@@ -189,7 +187,7 @@ class BDb
     * @param string $sql
     * @param array $params
     */
-    public static function run($sql)
+    public static function run($sql, $params=null)
     {
         $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql);
         $results = array();
@@ -197,7 +195,11 @@ class BDb
            if (strlen(trim($query)) > 0) {
                 try {
                     BDebug::debug('DB.RUN: '.$query);
-                    $results[] = BORM::get_db()->exec($query);
+                    if (is_null($params)) {
+                        $results[] = BORM::get_db()->exec($query);
+                    } else {
+                        $results[] = BORM::get_db()->prepare($query)->execute($params);
+                    }
                 } catch (Exception $e) {
                     var_dump($e); exit;
                 }
@@ -1231,7 +1233,12 @@ exit;
         if (is_null($r)) {
             $r = BRequest::i()->request();
         }
-        $data = $this->paginate(array('p'=>$r['page'], 'ps'=>$r['rows'], 's'=>$r['sidx'], 'sd'=>$r['sord']), $d);
+        $data = $this->paginate(array(
+            'p'  => !empty($r['page']) ? $r['page'] : null,
+            'ps' => !empty($r['rows']) ? $r['rows'] : null,
+            's'  => !empty($r['sidx']) ? $r['sidx'] : null,
+            'sd' => !empty($r['sord']) ? $r['sord'] : null,
+        ), $d);
         $res = $data['state'];
         $res['rows'] = $data['rows'];
         if (empty($d['as_array'])) {

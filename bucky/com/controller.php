@@ -1445,6 +1445,7 @@ class BActionController extends BClass
             try {
                 call_user_func($actionName);
             } catch (Exception $e) {
+                BDebug::exceptionHandler($e);
                 $this->sendError($e->getMessage());
             }
             return $this;
@@ -1463,6 +1464,7 @@ class BActionController extends BClass
         try {
             $this->$actionMethod($args);
         } catch (Exception $e) {
+            BDebug::exceptionHandler($e);
             $this->sendError($e->getMessage());
         }
         return $this;

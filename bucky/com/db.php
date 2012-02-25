@@ -1205,6 +1205,7 @@ exit;
             'rs' => !empty($r['rs']) ? $r['rs'] : null,
             'rc' => !empty($r['rc']) ? $r['rc'] : null,
         );
+#print_r($r); print_r($d); print_r($s); exit;
         $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
         $cntOrm = clone $this; // clone ORM to count
         $s['c'] = $cntOrm->count(); // row count
@@ -1233,12 +1234,16 @@ exit;
         if (is_null($r)) {
             $r = BRequest::i()->request();
         }
-        $data = $this->paginate(array(
-            'p'  => !empty($r['page']) ? $r['page'] : null,
-            'ps' => !empty($r['rows']) ? $r['rows'] : null,
-            's'  => !empty($r['sidx']) ? $r['sidx'] : null,
-            'sd' => !empty($r['sord']) ? $r['sord'] : null,
-        ), $d);
+        if (!empty($r['rows'])) { // without adapting jqgrid config
+            $data = $this->paginate(array(
+                'p'  => !empty($r['page']) ? $r['page'] : null,
+                'ps' => !empty($r['rows']) ? $r['rows'] : null,
+                's'  => !empty($r['sidx']) ? $r['sidx'] : null,
+                'sd' => !empty($r['sord']) ? $r['sord'] : null,
+            ), $d);
+        } else { // jqgrid config adapted
+            $data = $this->paginate(null, $d);
+        }
         $res = $data['state'];
         $res['rows'] = $data['rows'];
         if (empty($d['as_array'])) {

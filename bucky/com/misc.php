@@ -279,6 +279,22 @@ class BUtil
         return $diff;
     }
 
+    static public function arrayWalk($arr, $cb, $args=array(), $ignoreExceptions=false)
+    {
+        foreach ($arr as $i=>$r) {
+            $callback = is_string($cb) && $cb[0]==='.' ? array($r, $cb) : $cb;
+            if ($ignoreExceptions) {
+                try {
+                    call_user_func_array($callback, $args);
+                } catch (Exception $e) {
+                    BDebug::warning('EXCEPTION class('.get_class($r).') arrayWalk('.$i.'): '.$e->getMessage());
+                }
+            } else {
+                call_user_func_array($callback, $args);
+            }
+        }
+    }
+
     /**
     * Create IV for mcrypt operations
     *

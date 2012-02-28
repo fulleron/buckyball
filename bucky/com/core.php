@@ -15,6 +15,30 @@ define('BNULL', '!@BNULL#$');
 class BClass
 {
     /**
+    * Original class to be used as event prefix to remain constant in overridden classes
+    *
+    * Usage:
+    *
+    * class Some_Class extends BClass
+    * {
+    *    static protected $_origClass = __CLASS__;
+    * }
+    *
+    * @var string
+    */
+    static protected $_origClass;
+
+    /**
+    * Retrieve original class name
+    *
+    * @return string
+    */
+    public static function origClass()
+    {
+        return static::$_origClass;
+    }
+
+    /**
     * Fallback singleton/instance factory
     *
     * @param bool|object $new if true returns a new instance, otherwise singleton
@@ -457,6 +481,8 @@ class BClassRegistry extends BClass
     * Usage: BClassRegistry::i()->overrideClass('BaseClass', 'MyClass');
     *
     * Remembering the module that overrode the class for debugging
+    *
+    * @todo figure out how to update events on class override
     *
     * @param string $class Class to be overridden
     * @param string $newClass New class
@@ -967,6 +993,8 @@ class BPubSub extends BClass
     /**
     * Stores events and observers
     *
+    * @todo figure out how to update events on class override
+    *
     * @var array
     */
     protected $_events = array();
@@ -1199,7 +1227,7 @@ class BSession extends BClass
         $config = BConfig::i()->get('cookie');
         session_set_cookie_params(
             !empty($config['timeout']) ? $config['timeout'] : 3600,
-            !empty($config['path']) ? $config['path'] : '/',
+            !empty($config['path']) ? $config['path'] : BRequest::i()->webRoot(),
             !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost()
         );
         session_name(!empty($config['name']) ? $config['name'] : 'buckyball');

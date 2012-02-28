@@ -711,7 +711,7 @@ class BPDO extends PDO
 
     // The current transaction level.
     protected $_transLevel = 0;
-
+/*
     public static function exception_handler($exception)
     {
         // Output the exception details
@@ -729,7 +729,7 @@ class BPDO extends PDO
         // Change the exception handler back to whatever it was before
         restore_exception_handler();
     }
-
+*/
     protected function _nestable() {
         return in_array($this->getAttribute(PDO::ATTR_DRIVER_NAME),
                         static::$_savepointTransactions);
@@ -912,6 +912,22 @@ class BORM extends ORMWrapper
         static::$_last_profile = null;
         return $result;
     }
+
+    /**
+    * Set or return table alias for the main table
+    *
+    * @param string|null $alias
+    * @return BORM|string
+    */
+    public function table_alias($alias=null)
+    {
+        if (is_null($alias)) {
+            return $this->_table_alias;
+        }
+        $this->_table_alias = $alias;
+        return $this;
+    }
+
     /**
     * Add a column to the list of columns returned by the SELECT
     * query. This defaults to '*'. The second optional argument is
@@ -935,6 +951,16 @@ class BORM extends ORMWrapper
             return $this;
         }
         return parent::select($column, $alias);
+    }
+
+    /**
+    * Return select sql statement built from the ORM object
+    *
+    * @return string
+    */
+    public function as_sql()
+    {
+        return $this->_build_select();
     }
 
     /**
@@ -1002,6 +1028,23 @@ exit;
             return $this;
         }
         return $this->where_raw($where, $params);
+    }
+
+    /**
+    * Find many rows (SELECT)
+    *
+    * @return array
+    */
+    public function find_many()
+    {
+        $class = $this->_class_name;
+        if ($class::origClass()) {
+            $class = $class::origClass();
+        }
+        BPubSub::i()->fire($class.'::find_many.orm', array('orm'=>$this));
+        $result = parent::find_many();
+        BPubSub::i()->fire($class.'::find_many.after', array('result'=>$result));
+        return $result;
     }
 
     /**
@@ -1207,13 +1250,16 @@ exit;
         );
 #print_r($r); print_r($d); print_r($s); exit;
         $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
+
+        #$s['c'] = 600000;
         $cntOrm = clone $this; // clone ORM to count
         $s['c'] = $cntOrm->count(); // row count
         unset($cntOrm); // free mem
+
         $s['mp'] = ceil($s['c']/$s['ps']); // max page
         if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
         if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
-        $s['rs'] = isset($s['rs']) ? $s['rs'] : ($s['p']-1)*$s['ps']; // start from requested row or page
+        $s['rs'] = max(0, isset($s['rs']) ? $s['rs'] : ($s['p']-1)*$s['ps']); // start from requested row or page
         $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
         $rows = $this->find_many(); // result data
         $s['rc'] = $rows ? sizeof($rows) : 0; // returned row count
@@ -1263,6 +1309,25 @@ exit;
 */
 class BModel extends Model
 {
+    /**
+    * Original class to be used as event prefix to remain constant in overridden classes
+    *
+    * Usage:
+    *
+    * class Some_Class extends BClass
+    * {
+    *    static protected $_origClass = __CLASS__;
+    * }
+    *
+    * @var string
+    */
+    static protected $_origClass;
+
+    /**
+    * Named connection reference
+    *
+    * @var string
+    */
     protected static $_connectionName = 'DEFAULT';
     /**
     * DB name for reads. Set in class declaration
@@ -1325,6 +1390,16 @@ class BModel extends Model
     protected $_newRecord;
 
     /**
+    * Retrieve original class name
+    *
+    * @return string
+    */
+    public static function origClass()
+    {
+        return static::$_origClass;
+    }
+
+    /**
     * PDO object of read DB connection
     *
     * @return BPDO
@@ -1359,14 +1434,15 @@ class BModel extends Model
 
         static::readDb();
         $table_name = static::_get_table_name($class_name);
-        $wrapper = BORM::for_table($table_name); // CHANGED
-        $wrapper->set_class_name($class_name);
-        $wrapper->use_id_column(static::_get_id_column_name($class_name));
-        $wrapper->set_rw_db_names( // ADDED
+        $orm = BORM::for_table($table_name); // CHANGED
+        $orm->set_class_name($class_name);
+        $orm->use_id_column(static::_get_id_column_name($class_name));
+        $orm->set_rw_db_names( // ADDED
             static::$_readConnectionName ? static::$_readConnectionName : static::$_connectionName,
             static::$_writeConnectionName ? static::$_writeConnectionName : static::$_connectionName
         );
-        return $wrapper;
+        $orm->table_alias('_main');
+        return $orm;
     }
 
     /**
@@ -1462,6 +1538,16 @@ class BModel extends Model
     }
 
     /**
+    * Get event class prefix for current object
+    *
+    * @return string
+    */
+    protected function _eventClassPrefix()
+    {
+        return static::$_origClass ? static::$_origClass : get_class($this);
+    }
+
+    /**
     * Load a model object based on ID, another field or multiple fields
     *
     * @param int|string|array $id
@@ -1470,8 +1556,9 @@ class BModel extends Model
     */
     public static function load($id, $field=null, $cache=false)
     {
+        $class = static::$_origClass ? static::$_origClass : get_called_class();
         if (is_null($field)) {
-            $field = static::_get_id_column_name(get_called_class());
+            $field = static::_get_id_column_name($class);
         }
 
         $key = $id;
@@ -1479,14 +1566,13 @@ class BModel extends Model
         if (!empty(static::i()->_cache[$field][$id])) return static::i()->_cache[$field][$key];
 
         $orm = static::i()->factory();
+        BPubSub::i()->fire($class.'::load.orm', array('orm'=>$orm));
         if (is_array($id)) {
-            #foreach ($id as $k=>$v) $orm->where($k, $v);
-            $record = $orm->where_complex($id)->find_one();
-        } elseif (is_null($field)) {
-            $record = $orm->find_one($id);
+            $orm->where_complex($id);
         } else {
-            $record = $orm->where($field, $id)->find_one();
+            $orm->where($field, $id);
         }
+        $record = $orm->find_one();
         if ($record) {
             $record->afterLoad();
             if ($cache
@@ -1506,6 +1592,7 @@ class BModel extends Model
     */
     public function afterLoad()
     {
+        BPubSub::i()->fire($this->_eventClassPrefix().'::afterLoad', array('model'=>$this));
         return $this;
     }
 
@@ -1667,6 +1754,11 @@ class BModel extends Model
     */
     public function beforeSave()
     {
+        try {
+            BPubSub::i()->fire($this->_eventClassPrefix().'::beforeSave', array('model'=>$this));
+        } catch (BModelException $e) {
+            return false;
+        }
         return true;
     }
 
@@ -1706,6 +1798,7 @@ class BModel extends Model
     */
     public function afterSave()
     {
+        BPubSub::i()->fire($this->_eventClassPrefix().'::afterSave', array('model'=>$this));
         return $this;
     }
 
@@ -1726,6 +1819,7 @@ class BModel extends Model
     */
     public function beforeDelete()
     {
+        BPubSub::i()->fire($this->_eventClassPrefix().'::beforeDelete', array('model'=>$this));
         return true;
     }
 
@@ -1742,7 +1836,13 @@ class BModel extends Model
             }
         }
         parent::delete();
+        $this->afterDelete();
         return $this;
+    }
+
+    public function afterDelete()
+    {
+        BPubSub::i()->fire($this->_eventClassPrefix().'::afterDelete', array('model'=>$this));
     }
 
     /**
@@ -1790,8 +1890,9 @@ class BModel extends Model
         if (is_array($where)) {
             list($where, $p) = BDb::where($where);
         }
-        return static::run_sql("UPDATE ".static::table()." SET ".join(', ', $update)
-            ." WHERE {$where}", array_merge($params, $p));
+        $sql = "UPDATE ".static::table()." SET ".join(', ', $update) ." WHERE {$where}";
+        BDebug::debug('SQL: '.$sql);
+        return static::run_sql($sql, array_merge($params, $p));
     }
 
     /**
@@ -1806,7 +1907,9 @@ class BModel extends Model
         if (is_array($where)) {
             list($where, $params) = BDb::where($where);
         }
-        return static::run_sql("DELETE FROM ".static::table()." WHERE {$where}", $params);
+        $sql = "DELETE FROM ".static::table()." WHERE {$where}";
+        BDebug::debug('SQL: '.$sql);
+        return static::run_sql($sql, $params);
     }
 
     /**
@@ -1935,4 +2038,9 @@ class BModel extends Model
         }
         return $options;
     }
+}
+
+class BModelException extends BException
+{
+
 }

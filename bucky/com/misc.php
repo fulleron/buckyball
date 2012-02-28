@@ -279,6 +279,14 @@ class BUtil
         return $diff;
     }
 
+    /**
+    * Walk over array of objects and perform method or callback on each row
+    *
+    * @param array $arr
+    * @param callback $cb
+    * @param array $args
+    * @param boolean $ignoreExceptions
+    */
     static public function arrayWalk($arr, $cb, $args=array(), $ignoreExceptions=false)
     {
         foreach ($arr as $i=>$r) {
@@ -293,6 +301,30 @@ class BUtil
                 call_user_func_array($callback, $args);
             }
         }
+    }
+
+    /**
+    * Clean array of ints from empty and non-numeric values
+    *
+    * If parameter is a string, splits by comma
+    *
+    * @param array|string $arr
+    * @return array
+    */
+    static public function arrayCleanInt($arr)
+    {
+        $res = array();
+        if (is_string($arr)) {
+            $arr = explode(',', $arr);
+        }
+        if (is_array($arr)) {
+            foreach ($arr as $k=>$v) {
+                if (is_numeric($v)) {
+                    $res[$k] = intval($v);
+                }
+            }
+        }
+        return $res;
     }
 
     /**

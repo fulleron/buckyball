@@ -767,7 +767,7 @@ class BPDO extends PDO
 }
 
 /**
-* Enhanced ORMWrapper to support multiple database connections
+* Enhanced ORMWrapper to support multiple database connections and many other goodies
 */
 class BORM extends ORMWrapper
 {
@@ -1031,6 +1031,23 @@ exit;
     }
 
     /**
+    * Find one row
+    *
+    * @return array
+    */
+    public function find_one($id=null)
+    {
+        $class = $this->_class_name;
+        if ($class::origClass()) {
+            $class = $class::origClass();
+        }
+        BPubSub::i()->fire($class.'::find_one.orm', array('orm'=>$this, 'class'=>$class, 'id'=>$id));
+        $result = parent::find_one($id);
+        BPubSub::i()->fire($class.'::find_one.after', array('result'=>$result, 'class'=>$class, 'id'=>$id));
+        return $result;
+    }
+
+    /**
     * Find many rows (SELECT)
     *
     * @return array
@@ -1041,9 +1058,9 @@ exit;
         if ($class::origClass()) {
             $class = $class::origClass();
         }
-        BPubSub::i()->fire($class.'::find_many.orm', array('orm'=>$this));
+        BPubSub::i()->fire($class.'::find_many.orm', array('orm'=>$this, 'class'=>$class));
         $result = parent::find_many();
-        BPubSub::i()->fire($class.'::find_many.after', array('result'=>$result));
+        BPubSub::i()->fire($class.'::find_many.after', array('result'=>$result, 'class'=>$class));
         return $result;
     }
 
@@ -1566,10 +1583,13 @@ class BModel extends Model
         if (!empty(static::i()->_cache[$field][$id])) return static::i()->_cache[$field][$key];
 
         $orm = static::i()->factory();
-        BPubSub::i()->fire($class.'::load.orm', array('orm'=>$orm));
+        BPubSub::i()->fire($class.'::load.orm', array('orm'=>$orm, 'class'=>$class, 'called_class'=>get_called_class()));
         if (is_array($id)) {
             $orm->where_complex($id);
         } else {
+            if ($orm->table_alias()) {
+                $field = $orm->table_alias().'.'.$field;
+            }
             $orm->where($field, $id);
         }
         $record = $orm->find_one();
@@ -2024,11 +2044,11 @@ class BModel extends Model
 
     public function fieldOptions($field, $key=null)
     {
-        if (!isset($this->_fieldOptions[$field])) {
+        if (!isset(static::$_fieldOptions[$field])) {
             BDebug::warning('Invalid field options type: '.$field);
             return null;
         }
-        $options = $this->_fieldOptions[$field];
+        $options = static::$_fieldOptions[$field];
         if (!is_null($key)) {
             if (!isset($options[$key])) {
                 BDebug::debug('Invalid field options key: '.$field.'.'.$key);

@@ -694,16 +694,35 @@ class BUser extends BModel
         return $this;
     }
 
-    public function authenticate($username, $password)
+    static public function authenticate($username, $password)
     {
-        if (empty(static::$_table)) {
-            return $username=='admin' && $password=='admin';
-        }
-        $user = $this->load($username, 'email');
-        if (!BUtil::validateSaltedHash($password, $user->password_hash)) {
+        /** @var FCom_Admin_Model_User */
+        $user = static::i()->orm()
+            ->where_complex(array('OR'=>array(
+                'username'=>$username,
+                'email'=>$username)))
+            ->find_one();
+        if (!$user || !$user->validatePassword($password)) {
             return false;
         }
         return $user;
+    }
+
+    public function login()
+    {
+        $this->set('last_login', BDb::now())->save();
+
+        BSession::i()->data('user', serialize($this));
+        static::$_sessionUser = $this;
+
+        if ($this->locale) {
+            setlocale(LC_ALL, $this->locale);
+        }
+        if ($this->timezone) {
+            date_default_timezone_set($this->timezone);
+        }
+        BPubSub::i()->fire('BUser::login.after', array('user'=>$user));
+        return $this;
     }
 
     public function authorize($role, $args=null)
@@ -714,29 +733,6 @@ class BUser extends BModel
         }
         // set authorization
         return $this;
-    }
-
-    public function login($username, $password)
-    {
-        if (empty(static::$_table)) {
-            return $this->altAuthenticate($username, $password);
-        }
-
-        $user = $this->authenticate($username, $password);
-        if (!$user) {
-            return false;
-        }
-
-        BSession::i()->data('user_id', $user->id);
-
-        if ($user->locale) {
-            setlocale(LC_ALL, $user->locale);
-        }
-        if ($user->timezone) {
-            date_default_timezone_set($user->timezone);
-        }
-        BPubSub::i()->fire('BUser::login.after', array('user'=>$user));
-        return true;
     }
 
     public function logout()

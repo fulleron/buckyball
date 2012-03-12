@@ -1463,7 +1463,7 @@ class BModel extends Model
     }
 
     /**
-    * Alias for self::factory()
+    * Alias for self::factory() with shortcut for table alias
     *
     * @param string $alias table alias
     * @return BORM

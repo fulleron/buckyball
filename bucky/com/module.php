@@ -649,7 +649,7 @@ class BDbModule extends BModel
 
     public static function init()
     {
-        $table = BDb::t(static::$_table);
+        $table = static::table();
         BDb::connect();
         if (BDebug::is('debug,development') && !BDb::ddlTableExists($table)) {
             BDb::run("
@@ -674,8 +674,8 @@ class BDbModuleConfig extends BModel
 
     public static function init()
     {
-        $table = BDb::t(static::$_table);
-        $modTable = BDb::t('buckyball_module');
+        $table = static::table();
+        $modTable = BDbModule::table();
         if (!BDb::ddlTableExists($table)) {
             BDb::run("
 CREATE TABLE {$table} (

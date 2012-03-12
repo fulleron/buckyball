@@ -487,6 +487,17 @@ class BRequest extends BClass
         }
         return $this;
     }
+
+    public function modRewriteEnabled()
+    {
+        if (function_exists('apache_get_modules')) {
+            $modules = apache_get_modules();
+            $modRewrite = in_array('mod_rewrite', $modules);
+        } else {
+            $modRewrite =  getenv('HTTP_MOD_REWRITE')=='On' ? true : false;
+        }
+        return $modRewrite;
+    }
 }
 
 /**

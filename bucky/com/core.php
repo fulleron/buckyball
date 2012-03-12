@@ -287,6 +287,20 @@ class BConfig extends BClass
     protected $_config = array();
 
     /**
+    * Configuration that will be saved on request
+    *
+    * @var array
+    */
+    protected $_configToSave = array();
+
+    /**
+    * Enable double data storage for saving?
+    *
+    * @var boolean
+    */
+    protected $_enableSaving = true;
+
+    /**
     * Shortcut to help with IDE autocompletion
     *
     * @return BConfig
@@ -300,11 +314,15 @@ class BConfig extends BClass
     * Add configuration fragment to global tree
     *
     * @param array $config
+    * @param boolean $toSave whether this config should be saved in file
     * @return BConfig
     */
-    public function add(array $config)
+    public function add(array $config, $toSave=false)
     {
         $this->_config = BUtil::arrayMerge($this->_config, $config);
+        if ($this->_enableSaving && $toSave) {
+            $this->_configToSave = BUtil::arrayMerge($this->_configToSave, $config);
+        }
         return $this;
     }
 
@@ -313,16 +331,28 @@ class BConfig extends BClass
     *
     * @param string $filename
     */
-    public function addFile($filename)
+    public function addFile($filename, $toSave=false)
     {
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if (!BUtil::isPathAbsolute($filename) && ($dir = $this->get('config_dir'))) {
+            $filename = $dir.'/'.$filename;
+        }
         if (!is_readable($filename)) {
             BDebug::error(BApp::t('Invalid configuration file name: %s', $filename));
         }
-        $config = BUtil::fromJson(file_get_contents($filename));
+        switch ($ext) {
+        case 'php':
+            $config = include($filename);
+            break;
+
+        case 'json':
+            $config = BUtil::fromJson(file_get_contents($filename));
+            break;
+        }
         if (!$config) {
             BDebug::error(BApp::t('Invalid configuration contents: %s', $filename));
         }
-        $this->add($config);
+        $this->add($config, $toSave);
         return $this;
     }
 
@@ -333,9 +363,13 @@ class BConfig extends BClass
     * @param mixed $value scalar or array value
     * @param boolean $merge merge new value to old?
     */
-    public function set($path, $value, $merge=false)
+    public function set($path, $value, $merge=false, $toSave=false)
     {
-        $root =& $this->_config;
+        if (is_string($toSave) && $toSave==='_configToSave') { // limit?
+            $root =& $this->$toSave;
+        } else {
+            $root =& $this->_config;
+        }
         foreach (explode('/', $path) as $key) {
             $root =& $root[$key];
         }
@@ -345,6 +379,9 @@ class BConfig extends BClass
             $root = BUtil::arrayMerge($root, $value);
         } else {
             $root = $value;
+        }
+        if ($this->_enableSaving && true===$toSave) {
+            $this->set($path, $value, $merge, '_configToSave');
         }
         return $this;
     }
@@ -356,9 +393,9 @@ class BConfig extends BClass
     *
     * @param string $path
     */
-    public function get($path=null)
+    public function get($path=null, $toSave=false)
     {
-        $root = $this->_config;
+        $root = $toSave ? $this->_configToSave : $this->_config;
         if (is_null($path)) {
             return $root;
         }
@@ -374,7 +411,7 @@ class BConfig extends BClass
     public function writeFile($filename, $config=null, $format='php')
     {
         if (is_null($config)) {
-            $config = $this->_config;
+            $config = $this->_configToSave;
         }
         switch ($format) {
             case 'php':
@@ -408,6 +445,9 @@ class BConfig extends BClass
                 break;
         }
 
+        if (!BUtil::isPathAbsolute($filename)) {
+            $filename = BConfig::i()->get('config_dir').'/'.$filename;
+        }
         // Write contents
         if (!file_put_contents($filename, $contents, LOCK_EX)) {
             BDebug::error('Error writing configuration file: '.$filename);

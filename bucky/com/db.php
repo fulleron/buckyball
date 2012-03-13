@@ -1886,9 +1886,19 @@ class BModel extends Model
     {
         $class = BClassRegistry::i()->className(get_called_class());
         if (empty(static::$_tableNames[$class])) {
-            static::$_tableNames[$class] = BDb::t(static::_get_table_name($class));
+            static::$_tableNames[$class] = static::_get_table_name($class);
         }
         return static::$_tableNames[$class];
+    }
+
+    public static function overrideTable($table)
+    {
+        static::$_table = $table;
+        $class = get_called_class();
+        BDebug::debug('OVERRIDE TABLE: '.$class.' -> '.$table);
+        static::$_tableNames[$class] = null;
+        $class = BClassRegistry::i()->className($class);
+        static::$_tableNames[$class] = null;
     }
 
     /**

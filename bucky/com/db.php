@@ -535,6 +535,9 @@ class BDb
 
             // run required migration scripts
             foreach ($modules as $modName=>$mod) {
+                if (empty($mod['code_version'])) {
+                    continue; // skip migration of registered module that is not current active
+                }
                 if (empty($mod['script'])) {
                     BDebug::warning('No migration script found: '.$modName);
                     continue;

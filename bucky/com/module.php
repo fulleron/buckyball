@@ -444,6 +444,7 @@ echo "</pre>"; exit;
             BDebug::profile($start);
             BDebug::debug(BApp::t('End bootstrap for %s', array($mod->name)));
             $this->popModule();
+            $mod->run_status = BModule::LOADED;
         }
         return $this;
     }

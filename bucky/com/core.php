@@ -223,7 +223,12 @@ class BApp extends BClass
     */
     public static function url($modName, $url='', $method='baseHref')
     {
-        return BApp::m($modName)->$method() . $url;
+        $m = BApp::m($modName);
+        if (!$m) {
+            BDebug::error('Invalid module: '.$modName);
+            return '';
+        }
+        return $m->$method() . $url;
     }
 
     /**

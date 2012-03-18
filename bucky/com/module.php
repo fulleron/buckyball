@@ -6,25 +6,11 @@
 class BModuleRegistry extends BClass
 {
     /**
-    * Relevant environment variables cache
-    *
-    * @var array
-    */
-    protected $_env = array();
-
-    /**
     * Module information collected from manifests
     *
     * @var array
     */
-    protected $_modules = array();
-
-    /**
-    * Manifest files cache
-    *
-    * @var array
-    */
-    protected $_manifestCache = array();
+    protected static $_modules = array();
 
     /**
     * Current module name, not BNULL when:
@@ -68,7 +54,7 @@ class BModuleRegistry extends BClass
     public function module($modName, $params=BNULL)
     {
         if (BNULL===$params) {
-            return isset($this->_modules[$modName]) ? $this->_modules[$modName] : null;
+            return isset(static::$_modules[$modName]) ? static::$_modules[$modName] : null;
         }
 
         if (is_callable($params)) {
@@ -77,8 +63,8 @@ class BModuleRegistry extends BClass
             $params = (array)$params;
         }
         $params['name'] = $modName;
-        if (!empty($this->_modules[$modName])) {
-            $mod = $this->_modules[$modName];
+        if (!empty(static::$_modules[$modName])) {
+            $mod = static::$_modules[$modName];
             if (empty($params['update'])) {
                 $rootDir = $mod->root_dir;
                 $file = $mod->bootstrap['file'];
@@ -101,101 +87,10 @@ class BModuleRegistry extends BClass
                 return $this;
             }
         }
-        if (($params = $this->_prepareModuleParams($params))) {
-            $this->_modules[$modName] = BModule::i(true, $params);
-        }
-        return $this;
-    }
-
-    protected function _getManifestData(&$params)
-    {
-        if (empty($params['manifest_file'])) {
-            $bt = debug_backtrace();
-            foreach ($bt as $i=>$t) {
-                if (!empty($t['function']) && $t['function'] === 'module') {
-                    $t1 = $t;
-                    break;
-                }
-            }
-            if (!empty($t1)) {
-                $params['manifest_file'] = $t1['file'];
-            }
-        }
-        // TODO:eliminate need for manifest file
-        $file = $params['manifest_file'];
-        if (empty($this->_manifestCache[$file])) {
-            $this->_manifestCache[$file] = array('root_dir' => dirname(realpath($file)));
-        }
-        return $this->_manifestCache[$file];
-    }
-
-    protected function _initEnvData()
-    {
-        $r = BRequest::i();
-        $c = BConfig::i();
-        $this->_env['doc_root'] = $r->docRoot();
-        $this->_env['web_root'] = $r->webRoot();
-        $this->_env['http_host'] = $r->httpHost();
-        $this->_env['root_dir'] = $c->get('root_dir');
-        $this->_env['base_src'] = '//'.$this->_env['http_host'].$c->get('web/base_src');
-        $this->_env['base_href'] = '//'.$this->_env['http_host'].$c->get('web/base_href');
-
-        foreach ($this->_manifestCache as &$m) {
-            $m['base_src'] = $this->_env['base_src'].str_replace($this->_env['root_dir'], '', $m['root_dir']);
-        }
-        unset($m);
-        return $this;
-    }
-
-    protected function _prepareModuleParams($params)
-    {
-        $modName = $params['name'];
         if (empty($params['bootstrap']['callback'])) {
             BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
-            return false;
-        }
-
-        $m = $this->_getManifestData($params);
-        if (empty($params['bootstrap']['file'])) {
-            $params['bootstrap']['file'] = null;
-        }
-        if (empty($params['root_dir'])) {
-            $params['root_dir'] = $m['root_dir'];
-        }
-        //TODO: optimize path calculations
-        if (!BUtil::isPathAbsolute($params['root_dir'])) {
-//echo "{$m['root_dir']}, {$params['root_dir']}\n";
-            $params['root_dir'] = BUtil::normalizePath($m['root_dir'].'/'.$params['root_dir']);
-        }
-        $modConfig = BConfig::i()->get('modules/'.$modName);
-        if (!isset($params['run_level'])) {
-            $params['run_level'] = isset($modConfig['run_level']) ? $modConfig['run_level'] : BModule::ONDEMAND;
-        }
-        if (!isset($params['run_status'])) {
-            $params['run_status'] = BModule::IDLE;
-        }
-
-        return $params;
-    }
-
-    protected function _prepareModuleEnvData($mod)
-    {
-        $m = $this->_manifestCache[$mod->manifest_file];
-
-        if (empty($mod->url_prefix)) {
-            $mod->url_prefix = '';
-        }
-        if (empty($mod->view_root_dir)) {
-            $mod->view_root_dir = $mod->root_dir;
-        }
-        if (empty($mod->base_src)) {
-            $mod->base_src = BUtil::normalizePath(rtrim($m['base_src'].str_replace($m['root_dir'], '', $mod->root_dir), '/'));
-        }
-        if (empty($mod->base_href)) {
-            $mod->base_href = $this->_env['base_href'];
-            if (!empty($mod->url_prefix)) {
-                $mod->base_href .= '/'.$mod->url_prefix;
-            }
+        } else {
+            static::$_modules[$modName] = BModule::i(true, $params);
         }
         return $this;
     }
@@ -255,14 +150,14 @@ class BModuleRegistry extends BClass
         // validate required modules
         foreach ((array)BConfig::i()->get('modules') as $modName=>$modConfig) {
             if (!empty($modConfig['run_level'])) {
-                if ($modConfig['run_level']===BModule::REQUIRED && empty($this->_modules[$modName])) {
+                if ($modConfig['run_level']===BModule::REQUIRED && empty(static::$_modules[$modName])) {
                     BDebug::error('Module is required but not found: '.$modName);
                 }
-                $this->_modules[$modName]->run_level = $modConfig['run_level'];
+                static::$_modules[$modName]->run_level = $modConfig['run_level'];
             }
         }
         // scan for dependencies
-        foreach ($this->_modules as $modName=>$mod) {
+        foreach (static::$_modules as $modName=>$mod) {
             // normalize dependencies format
             foreach ($mod->depends as &$dep) {
                 if (is_string($dep)) {
@@ -278,7 +173,7 @@ class BModuleRegistry extends BClass
             // iterate over module dependencies
             if (!empty($mod->depends)) {
                 foreach ($mod->depends as &$dep) {
-                    $depMod = !empty($this->_modules[$dep['name']]) ? $this->_modules[$dep['name']] : false;
+                    $depMod = !empty(static::$_modules[$dep['name']]) ? static::$_modules[$dep['name']] : false;
                     // is the module missing
                     if (!$depMod) {
                         $dep['error'] = array('type'=>'missing');
@@ -320,7 +215,7 @@ class BModuleRegistry extends BClass
             unset($dep);
         }
         // propagate dependencies into subdependent modules
-        foreach ($this->_modules as $modName=>$mod) {
+        foreach (static::$_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
                 if (!empty($dep['error'])) {
                     if (empty($dep['error']['propagated'])) {
@@ -328,7 +223,7 @@ class BModuleRegistry extends BClass
                     }
                 } else {
                     if ($mod->run_status===BModule::PENDING) {
-                        $this->_modules[$dep['name']]->run_status = BModule::PENDING;
+                        static::$_modules[$dep['name']]->run_status = BModule::PENDING;
                     }
                 }
             }
@@ -346,10 +241,10 @@ class BModuleRegistry extends BClass
     */
     public function propagateDepends($modName, &$dep)
     {
-        if (empty($this->_modules[$modName])) {
+        if (empty(static::$_modules[$modName])) {
             return $this;
         }
-        $mod = $this->_modules[$modName];
+        $mod = static::$_modules[$modName];
         $mod->run_status = BModule::ERROR;
         $mod->error = 'depends';
         $mod->action = !empty($dep['action']) ? $dep['action'] : 'error';
@@ -373,7 +268,7 @@ class BModuleRegistry extends BClass
     */
     public function sortDepends()
     {
-        $modules = $this->_modules;
+        $modules = static::$_modules;
         // get modules without dependencies
         $rootModules = array();
         foreach ($modules as $modName=>$mod) {
@@ -381,7 +276,7 @@ class BModuleRegistry extends BClass
                 $rootModules[] = $mod;
             }
         }
-#echo "<pre>"; print_r($this->_modules); echo "</pre>";
+#echo "<pre>"; print_r(static::$_modules); echo "</pre>";
 #echo "<pre>"; print_r($rootModules); echo "</pre>";
         // begin algorithm
         $sorted = array();
@@ -405,7 +300,7 @@ class BModuleRegistry extends BClass
             // remove processed module from list
             unset($modules[$n->name]);
         }
-        $this->_modules = $sorted;
+        static::$_modules = $sorted;
 
         return $this;
     }
@@ -422,29 +317,14 @@ class BModuleRegistry extends BClass
 /*
 echo "<pre>";
 print_r(BConfig::i()->get());
-print_r($this->_modules);
+print_r(static::$_modules);
 echo "</pre>"; exit;
 */
-        $this->_initEnvData();
 
-        foreach ($this->_modules as $mod) {
-            if ($mod->run_status!==BModule::PENDING) {
-                continue;
-            }
-            $this->_prepareModuleEnvData($mod);
+        foreach (static::$_modules as $mod) {
             $this->pushModule($mod->name);
-            if (!empty($mod->bootstrap['file'])) {
-                $includeFile = BUtil::normalizePath($mod->root_dir.'/'.$mod->bootstrap['file']);
-                BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
-                require ($includeFile);
-            }
-            $start = BDebug::debug(BApp::t('Start bootstrap for %s', array($mod->name)));
-            call_user_func($mod->bootstrap['callback']);
-            #$mod->run_status = BModule::LOADED;
-            BDebug::profile($start);
-            BDebug::debug(BApp::t('End bootstrap for %s', array($mod->name)));
+            $mod->bootstrap();
             $this->popModule();
-            $mod->run_status = BModule::LOADED;
         }
         return $this;
     }
@@ -502,7 +382,7 @@ echo "</pre>"; exit;
 
     public function debug()
     {
-        return $this->_modules;
+        return static::$_modules;
     }
 }
 
@@ -511,6 +391,20 @@ echo "</pre>"; exit;
 */
 class BModule extends BClass
 {
+    /**
+    * Relevant environment variables cache
+    *
+    * @var array
+    */
+    static protected $_env = array();
+
+    /**
+    * Manifest files cache
+    *
+    * @var array
+    */
+    static protected $_manifestCache = array();
+
     public $name;
     public $run_level;
     public $run_status;
@@ -522,6 +416,7 @@ class BModule extends BClass
     public $url_prefix;
     public $base_src;
     public $base_href;
+    public $manifest_file;
     public $depends = array();
     public $parents = array();
     public $children = array();
@@ -559,8 +454,92 @@ class BModule extends BClass
     */
     public function __construct(array $args)
     {
-        foreach ($args as $k=>$v) {
-            $this->$k = $v;
+        $this->set($args);
+
+        $m = $this->_getManifestData();
+        if (empty($this->bootstrap['file'])) {
+            $this->bootstrap['file'] = null;
+        }
+        if (empty($this->root_dir)) {
+            $this->root_dir = $m['root_dir'];
+        }
+        //TODO: optimize path calculations
+        if (!BUtil::isPathAbsolute($this->root_dir)) {
+//echo "{$m['root_dir']}, {$args['root_dir']}\n";
+            $this->root_dir = BUtil::normalizePath($m['root_dir'].'/'.$this->root_dir);
+        }
+        $modConfig = BConfig::i()->get('modules/'.$this->name);
+        if (!isset($this->run_level)) {
+            $this->run_level = isset($modConfig['run_level']) ? $modConfig['run_level'] : BModule::ONDEMAND;
+        }
+        if (!isset($this->run_status)) {
+            $this->run_status = BModule::IDLE;
+        }
+
+    }
+
+
+    protected function _getManifestData()
+    {
+        if (empty($this->manifest_file)) {
+            $bt = debug_backtrace();
+            foreach ($bt as $i=>$t) {
+                if (!empty($t['function']) && $t['function'] === 'module') {
+                    $t1 = $t;
+                    break;
+                }
+            }
+            if (!empty($t1)) {
+                $this->manifest_file = $t1['file'];
+            }
+        }
+        //TODO: eliminate need for manifest file
+        $file = $this->manifest_file;
+        if (empty(static::$_manifestCache[$file])) {
+            static::$_manifestCache[$file] = array('root_dir' => dirname(realpath($file)));
+        }
+        return static::$_manifestCache[$file];
+    }
+
+    protected static function _initEnvData()
+    {
+        if (!empty(static::$_env)) {
+            return;
+        }
+        $r = BRequest::i();
+        $c = BConfig::i();
+        static::$_env['doc_root'] = $r->docRoot();
+        static::$_env['web_root'] = $r->webRoot();
+        static::$_env['http_host'] = $r->httpHost();
+        static::$_env['root_dir'] = $c->get('root_dir');
+        static::$_env['base_src'] = '//'.static::$_env['http_host'].$c->get('web/base_src');
+        static::$_env['base_href'] = '//'.static::$_env['http_host'].$c->get('web/base_href');
+
+        foreach (static::$_manifestCache as &$m) {
+            $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
+        }
+        unset($m);
+    }
+
+    protected function _prepareModuleEnvData()
+    {
+        static::_initEnvData();
+        $m = static::$_manifestCache[$this->manifest_file];
+
+        if (empty($this->url_prefix)) {
+            $this->url_prefix = '';
+        }
+        if (empty($this->view_root_dir)) {
+            $this->view_root_dir = $this->root_dir;
+        }
+        if (empty($this->base_src)) {
+            $this->base_src = BUtil::normalizePath(rtrim($m['base_src'].str_replace($m['root_dir'], '', $this->root_dir), '/'));
+        }
+        if (empty($this->base_href)) {
+            $this->base_href = static::$_env['base_href'];
+            if (!empty($this->url_prefix)) {
+                $this->base_href .= '/'.$this->url_prefix;
+            }
         }
     }
 
@@ -630,7 +609,7 @@ class BModule extends BClass
         return $tr;
     }
 
-    public function set($key, $value)
+    public function set($key, $value=null)
     {
         if (is_array($key)) {
             foreach ($key as $k=>$v) {
@@ -639,6 +618,26 @@ class BModule extends BClass
             return $this;
         }
         $this->$key = $value;
+        return $this;
+    }
+
+    public function bootstrap($force=false)
+    {
+        if ($this->run_status!==BModule::PENDING && !$force) {
+            return $this;
+        }
+        $this->_prepareModuleEnvData();
+        if (!empty($this->bootstrap['file'])) {
+            $includeFile = BUtil::normalizePath($this->root_dir.'/'.$this->bootstrap['file']);
+            BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
+            require ($includeFile);
+        }
+        $start = BDebug::debug(BApp::t('Start bootstrap for %s', array($this->name)));
+        call_user_func($this->bootstrap['callback']);
+        #$mod->run_status = BModule::LOADED;
+        BDebug::profile($start);
+        BDebug::debug(BApp::t('End bootstrap for %s', array($this->name)));
+        $this->run_status = BModule::LOADED;
         return $this;
     }
 }

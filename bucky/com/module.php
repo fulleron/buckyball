@@ -373,7 +373,7 @@ echo "</pre>"; exit;
     public function onBeforeDispatch()
     {
         $front = BFrontController::i();
-        foreach ($this->_modules as $module) {
+        foreach (static::$_modules as $module) {
             if ($module->run_status===BModule::LOADED && ($prefix = $module->url_prefix)) {
                 $front->redirect('GET /'.$prefix, $prefix.'/');
             }

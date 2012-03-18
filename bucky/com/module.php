@@ -494,7 +494,7 @@ echo "</pre>"; exit;
     {
         $front = BFrontController::i();
         foreach ($this->_modules as $module) {
-            if ($module->run_status===BModule::PENDING && ($prefix = $module->url_prefix)) {
+            if ($module->run_status===BModule::LOADED && ($prefix = $module->url_prefix)) {
                 $front->redirect('GET /'.$prefix, $prefix.'/');
             }
         }

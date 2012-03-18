@@ -1358,6 +1358,7 @@ class BFrontController extends BClass
                     $controllerName = $forwardControllerName;
                 }
             }
+            BDebug::debug('DISPATCH: '.$controllerName.'.'.$actionName.' '.print_r($params,1));
             $request->initParams($params);
             $controller = BClassRegistry::i()->instance($controllerName, array(), true);
             $controller->dispatch($actionName, $args);

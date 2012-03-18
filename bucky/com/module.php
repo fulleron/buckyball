@@ -249,8 +249,8 @@ class BModuleRegistry extends BClass
         $mod->error = 'depends';
         $mod->action = !empty($dep['action']) ? $dep['action'] : 'error';
         $dep['error']['propagated'] = true;
-        if (!empty($mod->depends)) {
-            foreach ($mod->depends as &$subDep) {
+        if (!empty($mod->children)) {
+            foreach ($mod->children as &$subDep) {
                 if (empty($subDep['error'])) {
                     $subDep['error'] = array('type'=>'parent');
                     $this->propagateDepends($dep['name'], $subDep);

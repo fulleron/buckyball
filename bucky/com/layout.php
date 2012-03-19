@@ -259,6 +259,7 @@ class BLayout extends BClass
             BDebug::warning('Invalid view name: '.$viewName, 1);
             return $this;
         }
+        $view->set($args);
         return $this->hook($hookName, $view, $args);
     }
 

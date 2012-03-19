@@ -1163,6 +1163,9 @@ class BPubSub extends BClass
 
                 // For cases like BView
                 if (is_object($cb) && !$cb instanceof Closure) {
+                    if (is_callable(array($cb, 'set'))) {
+                        $cb->set($args);
+                    }
                     $result[] = (string)$cb;
                     continue;
                 }

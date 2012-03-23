@@ -1389,11 +1389,11 @@ class BModel extends Model
     protected static $_cacheFlags = array();
 
     /**
-    * Cache of model instances of this class (for models that makes sense to keep cache)
+    * Cache of model instances (for models that makes sense to keep cache)
     *
     * @var array
     */
-    protected $_cache = array();
+    protected static $_cache = array();
 
     /**
     * Cache of instance level data values (related models)
@@ -1562,7 +1562,7 @@ class BModel extends Model
     *
     * @return string
     */
-    protected function _eventClassPrefix()
+    protected function _origClass()
     {
         return static::$_origClass ? static::$_origClass : get_class($this);
     }
@@ -1581,9 +1581,13 @@ class BModel extends Model
             $field = static::_get_id_column_name($class);
         }
 
-        $key = $id;
-        if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
-        if (!empty(static::i()->_cache[$field][$id])) return static::i()->_cache[$field][$key];
+        $keyValue = $id;
+        if (!empty(static::$_cacheFlags[$field]['key_lower'])) {
+            $keyValue = strtolower($keyValue);
+        }
+        if (!empty(static::$_cache[$class][$field][$keyValue])) {
+            return static::$_cache[$class][$field][$keyValue];
+        }
 
         $orm = static::i()->factory();
         BPubSub::i()->fire($class.'::load.orm', array('orm'=>$orm, 'class'=>$class, 'called_class'=>get_called_class()));
@@ -1615,7 +1619,7 @@ class BModel extends Model
     */
     public function afterLoad()
     {
-        BPubSub::i()->fire($this->_eventClassPrefix().'::afterLoad', array('model'=>$this));
+        BPubSub::i()->fire($this->_origClass().'::afterLoad', array('model'=>$this));
         return $this;
     }
 
@@ -1640,7 +1644,7 @@ class BModel extends Model
     */
     public function cacheClear()
     {
-        static::i()->_cache = array();
+        static::$_cache[$this->_origClass()] = array();
         return $this;
     }
 
@@ -1652,9 +1656,13 @@ class BModel extends Model
     * @param mixed $sort
     * @return BModel
     */
-    public function cachePreload($where=null, $field='id', $sort=null)
+    public function cachePreload($where=null, $field=null, $sort=null)
     {
-        $cache =& static::i()->_cache;
+        $class = $this->_origClass();
+        if (is_null($field)) {
+            $field = static::_get_id_column_name($class);
+        }
+        $cache =& static::$_cache[$class];
         $orm = $this->factory();
         if ($where) $orm->where_complex($where);
         if ($sort) $orm->order_by_asc($sort);
@@ -1674,6 +1682,7 @@ class BModel extends Model
     public function cachePreloadFrom($collection, $fk='id', $lk='id')
     {
         if (!$collection) return $this;
+        $class = $this->_origClass();
         $keys = array();
         $keyLower = !empty(static::$_cacheFlags[$lk]['key_lower']);
         foreach ($collection as $r) {
@@ -1687,7 +1696,7 @@ class BModel extends Model
             }
             if (empty($key)) continue;
             if ($keyLower) $key = strtolower($key);
-            if (!empty(static::i()->_cache[$lk][$key])) continue;
+            if (!empty(static::$_cache[$class][$lk][$key])) continue;
             $keys[$key] = 1;
         }
         if ($keys) $this->cachePreload(array($lk=>array_keys($keys)), $lk);
@@ -1703,7 +1712,7 @@ class BModel extends Model
     */
     public function cacheCopy($toKey, $fromKey='id')
     {
-        $cache =& static::i()->_cache;
+        $cache =& static::$_cache[$this->_origClass()];
         $lower = !empty(static::$_cacheFlags[$toKey]['key_lower']);
         foreach ($cache[$fromKey] as $r) {
             $key = $r->get($toKey);
@@ -1718,10 +1727,13 @@ class BModel extends Model
     *
     * @return BModel
     */
-    public function cacheSaveDirty()
+    public function cacheSaveDirty($field='id')
     {
-        foreach (static::i()->_cache['id'] as $c) {
-            if ($c->is_dirty()) $c->save();
+        $class = $this->_origClass();
+        if (!empty(static::$_cache[$class][$field])) {
+            foreach (static::$_cache[$class][$field] as $c) {
+                if ($c->is_dirty()) $c->save();
+            }
         }
         return $this;
     }
@@ -1735,7 +1747,9 @@ class BModel extends Model
     */
     public function cacheFetch($field='id', $key=null)
     {
-        $cache = static::i()->_cache;
+        $class = $this->_origClass();
+        if (empty(static::$_cache[$class])) return null;
+        $cache = static::$_cache[$class];
         if (empty($cache[$field])) return null;
         if (is_null($key)) return $cache[$field];
         if (!empty(static::$_cacheFlags[$field]['key_lower'])) $key = strtolower($key);
@@ -1751,7 +1765,7 @@ class BModel extends Model
     */
     public function cacheStore($field='id', $collection=null)
     {
-        $cache =& static::i()->_cache;
+        $cache =& static::$_cache[$this->_origClass()];
         if ($collection) {
             foreach ($collection as $r) {
                 $r->cacheStore($field);
@@ -1778,7 +1792,7 @@ class BModel extends Model
     public function beforeSave()
     {
         try {
-            BPubSub::i()->fire($this->_eventClassPrefix().'::beforeSave', array('model'=>$this));
+            BPubSub::i()->fire($this->origClass().'::beforeSave', array('model'=>$this));
         } catch (BModelException $e) {
             return false;
         }
@@ -1821,7 +1835,7 @@ class BModel extends Model
     */
     public function afterSave()
     {
-        BPubSub::i()->fire($this->_eventClassPrefix().'::afterSave', array('model'=>$this));
+        BPubSub::i()->fire($this->_origClass().'::afterSave', array('model'=>$this));
         return $this;
     }
 
@@ -1842,7 +1856,7 @@ class BModel extends Model
     */
     public function beforeDelete()
     {
-        BPubSub::i()->fire($this->_eventClassPrefix().'::beforeDelete', array('model'=>$this));
+        BPubSub::i()->fire($this->_origClass().'::beforeDelete', array('model'=>$this));
         return true;
     }
 
@@ -1851,7 +1865,7 @@ class BModel extends Model
         if (!$this->beforeDelete()) {
             return $this;
         }
-        if (($cache =& static::i()->_cache)) {
+        if (($cache =& static::$_cache[$this->_origClass()])) {
             foreach ($cache as $k=>$cache) {
                 $key = $this->get($k);
                 if (!empty(static::$_cacheFlags[$k]['key_lower'])) $key = strtolower($key);
@@ -1865,7 +1879,7 @@ class BModel extends Model
 
     public function afterDelete()
     {
-        BPubSub::i()->fire($this->_eventClassPrefix().'::afterDelete', array('model'=>$this));
+        BPubSub::i()->fire($this->_origClass().'::afterDelete', array('model'=>$this));
     }
 
     /**
@@ -2052,7 +2066,7 @@ class BModel extends Model
 
     public function __destruct()
     {
-        unset($this->_cache, $this->_instanceCache);
+        unset(static::$_cache[$this->_origClass()], $this->_instanceCache);
     }
 
     public function fieldOptions($field, $key=null)

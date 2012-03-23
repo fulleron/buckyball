@@ -826,16 +826,23 @@ class BResponse extends BClass
 class BRouteNode
 {
     /**
+    * Route flags
+    *
+    * @var array
+    */
+    protected $_flags = array();
+
+    /**
     * Route Children
     *
-    * @var BRouteNode
+    * @var array(BRouteNode)
     */
     protected $_children = array();
 
     /**
     * Route Observers
     *
-    * @var BRouteObserver
+    * @var array(BRouteObserver)
     */
     protected $_observers = array();
 
@@ -845,6 +852,23 @@ class BRouteNode
     * @var array
     */
     protected $_match;
+
+    /**
+    * Set route flag
+    *
+    * - ? - allow trailing slash
+    *
+    * @todo make use of it
+    *
+    * @param string $flag
+    * @param mixed $value
+    * @return BRouteNode
+    */
+    public function flag($flag, $value=true)
+    {
+        $this->_flags[$flag] = $value;
+        return $this;
+    }
 
     /**
     * Get Route child
@@ -984,6 +1008,13 @@ class BFrontController extends BClass
     protected $_routes = array();
 
     /**
+    * Partial route changes
+    *
+    * @var array
+    */
+    protected $_routeChanges = array();
+
+    /**
     * Default routes if route not found in tree
     *
     * @var array
@@ -1028,6 +1059,36 @@ class BFrontController extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    /**
+    * Change route part (usually 1st)
+    *
+    * @param string $partValue
+    * @param mixed $options
+    */
+    public function changeRoute($from, $opt)
+    {
+        if (is_array($opt)) {
+            $opt = array('to'=>$opt);
+        }
+        $type = !empty($opt['type']) ? $opt['type'] : 'first';
+        unset($opt['type']);
+        $this->_routeChanges[$type][$from] = $opt;
+        return $this;
+    }
+
+    public static function processHref($href)
+    {
+        $href = ltrim($href, '/');
+        if (!empty($this->_routeChanges['first'])) {
+            $rules = $this->_routeChanges['first'];
+            $parts = explode('/', $href, 2);
+            if (!empty($rules[$parts[0]])) {
+                $href = $rules[$parts[0]]['to'].(isset($parts[1]) ? '/'.$parts[1] : '');
+            }
+        }
+        return $href;
+    }
+
     public function processRoutePath($route, $args=array())
     {
         if (!empty($args['module_name'])) {
@@ -1036,6 +1097,7 @@ class BFrontController extends BClass
                 $route = $prefix.$route;
             }
         }
+        #$route = static::processHref($route); // slower than alternative (replacing keys on saveRoute)
         return $route;
     }
 
@@ -1074,8 +1136,18 @@ class BFrontController extends BClass
         /** @var BRouteNode */
         $node = $this->_routeTree[$method];
         $routeArr = explode('/', $route);
+
+        if (!empty($this->_routeChanges['first'][$routeArr[0]])) {
+            $routeArr[0] = $this->_routeChanges['first'][$routeArr[0]];
+        }
+
         foreach ($routeArr as $r) {
             $r0 = $r!=='' ? $r[0] : false;
+            if ($r0==='?') {
+                $node->flag($r0);
+                $r = substr($r, 1);
+                $r0 = $r!=='' ? $r[0] : false;
+            }
             if ($r0===':' || $r0==='*' || $r0==='.') {
                 $node = $node->child($r0, $r, true);
             } else {
@@ -1126,6 +1198,7 @@ class BFrontController extends BClass
                 $routeName[] = $r;
                 break; // this is a final node
             }
+
             if (($children = $node->child('*'))) { // if has children of type 'anything'
                 foreach ($children as $k=>$n) { // iterate children
                     if (!($observer = $n->validObserver())) continue; // if no valid observers found, next

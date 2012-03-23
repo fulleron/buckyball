@@ -214,8 +214,26 @@ class BApp extends BClass
     }
 
     /**
+    * Shortcut for base URL to use in views and controllers
+    *
+    * @return string
+    */
+    public static function baseUrl($full=true)
+    {
+        static $baseUrl = array();
+        if (empty($baseUrl[(int)$full])) {
+            /** @var BRequest */
+            $r = BRequest::i();
+            $url = $full ? $r->baseUrl() : $r->webRoot();
+            $baseUrl[(int)$full] = rtrim($url, '/').'/';
+        }
+        return $baseUrl[(int)$full];
+    }
+
+    /**
     * Shortcut to generate URL of module base and custom path
     *
+    * @deprecated by href() and src()
     * @param string $modName
     * @param string $url
     * @param string $method
@@ -231,20 +249,27 @@ class BApp extends BClass
         return $m->$method() . $url;
     }
 
+    public static function href($url='')
+    {
+        return BFrontController::processHref(BApp::baseUrl().$url);
+    }
+
     /**
-    * Shortcut for base URL to use in views and controllers
-    *
+    * Shortcut to generate URL with base src (js, css, images, etc)
+    *)
+    * @param string $modName
+    * @param string $url
+    * @param string $method
     * @return string
     */
-    public static function baseUrl($full=true)
+    public static function src($modName, $url='', $method='baseSrc')
     {
-        static $baseUrl = array();
-        if (empty($baseUrl[(int)$full])) {
-            /** @var BRequest */
-            $r = BRequest::i();
-            $baseUrl[(int)$full] = $full ? $r->baseUrl() : $r->webRoot();
+        $m = BApp::m($modName);
+        if (!$m) {
+            BDebug::error('Invalid module: '.$modName);
+            return '';
         }
-        return $baseUrl[(int)$full];
+        return $m->$method() . $url;
     }
 
     public function set($key, $val)

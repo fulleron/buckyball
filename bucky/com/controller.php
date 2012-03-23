@@ -1012,7 +1012,7 @@ class BFrontController extends BClass
     *
     * @var array
     */
-    protected $_routeChanges = array();
+    protected static $_routeChanges = array();
 
     /**
     * Default routes if route not found in tree
@@ -1079,8 +1079,8 @@ class BFrontController extends BClass
     public static function processHref($href)
     {
         $href = ltrim($href, '/');
-        if (!empty($this->_routeChanges['first'])) {
-            $rules = $this->_routeChanges['first'];
+        if (!empty(static::$_routeChanges['first'])) {
+            $rules = static::$_routeChanges['first'];
             $parts = explode('/', $href, 2);
             if (!empty($rules[$parts[0]])) {
                 $href = $rules[$parts[0]]['to'].(isset($parts[1]) ? '/'.$parts[1] : '');
@@ -1137,8 +1137,8 @@ class BFrontController extends BClass
         $node = $this->_routeTree[$method];
         $routeArr = explode('/', $route);
 
-        if (!empty($this->_routeChanges['first'][$routeArr[0]])) {
-            $routeArr[0] = $this->_routeChanges['first'][$routeArr[0]];
+        if (!empty(static::$_routeChanges['first'][$routeArr[0]])) {
+            $routeArr[0] = static::$_routeChanges['first'][$routeArr[0]];
         }
 
         foreach ($routeArr as $r) {

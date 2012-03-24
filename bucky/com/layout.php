@@ -163,7 +163,7 @@ class BLayout extends BClass
         if (is_array($viewName)) {
             foreach ($viewName as $i=>$view) {
                 if (!is_numeric($i)) {
-                    throw new BException(BApp::t('Invalid argument: %s', print_r($viewName,1)));
+                    throw new BException(BLocale::_('Invalid argument: %s', print_r($viewName,1)));
                 }
                 $this->view($view[0], $view[1]);
             }
@@ -219,7 +219,7 @@ class BLayout extends BClass
         }
         /*
         if (empty($this->_views[$viewName])) {
-            throw new BException(BApp::t('Invalid view name for main view: %s', $viewName));
+            throw new BException(BLocale::_('Invalid view name for main view: %s', $viewName));
         }
         */
         $this->_rootViewName = $viewName;
@@ -444,7 +444,7 @@ class BLayout extends BClass
         $rootView = $this->rootView();
         BDebug::debug('LAYOUT.RENDER '.var_export($rootView, 1));
         if (!$rootView) {
-            BDebug::error(BApp::t('Main view not found: %s', $this->_rootViewName));
+            BDebug::error(BLocale::_('Main view not found: %s', $this->_rootViewName));
         }
         $result = $rootView->render($args);
 
@@ -606,7 +606,7 @@ class BView extends BClass
     public function view($viewname)
     {
         if ($viewname===$this->param('view_name')) {
-            throw new BException(BApp::t('Circular reference detected: %s', $viewname));
+            throw new BException(BLocale::_('Circular reference detected: %s', $viewname));
         }
 
         return BLayout::i()->view($viewname);
@@ -827,6 +827,21 @@ BDebug::debug('TEMPLATE '.$template);
         }
         return mail($to, $subject, trim($body), join("\r\n", $headers), join(' ', $params));
     }
+
+    /**
+    * Translate string within view class method or template
+    *
+    * @param string $string
+    * @param array $params
+    * @param string $module if null, try to get current view module
+    */
+    public function _($string, $params=array(), $module=null)
+    {
+        if (empty($module) && !empty($this->_params['module_name'])) {
+            $module = $this->_params['module_name'];
+        }
+        return BLocale::_($string, $params, $module);
+    }
 }
 
 /**
@@ -985,7 +1000,7 @@ class BViewHead extends BView
             }
             return $tag;
         } elseif (!is_null($args) && !is_array($args)) {
-            throw new BException(BApp::t('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
+            throw new BException(BLocale::_('Invalid %s args: %s', array(strtoupper($type), print_r($args, 1))));
         }
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $args['module_name'] = $moduleName;
@@ -1174,7 +1189,7 @@ class BViewList extends BView
         foreach ($this->_children as $child) {
             $childView = $layout->view($child['name']);
             if (!$childView) {
-                throw new BException(BApp::t('Invalid view name: %s', $child['name']));
+                throw new BException(BLocale::_('Invalid view name: %s', $child['name']));
             }
             $output[] = $childView->render($args);
         }

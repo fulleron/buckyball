@@ -45,7 +45,7 @@ require $comDir.'misc.php';
 
 if (getopt('c')) {
     $minified = array();
-    foreach (array('core','lib/idiorm','lib/paris','db','module','controller','view','misc') as $f) {
+    foreach (array('core','lib/idiorm','lib/paris','db','module','controller','layout','misc') as $f) {
         list(, $minified[]) = explode(' ', php_strip_whitespace($comDir.$f.'.php'), 2);
     }
     file_put_contents('buckyball.min.php', '<?php '.join(' ', $minified));

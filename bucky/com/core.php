@@ -97,7 +97,7 @@ class BApp extends BClass
             break;
 
         default:
-            BDebug::error(BApp::t('Unknown feature: %s', $feature));
+            BDebug::error(BLocale::_('Unknown feature: %s', $feature));
         }
         static::$_compat[$feature] = $compat;
         return $compat;
@@ -198,7 +198,7 @@ class BApp extends BClass
     */
     public static function t($string, $args=array())
     {
-        return Blocale::i()->translate($string, $args);
+        return Blocale::_($string, $args);
     }
 
     /**
@@ -368,7 +368,7 @@ class BConfig extends BClass
             $filename = $dir.'/'.$filename;
         }
         if (!is_readable($filename)) {
-            BDebug::error(BApp::t('Invalid configuration file name: %s', $filename));
+            BDebug::error(BLocale::_('Invalid configuration file name: %s', $filename));
         }
         switch ($ext) {
         case 'php':
@@ -380,7 +380,7 @@ class BConfig extends BClass
             break;
         }
         if (!$config) {
-            BDebug::error(BApp::t('Invalid configuration contents: %s', $filename));
+            BDebug::error(BLocale::_('Invalid configuration contents: %s', $filename));
         }
         $this->add($config, $toSave);
         return $this;
@@ -683,10 +683,10 @@ class BClassRegistry extends BClass
     public function augmentProperty($class, $property, $op, $type, $callback)
     {
         if ($op!=='set' && $op!=='get') {
-             BDebug::error(BApp::t('Invalid property augmentation operator: %s', $op));
+             BDebug::error(BLocale::_('Invalid property augmentation operator: %s', $op));
         }
         if ($type!=='override' && $type!=='before' && $type!=='after') {
-            BDebug::error(BApp::t('Invalid property augmentation type: %s', $type));
+            BDebug::error(BLocale::_('Invalid property augmentation type: %s', $type));
         }
         $entry = array(
             'module_name' => BModuleRegistry::currentModuleName(),
@@ -858,7 +858,7 @@ class BClassRegistry extends BClass
         // get original or overridden class instance
         $className = $this->className($class);
         if (!class_exists($className, true)) {
-            BDebug::error(BApp::t('Invalid class name: %s', $className));
+            BDebug::error(BLocale::_('Invalid class name: %s', $className));
         }
         $instance = new $className($args);
 

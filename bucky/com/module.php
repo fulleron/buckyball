@@ -68,7 +68,7 @@ class BModuleRegistry extends BClass
             if (empty($params['update'])) {
                 $rootDir = $mod->root_dir;
                 $file = $mod->bootstrap['file'];
-                throw new BException(BApp::t('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
+                throw new BException(BLocale::_('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
             } else {
                 BDebug::debug('MODULE UPDATE: '.$modName);
                 foreach ($params as $k=>$v) {
@@ -127,10 +127,10 @@ class BModuleRegistry extends BClass
                     $manifest = BUtil::fromJson($json);
                     break;
                 default:
-                    BDebug::error(BApp::t("Unknown manifest file format: %s", $file));
+                    BDebug::error(BLocale::_("Unknown manifest file format: %s", $file));
             }
             if (empty($manifest['modules'])) {
-                BDebug::error(BApp::t("Could not read manifest file: %s", $file));
+                BDebug::error(BLocale::_("Could not read manifest file: %s", $file));
             }
             foreach ($manifest['modules'] as $modName=>$params) {
                 $params['manifest_file'] = $file;
@@ -632,11 +632,11 @@ class BModule extends BClass
             BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
             require ($includeFile);
         }
-        $start = BDebug::debug(BApp::t('Start bootstrap for %s', array($this->name)));
+        $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
         call_user_func($this->bootstrap['callback']);
         #$mod->run_status = BModule::LOADED;
         BDebug::profile($start);
-        BDebug::debug(BApp::t('End bootstrap for %s', array($this->name)));
+        BDebug::debug(BLocale::_('End bootstrap for %s', array($this->name)));
         $this->run_status = BModule::LOADED;
         return $this;
     }

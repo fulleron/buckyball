@@ -126,7 +126,7 @@ class BDb
         }
         $config = BConfig::i()->get($name===static::$_defaultConnectionName ? 'db' : 'db/named/'.$name);
         if (!$config) {
-            throw new BException(BApp::t('Invalid or missing DB configuration: %s', $name));
+            throw new BException(BLocale::_('Invalid or missing DB configuration: %s', $name));
         }
         if (!empty($config['use'])) { //TODO: Prevent circular reference
             static::connect($config['use']);
@@ -139,7 +139,7 @@ class BDb
             }
         } else {
             if (empty($config['dbname'])) {
-                throw new BException(BApp::t("dbname configuration value is required for '%s'", $name));
+                throw new BException(BLocale::_("dbname configuration value is required for '%s'", $name));
             }
             $engine = !empty($config['engine']) ? $config['engine'] : 'mysql';
             $host = !empty($config['host']) ? $config['host'] : '127.0.0.1';
@@ -149,7 +149,7 @@ class BDb
                     break;
 
                 default:
-                    throw new BException(BApp::t('Invalid DB engine: %s', $engine));
+                    throw new BException(BLocale::_('Invalid DB engine: %s', $engine));
             }
         }
         $profile = BDebug::debug('DB.CONNECT '.$name.': '.print_r($config,1));
@@ -427,7 +427,7 @@ class BDb
     public static function ddlFieldInfo($fullTableName, $fieldName=BNULL)
     {
         if (!static::ddlTableExists($fullTableName)) {
-            throw new BException(BApp::t('Invalid table name: %s', $fullTableName));
+            throw new BException(BLocale::_('Invalid table name: %s', $fullTableName));
         }
         $a = explode('.', $fullTableName);
         $dbName = empty($a[1]) ? static::dbName() : $a[0];
@@ -634,7 +634,7 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         }
         // if schema doesn't exist, throw exception
         if (empty($mod['schema_version'])) {
-            throw new BException(BApp::t("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
+            throw new BException(BLocale::_("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
         $schemaVersion = $mod['schema_version'];
         // if schema is newer than requested target version, skip

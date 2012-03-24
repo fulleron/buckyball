@@ -1242,6 +1242,23 @@ class BLocale extends BClass
     protected $_tzCache = array();
 
     /**
+    * Translations tree
+    *
+    * static::$_tr = array(
+    *   'STRING1' => 'DEFAULT TRANSLATION',
+    *   'STRING2' => array(
+    *      '_' => 'DEFAULT TRANSLATION',
+    *      'Module1' => 'MODULE1 TRANSLATION',
+    *      'Module2' => 'MODULE2 TRANSLATION',
+    *      ...
+    *   ),
+    * );
+    *
+    * @var array
+    */
+    protected static $_tr;
+
+    /**
     * Shortcut to help with IDE autocompletion
     *
     * @return BLocale
@@ -1262,6 +1279,88 @@ class BLocale extends BClass
         $this->_tzCache['GMT'] = new DateTimeZone('GMT');
     }
 
+    /**
+    * Import translations to the tree
+    *
+    * @param mixed $data array or file name string
+    */
+    public static function importTranslations($data, $params=array())
+    {
+        $module = !empty($params['_module']) ? $params['_module'] : null;
+        if (is_string($data)) {
+            if (is_readable($data)) {
+                $fp = fopen($data, 'r');
+                while (($r = fgetcsv($fp, 2084))) {
+                    static::addTranslation($r, $module);
+                }
+                fclose($fp);
+            } else {
+                BDebug::warning('Could not load translation file: '.$data);
+                return;
+            }
+        } elseif (is_array($data)) {
+            foreach ($data as $r) {
+                static::addTranslation($r, $module);
+            }
+        }
+    }
+
+    protected static function addTranslation($r, $module=null)
+    {
+        if (empty($r[1])) {
+            BDebug::warning('No translation specified for '.$r[0]);
+            return;
+        }
+        // short and quick way
+        static::$_tr[ $r[0] ][ !empty($module) ? $module : '_' ] = $r[1];
+
+        /*
+        // a bit of memory saving way
+        list($from, $to) = $r;
+        if (!empty($module)) { // module supplied
+            if (!empty(static::$_tr[$from]) && is_string(static::$_tr[$from])) { // only default translation present
+                static::$_tr[$from] = array('_'=>static::$_tr[$from]); // convert to array
+            }
+            static::$_tr[$from][$module] = $to; // save module specific translation
+        } else { // no module, default translation
+            if (!empty(static::$_tr[$from]) && is_array(static::$_tr[$from])) { // modular translations present
+                static::$_tr[$from]['_'] = $to; // play nice
+            } else {
+                static::$_tr[$from] = $to; // simple
+            }
+        }
+        */
+    }
+
+    public static function cacheSave()
+    {
+
+    }
+
+    public static function cacheLoad()
+    {
+
+    }
+
+    public static function _($string, $params=array(), $module=null)
+    {
+        if (empty(static::$_tr[$string])) { // if no translation at all
+            $tr = $string; // return original string
+        } else { // if some translation present
+            $arr = static::$_tr[$string];
+            if (!empty($module) && !empty($arr[$module])) { // if module requested and translation for it present
+                $tr = $arr[$module]; // use it
+            } elseif (!empty($arr['_'])) { // otherwise, if there's default translation
+                $tr = $arr['_']; // use it
+            } else { // otherwise
+                reset($arr); // find the first available translation
+                $tr = current($arr); // and use it
+            }
+        }
+        return $tr;
+    }
+
+    /*
     public function language($lang=null)
     {
         if (is_null($lang)) {
@@ -1295,6 +1394,7 @@ class BLocale extends BClass
         }
         return $this;
     }
+    */
 
     /**
     * Translate a string and inject optionally named arguments
@@ -1303,6 +1403,7 @@ class BLocale extends BClass
     * @param array $args
     * @return string|false
     */
+    /*
     public function translate($string, $args=array(), $domain=null)
     {
         if (!is_null($domain)) {
@@ -1312,6 +1413,7 @@ class BLocale extends BClass
         }
         return BUtil::sprintfn($string, $args);
     }
+    */
 
     /**
     * Get server timezone

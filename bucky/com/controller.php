@@ -1439,7 +1439,7 @@ class BFrontController extends BClass
         }
 
         if ($attempts==100) {
-            throw new BException(BApp::t('Reached 100 route iterations: %s', print_r($callback,1)));
+            throw new BException(BLocale::_('Reached 100 route iterations: %s', print_r($callback,1)));
         }
     }
 
@@ -1454,13 +1454,6 @@ class BFrontController extends BClass
 */
 class BActionController extends BClass
 {
-    /**
-    * Action parameters
-    *
-    * @var array
-    */
-    public $params = array();
-
     /**
     * Current action name
     *
@@ -1659,5 +1652,21 @@ class BActionController extends BClass
     public function renderOutput()
     {
         BResponse::i()->output();
+    }
+
+    /**
+    * Translate string within controller action
+    *
+    * @param string $string
+    * @param array $params
+    * @param string $module if null, try to get current controller module
+    */
+    public function _($string, $params=array(), $module=null)
+    {
+        if (empty($module)) {
+            $module = BModuleRegistry::currentModuleName();
+            if ($module===BNULL) $module = null;
+        }
+        return BLocale::_($string, $params, $module);
     }
 }

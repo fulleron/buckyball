@@ -360,6 +360,7 @@ class BLayout extends BClass
             return $this->_defaultTheme;
         }
         $this->_defaultTheme = $themeName;
+        BDebug::debug('THEME.DEFAULT: '.$themeName);
         return $this;
     }
 
@@ -380,7 +381,7 @@ class BLayout extends BClass
         }
         if (!is_null($params)) {
             BDebug::debug('THEME.ADD '.$themeName);
-            $area = FCom::i()->area();
+            $area = FCom::area();
             if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
                 BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
                 return $this;
@@ -890,7 +891,8 @@ class BViewHead extends BView
         'js_raw' => '<script type="text/javascript" %a>%c</script>',
         'css' => '<link rel="stylesheet" type="text/css" href="%s" %a/>',
         'css_raw' => '<style type="text/css" %a>%c</style>',
-        'less' => '<link rel="stylesheet" type="text/less" href="%s" %a/>',
+        //'less' => '<link rel="stylesheet" type="text/less" href="%s" %a/>',
+        'less' => '<link rel="stylesheet/less" type="text/css" href="%s" %a/>',
         'icon' => '<link rel="icon" href="%s" type="image/x-icon" %a/><link rel="shortcut icon" href="%s" type="image/x-icon" %a/>',
     );
 
@@ -912,7 +914,7 @@ class BViewHead extends BView
 
     public function headJs($enable=true)
     {
-        $this->_headJs['enable'] = $enable;
+        $this->_headJs['enabled'] = $enable;
         return $this;
     }
 
@@ -945,7 +947,8 @@ class BViewHead extends BView
     *
     * @param string $type 'js' or 'css'
     * @param string $name name of the resource, if ommited, return all tags
-    * @param array $args Resource arguments, if ommited, return tag by name
+    * @param array|boolean $args Resource arguments, if ommited, return tag by name
+    *   if true, output html with tags of this item type
     *   - tag: Optional, tag template
     *   - file: resource file src or href
     *   - module_name: Optional: module where the resource is declared
@@ -978,10 +981,8 @@ class BViewHead extends BView
                 $file = $baseUrl.'/'.$file;
             }
 
-            $params = !empty($args['params']) ? $args['params'] : '';
-
-            if ($type==='js' && empty($args['tag']) && empty($args['params'])
-                && $this->_headJs['loaded'] && $this->_headJs['loaded']!==$name
+            if ($type==='js' && $this->_headJs['loaded'] && $this->_headJs['loaded']!==$name
+                && empty($args['separate']) && empty($args['tag']) && empty($args['params'])
             ) {
                 if (!$this->_headJs['jquery'] && strpos($name, 'jquery')!==false) {
                     $this->_headJs['jquery'] = $file;
@@ -994,7 +995,7 @@ class BViewHead extends BView
             $tag = !empty($args['tag']) ? $args['tag'] : $this->_defaultTag[$type];
             $tag = str_replace('%s', htmlspecialchars($file), $tag);
             $tag = str_replace('%c', !empty($args['content']) ? $args['content'] : '', $tag);
-            $tag = str_replace('%a', $params, $tag);
+            $tag = str_replace('%a', !empty($args['params']) ? $args['params'] : '', $tag);
             if (!empty($args['if'])) {
                 $tag = '<!--[if '.$args['if'].']>'.$tag.'<![endif]-->';
             }
@@ -1009,11 +1010,21 @@ class BViewHead extends BView
             $args['if'] = $this->_currentIfContext;
         }
         $args['type'] = $type;
-        $this->_elements[$type.':'.$name] = (array)$args;
+        if (empty($args['position'])) {
+            $this->_elements[$type.':'.$name] = (array)$args;
+        } else {
+            $this->_elements = BUtil::arrayInsert(
+                $this->_elements,
+                array($type.':'.$name=>(array)$args),
+                $args['position']
+            );
+        }
 
-        $basename = basename($name);
-        if ($basename==='head.js' || $basename==='head.min.js' || $basename==='head.load.min.js') {
-            $this->_headJs['loaded'] = $name;
+        if ($this->_headJs['enabled']) {
+            $basename = basename($name);
+            if ($basename==='head.js' || $basename==='head.min.js' || $basename==='head.load.min.js') {
+                $this->_headJs['loaded'] = $name;
+            }
         }
 BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
         return $this;

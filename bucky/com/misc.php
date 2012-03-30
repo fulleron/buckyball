@@ -328,16 +328,123 @@ class BUtil
     }
 
     /**
+    * Insert 1 or more items into array at specific position
+    *
+    * Note: code repetition is for better iteration performance
+    *
+    * @param array $array The original container array
+    * @param array $items Items to be inserted
+    * @param string $where
+    *   - start
+    *   - end
+    *   - offset
+    *   - key.(before|after)
+    *   - obj.(before|after).$object_property==$key
+    *   - arr.(before|after).$item_array_key==$key
+    * @param mixed $key
+    * @return array resulting array
+    */
+    static public function arrayInsert($array, $items, $where)
+    {
+        $result = array();
+        $w1 = explode('==', $where, 2);
+        $w2 = explode('.', $w1[0], 3);
+
+        switch ($w2[0]) {
+        case 'start': $result = array_merge($items, $array); break;
+
+        case 'end': $result = array_merge($array, $items); break;
+
+        case 'offset':
+            $i = 0;
+            foreach ($array as $k=>$v) {
+                if ($key===$i++) {
+                    foreach ($items as $k1=>$v1) {
+                        $result[$k1] = $v1;
+                    }
+                }
+                $result[$k] = $v;
+            }
+            break;
+
+        case 'key':
+            $rel = $w2[1];
+            foreach ($array as $k=>$v) {
+                if ($key===$k) {
+                    if ($rel==='after') {
+                        $result[$k] = $v;
+                    }
+                    foreach ($items as $k1=>$v1) {
+                        $result[$k1] = $v1;
+                    }
+                    if ($rel==='before') {
+                        $result[$k] = $v;
+                    }
+                } else {
+                    $result[$k] = $v;
+                }
+            }
+            break;
+
+        case 'obj':
+            $rel = $w2[1];
+            $f = $w2[2];
+            $key = $w1[1];
+            foreach ($array as $k=>$obj) {
+                if ($key===$obj->$f) {
+                    if ($rel==='after') {
+                        $result[$k] = $v;
+                    }
+                    foreach ($items as $k1=>$v1) {
+                        $result[$k1] = $v1;
+                    }
+                    if ($rel==='before') {
+                        $result[$k] = $v;
+                    }
+                } else {
+                    $result[$k] = $v;
+                }
+            }
+            break;
+
+        case 'arr':
+            $rel = $w2[1];
+            $f = $w2[2];
+            $key = $w1[1];
+            foreach ($array as $k=>$a) {
+                if ($key===$a[$f]) {
+                    if ($rel==='after') {
+                        $result[$k] = $v;
+                    }
+                    foreach ($items as $k1=>$v1) {
+                        $result[$k1] = $v1;
+                    }
+                    if ($rel==='before') {
+                        $result[$k] = $v;
+                    }
+                } else {
+                    $result[$k] = $v;
+                }
+            }
+            break;
+
+        default: BDebug::error('Invalid where condition: '.$where);
+        }
+
+        return $result;
+    }
+
+    /**
     * Create IV for mcrypt operations
     *
     * @return string
     */
     static public function mcryptIV()
     {
-        if (!self::$_mcryptIV) {
-            self::$_mcryptIV = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_DEV_URANDOM);
+        if (!static::$_mcryptIV) {
+            static::$_mcryptIV = mcrypt_create_iv(mcrypt_get_iv_size(MCRYPT_RIJNDAEL_256, MCRYPT_MODE_ECB), MCRYPT_DEV_URANDOM);
         }
-        return self::$_mcryptIV;
+        return static::$_mcryptIV;
     }
 
     /**
@@ -345,10 +452,12 @@ class BUtil
     *
     * @return string
     */
-    static public function mcryptKey()
+    static public function mcryptKey($key=null, $configPath='encrypt/key')
     {
-        if (is_null(static::$_mcryptKey)) {
-            static::$_mcryptKey = BConfig::i()->get('encrypt/key');
+        if (!is_null($key)) {
+            static::$_mcryptKey = $key;
+        } elseif (is_null(static::$_mcryptKey)) {
+            static::$_mcryptKey = BConfig::i()->get($configPath);
         }
         return static::$_mcryptKey;
 
@@ -366,8 +475,8 @@ class BUtil
     */
     static public function encrypt($value, $key=null, $base64=true)
     {
-        if (is_null($key)) $key = BUtil::mcryptKey();
-        $enc = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, $key, $value, MCRYPT_MODE_ECB, self::mcryptIV());
+        if (is_null($key)) $key = static::mcryptKey();
+        $enc = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, $key, $value, MCRYPT_MODE_ECB, static::mcryptIV());
         return $base64 ? trim(base64_encode($enc)) : $enc;
     }
 
@@ -383,9 +492,9 @@ class BUtil
     */
     static public function decrypt($value, $key=null, $base64=true)
     {
-        if (is_null($key)) $key = BUtil::mcryptKey();
+        if (is_null($key)) $key = static::mcryptKey();
         $enc = $base64 ? base64_decode($value) : $value;
-        return trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $key, $enc, MCRYPT_MODE_ECB, self::mcryptIV()));
+        return trim(mcrypt_decrypt(MCRYPT_RIJNDAEL_256, $key, $enc, MCRYPT_MODE_ECB, static::mcryptIV()));
     }
 
     /**

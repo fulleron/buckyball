@@ -1,0 +1,24 @@
+{
+    "modules": {
+        "BphpQuery": {
+            "root_dir": "BphpQuery",
+            "bootstrap": {"file":"BphpQuery.php", "callback":"BphpQuery::init"},
+            "version": "0.9.5-0"
+        },
+        "BPHPTAL": {
+            "root_dir": "BPHPTAL",
+            "bootstrap": {"file":"BPHPTAL.php", "callback":"BPHPTAL::init"},
+            "version": "1.2.2-0"
+        },
+        "BUI": {
+            "root_dir": "BFireLogger",
+            "bootstrap": {"file":"BUI.php", "callback":"BUI::init"},
+            "version": "0.0.1"
+        },
+        "BFireLogger": {
+            "root_dir": "BFireLogger",
+            "bootstrap": {"file":"BFireLogger.php", "callback":"BFireLogger::init"},
+            "version": "1.0.0"
+        }
+    }
+}

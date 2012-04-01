@@ -22,6 +22,7 @@
 */
 
 $comDir = __DIR__.'/com/';
+define('BUCKYBALL_ROOT_DIR', __DIR__);
 
 /**
 * Load all components immediately

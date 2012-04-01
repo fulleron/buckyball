@@ -424,7 +424,7 @@ class BDb
     * @param string $fieldName if null return all fields
     * @return mixed
     */
-    public static function ddlFieldInfo($fullTableName, $fieldName=BNULL)
+    public static function ddlFieldInfo($fullTableName, $fieldName=null)
     {
         if (!static::ddlTableExists($fullTableName)) {
             throw new BException(BLocale::_('Invalid table name: %s', $fullTableName));
@@ -439,7 +439,7 @@ class BDb
                 $tableFields[$f->Field] = $f;
             }
         }
-        return BNULL===$fieldName ? $tableFields : (isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null);
+        return is_null($fieldName) ? $tableFields : (isset($tableFields[$fieldName]) ? $tableFields[$fieldName] : null);
     }
 
     /**
@@ -1273,7 +1273,7 @@ exit;
 
         #$s['c'] = 600000;
         $cntOrm = clone $this; // clone ORM to count
-        $s['c'] = $cntOrm->count(); // row count
+        $s['c'] = $cntOrm->count(); // total row count
         unset($cntOrm); // free mem
 
         $s['mp'] = ceil($s['c']/$s['ps']); // max page
@@ -1441,6 +1441,8 @@ class BModel extends Model
 
     /**
     * Model instance factory
+    *
+    * Use XXX::i()->orm($alias) instead
     *
     * @param string|null $class_name optional
     * @return BORM
@@ -1759,6 +1761,8 @@ class BModel extends Model
     /**
     * Store model in cache by field
     *
+    * @todo rename to cacheSave()
+    *
     * @param string|array $field one or more fields to store the cache for
     * @param array $collection external model collection to store into cache
     * @return BModel
@@ -1989,17 +1993,29 @@ class BModel extends Model
     /**
     * Store instance data cache, such as related models
     *
+    * @deprecated
     * @param string $key
     * @param mixed $value
     * @return mixed
     */
-    public function instanceCache($key, $value=BNULL)
+    public function instanceCache($key, $value=null)
     {
-        if (BNULL===$value) {
+        if (null===$value) {
             return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
         }
         $this->_instanceCache[$key] = $value;
         return $this;
+    }
+
+    public function saveInstanceCache($key, $value)
+    {
+        $this->_instanceCache[$key] = $value;
+        return $this;
+    }
+
+    public function loadInstanceCache($key)
+    {
+        return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
     }
 
     /**
@@ -2013,7 +2029,7 @@ class BModel extends Model
     public function relatedModel($modelClass, $idValue, $autoCreate=false, $cacheKey=null)
     {
         $cacheKey = $cacheKey ? $cacheKey : $modelClass;
-        $model = $this->instanceCache($cacheKey);
+        $model = $this->loadInstanceCache($cacheKey);
         if (is_null($model)) {
             if (is_array($idValue)) {
                 $model = $modelClass::i()->factory()->where_complex($idValue)->find_one();
@@ -2028,7 +2044,7 @@ class BModel extends Model
                     $model = $modelClass::i()->create(array($foreignIdField=>$idValue));
                 }
             }
-            $this->instanceCache($cacheKey, $model);
+            $this->saveInstanceCache($cacheKey, $model);
         }
 
         return $model;

@@ -17,7 +17,7 @@
 
 class BUI
 {
-    static public function init()
+    static public function bootstrap()
     {
         BLayout::i()->viewRootDir('view');
     }

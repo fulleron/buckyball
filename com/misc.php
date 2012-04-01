@@ -86,7 +86,7 @@ class BUtil
             }
         } elseif (is_int($val) || is_float($val)) {
             return $val;
-        } elseif ($val instanceof BType) {
+        } elseif ($val instanceof BValue) {
             return $val->toPlain();
         } elseif (($isObj = is_object($val)) || is_array($val)) {
             $out = array();
@@ -746,7 +746,7 @@ class BUtil
 /**
 * Helper class to designate a variable a custom type
 */
-class BType
+class BValue
 {
     public $content;
     public $type;
@@ -767,6 +767,11 @@ class BType
         return (string)$this->toPlain();
     }
 }
+
+/**
+* @deprecated
+*/
+class BType extends BValue {}
 
 /**
 * Basic user authentication and authorization class
@@ -1330,6 +1335,10 @@ class BLocale extends BClass
 {
     static protected $_domainPrefix = 'fulleron/';
     static protected $_domainStack = array();
+
+    static protected $_defaultLanguage = 'en_US';
+    static protected $_currentLanguage;
+
     /**
     * Default timezone
     *
@@ -1389,6 +1398,19 @@ class BLocale extends BClass
         $this->_tzCache['GMT'] = new DateTimeZone('GMT');
     }
 
+    public static function setCurrentLanguage($lang)
+    {
+        $this->_currentLanguage = $lang;
+    }
+
+    public static function getCurrentLanguage()
+    {
+        if (empty(static::$_currentLanguage)) {
+            static::$_currentLanguage = static::$_defaultLanguage;
+        }
+        return static::$_currentLanguage;
+    }
+
     /**
     * Import translations to the tree
     *
@@ -1396,8 +1418,11 @@ class BLocale extends BClass
     */
     public static function importTranslations($data, $params=array())
     {
-        $module = !empty($params['_module']) ? $params['_module'] : null;
+        $module = !empty($params['_module']) ? $params['_module'] : BModuleRegistry::currentModuleName();
         if (is_string($data)) {
+            if (!BUtil::isPathAbsolute($data)) {
+                $data = BApp::m($module)->root_dir.'/'.$data;
+            }
             if (is_readable($data)) {
                 $fp = fopen($data, 'r');
                 while (($r = fgetcsv($fp, 2084))) {
@@ -1467,7 +1492,7 @@ class BLocale extends BClass
                 $tr = current($arr); // and use it
             }
         }
-        return $tr;
+        return BUtil::sprintfn($tr, $params);
     }
 
     /*

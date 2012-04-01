@@ -20,7 +20,7 @@ class BModuleRegistry extends BClass
     *
     * @var string
     */
-    protected static $_currentModuleName = BNULL;
+    protected static $_currentModuleName = null;
 
     /**
     * Current module stack trace
@@ -51,12 +51,16 @@ class BModuleRegistry extends BClass
     * @param mixed $params if not supplied, return module by name
     * @return BModule
     */
-    public function module($modName, $params=BNULL)
+    public function module($modName, $params=null)
     {
-        if (BNULL===$params) {
+        if (is_null($params)) {
             return isset(static::$_modules[$modName]) ? static::$_modules[$modName] : null;
         }
+        return $this->addModule($modName, $params);
+    }
 
+    public function addModule($modName, $params)
+    {
         if (is_callable($params)) {
             $params = array('bootstrap'=>array('callback'=>$params));
         } else {
@@ -214,18 +218,20 @@ class BModuleRegistry extends BClass
             }
             unset($dep);
         }
-        // propagate dependencies into subdependent modules
+        // propagate dependency errors into subdependent modules
         foreach (static::$_modules as $modName=>$mod) {
             foreach ($mod->depends as &$dep) {
                 if (!empty($dep['error'])) {
                     if (empty($dep['error']['propagated'])) {
-                        $this->propagateDepends($modName, $dep);
-                    }
-                } else {
-                    if ($mod->run_status===BModule::PENDING) {
-                        static::$_modules[$dep['name']]->run_status = BModule::PENDING;
+                        $this->propagateDependErrors($modName, $dep);
                     }
                 }
+            }
+        }
+        // propagate pending status into deep dependent modules
+        foreach (static::$_modules as $modName=>$mod) {
+            if ($mod->run_status===BModule::PENDING) {
+                $this->propagateDepends($modName);
             }
             unset($dep);
         }
@@ -239,7 +245,7 @@ class BModuleRegistry extends BClass
     * @param BModule $dep
     * @return BModuleRegistry
     */
-    public function propagateDepends($modName, &$dep)
+    public function propagateDependErrors($modName, &$dep)
     {
         if (empty(static::$_modules[$modName])) {
             return $this;
@@ -253,10 +259,27 @@ class BModuleRegistry extends BClass
             foreach ($mod->children as &$subDep) {
                 if (empty($subDep['error'])) {
                     $subDep['error'] = array('type'=>'parent');
-                    $this->propagateDepends($dep['name'], $subDep);
+                    $this->propagateDependErrors($dep['name'], $subDep);
                 }
             }
             unset($subDep);
+        }
+        return $this;
+    }
+
+    public function propagateDepends($modName)
+    {
+        if (empty(static::$_modules[$modName])) {
+            return $this;
+        }
+        $mod = static::$_modules[$modName];
+        foreach ($mod->parents as $parentName) {
+            $mod = static::$_modules[$parentName];
+            if ($mod->run_status===BModule::PENDING) {
+                continue;
+            }
+            $mod->run_status = BModule::PENDING;
+            $this->propagateDepends($parentName);
         }
         return $this;
     }
@@ -336,16 +359,24 @@ echo "</pre>"; exit;
     *
     * Used in context of bootstrap, event observer, view
     *
+    * @todo remove setting module func
+    *
     * @param string|empty $name
     * @return BModule|BModuleRegistry
     */
-    public function currentModule($name=BNULL)
+    public function currentModule($name=null)
     {
-        if (BNULL===$name) {
+        if (is_null($name)) {
 #echo '<hr><pre>'; debug_print_backtrace(); echo static::$_currentModuleName.' * '; print_r($this->module(static::$_currentModuleName)); #echo '</pre>';
             $name = static::currentModuleName();
             return $name ? $this->module($name) : false;
         }
+        static::$_currentModuleName = $name;
+        return $this;
+    }
+
+    public function setCurrentModule($name)
+    {
         static::$_currentModuleName = $name;
         return $this;
     }
@@ -579,11 +610,16 @@ class BModule extends BClass
         return $this->base_href;
     }
 
-    public function runLevel($level=BNULL, $updateConfig=false)
+    public function runLevel($level=null, $updateConfig=false)
     {
-        if (BNULL===$level) {
+        if (is_null($level)) {
             return $this->run_level;
         }
+        return $this->setRunLevel($level, $updateConfig);
+    }
+
+    public function setRunLevel($level, $updateConfig=false)
+    {
         $this->run_level = $level;
         if ($updateConfig) {
             BConfig::i()->add(array('modules'=>array($this->name=>array('run_level'=>$level))));
@@ -591,11 +627,23 @@ class BModule extends BClass
         return $this;
     }
 
-    public function runStatus($status=BNULL)
+    /**
+    * @todo remove set func
+    *
+    * @param mixed $status
+    * @return BModule
+    */
+    public function runStatus($status=null)
     {
         if (BNULL===$status) {
             return $this->run_status;
         }
+        $this->run_status = $status;
+        return $this;
+    }
+
+    public function setRunStatus($status)
+    {
         $this->run_status = $status;
         return $this;
     }

@@ -75,6 +75,7 @@ class BLayout extends BClass
     /**
     * Set root dir for view templates, relative to current module root
     *
+    * @deprecated
     * @param string $rootDir
     * @return BLayout
     */
@@ -82,8 +83,20 @@ class BLayout extends BClass
     {
         $module = BModuleRegistry::i()->currentModule();
         if (is_null($rootDir)) {
-            return $module ? $module->view_root_dir : $this->_viewRootDir;
+            return $this->getViewRootDir();
         }
+        return $this->setViewRootDir($rootDir);
+    }
+
+    public function getViewRootDir()
+    {
+        $module = BModuleRegistry::i()->currentModule();
+        return $module ? $module->view_root_dir : $this->_viewRootDir;
+    }
+
+    public function setViewRootDir($rootDir)
+    {
+        $module = BModuleRegistry::i()->currentModule();
         $isAbsPath = strpos($rootDir, '/')===0 || strpos($rootDir, ':')===1;
         if ($module) {
             $module->view_root_dir = $isAbsPath ? $rootDir : $module->root_dir.'/'.$rootDir;
@@ -91,6 +104,19 @@ class BLayout extends BClass
             $this->_viewRootDir = $rootDir;
         }
         return $this;
+    }
+
+    /**
+    * put your comment there...
+    *
+    * @deprecated alias
+    * @param mixed $rootDir
+    * @param mixed $prefix
+    * @return BLayout
+    */
+    public function allViews($rootDir=null, $prefix='')
+    {
+        return $this->addAllViews($rootDir, $prefix);
     }
 
     /**
@@ -103,7 +129,7 @@ class BLayout extends BClass
     * @param string $prefix Optional: add prefix to view names
     * @return BLayout
     */
-    public function allViews($rootDir=null, $prefix='')
+    public function addAllViews($rootDir=null, $prefix='')
     {
         if (is_null($rootDir)) {
             return $this->_views;
@@ -141,6 +167,13 @@ class BLayout extends BClass
         return $this;
     }
 
+    /**
+    * put your comment there..
+    *
+    * @todo rename to setDefaultViewClass()
+    * @param mixed $className
+    * @return BLayout
+    */
     public function defaultViewClass($className)
     {
         $this->_defaultViewClass = $className;
@@ -150,6 +183,7 @@ class BLayout extends BClass
     /**
     * Register or retrieve a view object
     *
+    * @todo remove adding view from here
     * @param string $viewName
     * @param array $params View parameters
     *   - template: optional, for templated views
@@ -158,22 +192,35 @@ class BLayout extends BClass
     * @param boolean $reset update or reset view params //TODO
     * @return BView|BLayout
     */
-    public function view($viewName, $params=BNULL, $reset=false)
+    public function view($viewName, $params=null, $reset=false)
+    {
+        if ($params) {
+            $this->addView($viewName, $params, $reset);
+            return $this;
+        }
+        return $this->getView($viewName);
+    }
+
+    /**
+    * Not sure whether to leave view() for convenience
+    *
+    * @param mixed $viewName
+    */
+    public function getView($viewName)
+    {
+        return isset($this->_views[$viewName]) ? $this->_views[$viewName] : null;
+    }
+
+    public function addView($viewName, $params, $reset=false)
     {
         if (is_array($viewName)) {
             foreach ($viewName as $i=>$view) {
                 if (!is_numeric($i)) {
                     throw new BException(BLocale::_('Invalid argument: %s', print_r($viewName,1)));
                 }
-                $this->view($view[0], $view[1]);
+                $this->view($view[0], $view[1], $reset);
             }
             return $this;
-        }
-        if (BNULL===$params) {
-            if (!isset($this->_views[$viewName])) {
-                return null;
-            }
-            return $this->_views[$viewName];
         }
         if (empty($params['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
             $params['module_name'] = $moduleName;
@@ -209,6 +256,7 @@ class BLayout extends BClass
     /**
     * Set or retrieve main (root) view object
     *
+    * @deprecated
     * @param string $viewName
     * @return BView|BLayout
     */
@@ -224,6 +272,17 @@ class BLayout extends BClass
         */
         $this->_rootViewName = $viewName;
         return $this;
+    }
+
+    public function setRootView($viewName)
+    {
+        $this->_rootViewName = $viewName;
+        return $this;
+    }
+
+    public function getRootView()
+    {
+        return $this->_rootViewName ? $this->view($this->_rootViewName) : null;
     }
 
     /**
@@ -263,29 +322,48 @@ class BLayout extends BClass
         return $this->hook($hookName, $view, $args);
     }
 
+    /**
+    *
+    * @deprecated
+    * @param mixed $layoutName
+    * @param mixed $layout
+    * @return BLayout
+    */
     public function layout($layoutName, $layout=null)
     {
-        if (!is_null($layout)) {
-            if (!isset($this->_layouts[$layoutName])) {
-                BDebug::debug('LAYOUT.ADD '.$layoutName);
-                $this->_layouts[$layoutName] = $layout;
-            } else {
-                BDebug::debug('LAYOUT.UPDATE '.$layoutName);
-                $this->_layouts[$layoutName] = array_merge_recursive($this->_layouts[$layoutName], $layout);
-            }
-            return $this;
+        if (is_array($layoutName) || !is_null($layout)) {
+            $this->addLayout($layoutName, $layout);
+        } else {
+            $this->applyLayout($layoutName);
         }
+        return $this;
+    }
+
+    public function addLayout($layoutName, $layout=null)
+    {
         if (is_array($layoutName)) {
             foreach ($layoutName as $l=>$def) {
-                $this->layout($l, $def);
+                $this->addLayout($l, $def);
             }
             return $this;
         }
+        if (!isset($this->_layouts[$layoutName])) {
+            BDebug::debug('LAYOUT.ADD '.$layoutName);
+            $this->_layouts[$layoutName] = $layout;
+        } else {
+            BDebug::debug('LAYOUT.UPDATE '.$layoutName);
+            $this->_layouts[$layoutName] = array_merge_recursive($this->_layouts[$layoutName], $layout);
+        }
+        return $this;
+    }
+
+    public function applyLayout($layoutName)
+    {
         if (empty($this->_layouts[$layoutName])) {
             BDebug::debug('LAYOUT.EMPTY '.$layoutName);
             return $this;
         }
-        BDebug::debug('LAYOUT.PROCESS '.$layoutName);
+        BDebug::debug('LAYOUT.APPLY '.$layoutName);
         foreach ($this->_layouts[$layoutName] as $d) {
             if (empty($d['type']) && !empty($d[0])) {
                 $d['type'] = $d[0];
@@ -315,12 +393,12 @@ class BLayout extends BClass
             BDebug::error('Layout recursion detected: '.$d['name']);
             return;
         }
-        $this->layout($d['name']);
+        $this->applyLayout($d['name']);
     }
 
     public function metaDirectiveRootCallback($d)
     {
-        $this->rootView($d['name']);
+        $this->setRootView($d['name']);
     }
 
     public function metaDirectiveHookCallback($d)
@@ -354,6 +432,12 @@ class BLayout extends BClass
         }
     }
 
+    /**
+    * @deprecated
+    *
+    * @param mixed $themeName
+    * @return BLayout
+    */
     public function defaultTheme($themeName=null)
     {
         if (is_null($themeName)) {
@@ -364,9 +448,50 @@ class BLayout extends BClass
         return $this;
     }
 
+    public function setDefaultTheme($themeName)
+    {
+        $this->_defaultTheme = $themeName;
+        BDebug::debug('THEME.DEFAULT: '.$themeName);
+        return $this;
+    }
+
+    public function getDefaultTheme()
+    {
+        return $this->_defaultTheme;
+    }
+
+    /**
+    * @deprecated
+    *
+    * @param mixed $themeName
+    * @param mixed $params
+    * @return BLayout
+    */
     public function theme($themeName=null, $params=null)
     {
 #$bt = debug_backtrace();BDebug::debug(print_r($bt[1], 1));
+        if (!is_null($params)) {
+            $this->addTheme($themeName, $params);
+        } else {
+            $this->applyTheme($themeName);
+        }
+        return $this;
+    }
+
+    public function addTheme($themeName, $params)
+    {
+        BDebug::debug('THEME.ADD '.$themeName);
+        $area = FCom::area();
+        if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
+            BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
+            return $this;
+        }
+        $this->_themes[$themeName] = $params;
+        return $this;
+    }
+
+    public function applyTheme($themeName=null)
+    {
         if (is_null($themeName)) {
             if (!$this->_defaultTheme) {
                 BDebug::error('Empty theme supplied and no default theme is set');
@@ -375,18 +500,8 @@ class BLayout extends BClass
         }
         if (is_array($themeName)) {
             foreach ($themeName as $n) {
-                $this->theme($n);
+                $this->applyTheme($n);
             }
-            return $this;
-        }
-        if (!is_null($params)) {
-            BDebug::debug('THEME.ADD '.$themeName);
-            $area = FCom::area();
-            if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
-                BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
-                return $this;
-            }
-            $this->_themes[$themeName] = $params;
             return $this;
         }
         if (empty($this->_themes[$themeName])) {
@@ -448,7 +563,7 @@ class BLayout extends BClass
     {
         $this->dispatch('render.before', $routeName, $args);
 
-        $rootView = $this->rootView();
+        $rootView = $this->getRootView();
         BDebug::debug('LAYOUT.RENDER '.var_export($rootView, 1));
         if (!$rootView) {
             BDebug::error(BLocale::_('Main view not found: %s', $this->_rootViewName));
@@ -526,9 +641,9 @@ class BView extends BClass
     * @param string $value
     * @return mixed|BView
     */
-    public function param($key=BNULL, $value=BNULL)
+    public function param($key=null, $value=BNULL)
     {
-        if (BNULL===$key) {
+        if (is_null($key)) {
             return $this->_params;
         }
         if (is_array($key)) {

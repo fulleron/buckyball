@@ -1085,7 +1085,7 @@ class BPubSub extends BClass
     * This method is optional and currently not used.
     *
     * @param string|array $eventName accepts multiple events in form of non-associative array
-    * @param array $args
+    * @param array|object $args
     * @return BPubSub
     */
     public function event($eventName, $args=array())
@@ -1110,7 +1110,7 @@ class BPubSub extends BClass
     *
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
-    * @param array $args
+    * @param array|object $args
     * @return BPubSub
     */
     public function on($eventName, $callback=null, $args=array())
@@ -1161,8 +1161,11 @@ class BPubSub extends BClass
     *
     * dispatch|fire|notify|pub|publish ?
     *
+    * instead of call-time pass-by-reference use object for $args
+    * for compatibility with PHP 5.4.0
+    *
     * @param string $eventName
-    * @param array $args
+    * @param array|object $args
     * @return array Collection of results from observers
     */
     public function fire($eventName, $args=array())
@@ -1351,14 +1354,27 @@ class BSession extends BClass
     /**
     * Set or retrieve dirty session flag
     *
+    * @deprecated
     * @param bool $flag
     * @return bool
     */
-    public function dirty($flag=BNULL)
+    public function dirty($flag=null)
     {
-        if (BNULL===$flag) {
+        if (is_null($flag)) {
             return $this->_dirty;
         }
+        BDebug::debug('SESSION.DIRTY '.($flag?'TRUE':'FALSE'), 2);
+        $this->_dirty = $flag;
+        return $this;
+    }
+
+    public function isDirty()
+    {
+        return $this->_dirty;
+    }
+
+    public function setDirty($flag=true)
+    {
         BDebug::debug('SESSION.DIRTY '.($flag?'TRUE':'FALSE'), 2);
         $this->_dirty = $flag;
         return $this;
@@ -1367,13 +1383,14 @@ class BSession extends BClass
     /**
     * Set or retrieve session variable
     *
+    * @deprecated
     * @param string $key If ommited, return all session data
     * @param mixed $value If ommited, return data by $key
     * @return mixed|BSession
     */
-    public function data($key=BNULL, $value=BNULL)
+    public function data($key=null, $value=BNULL)
     {
-        if (BNULL===$key) {
+        if (is_null($key)) {
             return $this->data;
         }
         if (BNULL===$value) {
@@ -1386,10 +1403,24 @@ class BSession extends BClass
         return $this;
     }
 
+    public function get($key)
+    {
+        return isset($this->data[$key]) ? $this->data[$key] : null;
+    }
+
+    public function set($key, $value)
+    {
+        if (!isset($this->data[$key]) || $this->data[$key]!==$value) {
+            $this->setDirty();
+        }
+        $this->data[$key] = $value;
+        return $this;
+    }
+
     public function pop($key)
     {
-        $data = $this->data($key);
-        $this->data($key, null);
+        $data = $this->get($key);
+        $this->set($key, null);
         return $data;
     }
 
@@ -1400,7 +1431,7 @@ class BSession extends BClass
     */
     public function &dataToUpdate()
     {
-        $this->dirty(true);
+        $this->setDirty();
         return $this->data;
     }
 
@@ -1428,7 +1459,7 @@ class BSession extends BClass
         BDebug::debug(__METHOD__);
         session_write_close();
         $this->_phpSessionOpen = false;
-        $this->dirty(false);
+        $this->setDirty();
         return $this;
     }
 
@@ -1452,7 +1483,7 @@ class BSession extends BClass
     */
     public function addMessage($msg, $type='info', $tag='_')
     {
-        $this->dirty(true);
+        $this->setDirty();
         $this->data['_messages'][$tag][] = array('msg'=>$msg, 'type'=>$type);
         return $this;
     }
@@ -1471,11 +1502,13 @@ class BSession extends BClass
         $tags = explode(',', $tags);
         $msgs = array();
         foreach ($tags as $tag) {
-            if (empty($this->data['_messages'][$tag])) continue;
+            if (empty($this->data['_messages'][$tag])) {
+                continue;
+            }
             foreach ($this->data['_messages'][$tag] as $i=>$m) {
                 $msgs[] = $m;
                 unset($this->data['_messages'][$tag][$i]);
-                $this->dirty(true);
+                $this->setDirty();
             }
         }
         return $msgs;

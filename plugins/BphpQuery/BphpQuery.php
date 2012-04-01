@@ -25,7 +25,7 @@ class BphpQuery extends BClass
     protected $_doc;
     protected $_html;
 
-    static public function init()
+    static public function bootstrap()
     {
         BPubSub::i()->on('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
     }

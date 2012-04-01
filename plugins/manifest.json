@@ -2,22 +2,22 @@
     "modules": {
         "BphpQuery": {
             "root_dir": "BphpQuery",
-            "bootstrap": {"file":"BphpQuery.php", "callback":"BphpQuery::init"},
+            "bootstrap": {"file":"BphpQuery.php", "callback":"BphpQuery::bootstrap"},
             "version": "0.9.5-0"
         },
         "BPHPTAL": {
             "root_dir": "BPHPTAL",
-            "bootstrap": {"file":"BPHPTAL.php", "callback":"BPHPTAL::init"},
+            "bootstrap": {"file":"BPHPTAL.php", "callback":"BPHPTAL::bootstrap"},
             "version": "1.2.2-0"
         },
         "BUI": {
             "root_dir": "BFireLogger",
-            "bootstrap": {"file":"BUI.php", "callback":"BUI::init"},
+            "bootstrap": {"file":"BUI.php", "callback":"BUI::bootstrap"},
             "version": "0.0.1"
         },
         "BFireLogger": {
             "root_dir": "BFireLogger",
-            "bootstrap": {"file":"BFireLogger.php", "callback":"BFireLogger::init"},
+            "bootstrap": {"file":"BFireLogger.php", "callback":"BFireLogger::bootstrap"},
             "version": "1.0.0"
         }
     }

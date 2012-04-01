@@ -6,9 +6,9 @@ class BPHPTAL extends BClass
 {
     protected static $_singletons = array();
 
-    protected static $nocache = false;
+    protected static $_nocache = false;
 
-    protected static $outputMode = PHPTAL::HTML5;
+    protected static $_outputMode = PHPTAL::HTML5;
 
     public static function bootstrap()
     {
@@ -26,19 +26,22 @@ class BPHPTAL extends BClass
     public static function factory($tpl=null)
     {
         $tal = new PHPTAL($tpl);
-        $tal->setOutputMode(static::$outputMode);
+        $tal->setOutputMode(static::$_outputMode);
 
         $tal->addPreFilter(static::singleton('BPHPTAL_PreFilter'));
         $tal->setPostFilter(static::singleton('BPHPTAL_PostFilter'));
-        $tal->setTranslator(static::singleton('BPHPTAL_TranslationService'));
+        #$tal->setTranslator(static::singleton('BPHPTAL_TranslationService'));
+        $tal->setTranslator(new BPHPTAL_TranslationService);
 
-        if (static::$nocache) {
+        if (static::$_nocache) {
             $tal->setForceReparse(true);
         }
+        BPubSub::i()->fire(__METHOD__, array('tal'=>$tal, 'tpl'=>$tpl));
+        return $tal;
     }
 }
 
-class BPHPTAL_PreFilter implements PHPTAL_PreFilter
+class BPHPTAL_PreFilter extends PHPTAL_PreFilter
 {
     public function filter($source)
     {
@@ -83,11 +86,7 @@ class BPHPTAL_TranslationService implements PHPTAL_TranslationService
 
     public function useDomain($domain)
     {
-        if (!array_key_exists($domain, $this->_domains)){
-            $file = "domains/$this->_currentLang/$domain.php";
-            $this->_domains[$domain] = include($file);
-        }
-        $this->_currentDomain = $this->_domains[$domain];
+        $this->_currentDomain = $domain;
     }
 
     public function setVar($key, $value)
@@ -95,23 +94,13 @@ class BPHPTAL_TranslationService implements PHPTAL_TranslationService
         $this->_context[$key] = $value;
     }
 
-    public function translate($key)
+    public function translate($key, $htmlescape=true)
     {
-
-        $value = $this->_currentDomain[$key];
-
-        // interpolate ${myvar} using context associative array
-        while (preg_match('/\${(.*?)\}/sm', $value, $m)){
-            list($src,$var) = $m;
-            if (!array_key_exists($var, $this->_context)){
-                $err = sprintf('Interpolation error, var "%s" not set',
-                               $var);
-                throw new Exception($err);
-            }
-            $value = str_replace($src, $this->_context[$var], $value);
+        $result = BLocale::_($key, $this->_context, $this->_currentDomain);
+        if ($htmlescape) {
+            $result = htmlspecialchars($result);
         }
-
-        return $value;
+        return $result;
     }
 
     public function setEncoding($encoding)

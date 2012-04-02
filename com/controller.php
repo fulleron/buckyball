@@ -89,7 +89,7 @@ class BRequest extends BClass
 
     public static function scheme()
     {
-        return $this->https() ? 'https' : 'http';
+        return static::https() ? 'https' : 'http';
     }
 
     /**

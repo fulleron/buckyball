@@ -19,7 +19,7 @@ class BUI
 {
     static public function bootstrap()
     {
-        BLayout::i()->viewRootDir('view');
+        BLayout::i()->setViewRootDir('view');
     }
 
     public function jqgridData($orm)

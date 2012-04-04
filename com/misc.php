@@ -435,6 +435,20 @@ class BUtil
         return $result;
     }
 
+    static public function arrayMask($array, $fields)
+    {
+        if (is_string($fields)) {
+            $fields = explode(',', $fields);
+        }
+        $result = array();
+        foreach ($fields as $f) {
+            if (array_key_exists($f, $array)) {
+                $result[$f] = $array[$f];
+            }
+        }
+        return $result;
+    }
+
     /**
     * Create IV for mcrypt operations
     *
@@ -772,6 +786,49 @@ class BValue
 * @deprecated
 */
 class BType extends BValue {}
+
+class BData extends BClass implements ArrayAccess
+{
+    protected $_data;
+
+    public function __construct($data)
+    {
+        $this->_data = $data;
+    }
+
+    public function __get($name)
+    {
+        return isset($this->_data[$name]) ? $this->_data[$name] : null;
+    }
+
+    public function __set($name, $value)
+    {
+        $this->_data[$name] = $value;
+    }
+
+    public function offsetSet($offset, $value)
+    {
+        if (is_null($offset)) {
+            $this->_data[] = $value;
+        } else {
+            $this->_data[$offset] = $value;
+        }
+    }
+
+    public function offsetExists($offset) {
+        return isset($this->_data[$offset]);
+    }
+
+    public function offsetUnset($offset)
+    {
+        unset($this->_data[$offset]);
+    }
+
+    public function offsetGet($offset)
+    {
+        return isset($this->_data[$offset]) ? $this->_data[$offset] : null;
+    }
+}
 
 /**
 * Basic user authentication and authorization class

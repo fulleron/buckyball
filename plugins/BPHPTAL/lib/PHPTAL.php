@@ -846,6 +846,7 @@ class PHPTAL
                 }
                 catch(Exception $e) {
                     ob_end_clean();
+echo $result; exit;
                     throw $e;
                 }
 

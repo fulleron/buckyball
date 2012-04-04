@@ -350,11 +350,20 @@ class BRequest extends BClass
     * Return route parameter by name or all parameters as array
     *
     * @param string $key
+    * @param boolean $fallbackToGet
     * @return array|string|null
     */
-    public function params($key=null)
+    public function params($key=null, $fallbackToGet=false)
     {
-        return is_null($key) ? $this->_params : (isset($this->_params[$key]) ? $this->_params[$key] : null);
+        if (is_null($key)) {
+            return $this->_params;
+        } elseif (isset($this->_params[$key]) && ''!==$this->_params[$key]) {
+            return $this->_params[$key];
+        } elseif ($fallbackToGet && !empty($_GET[$key])) {
+            return $_GET[$key];
+        } else {
+            return null;
+        }
     }
 
     /**

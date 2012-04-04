@@ -6,13 +6,31 @@ class BPHPTAL extends BClass
 {
     protected static $_singletons = array();
 
-    protected static $_nocache = false;
-
     protected static $_outputMode = PHPTAL::HTML5;
+
+    protected static $_defaultFileExt = '.zpt.html';
+
+    protected static $_phpCodeDest;
+
+    protected static $_forceReparse;
+
+    protected static $_fcomVars;
 
     public static function bootstrap()
     {
+        $config = BConfig::i();
 
+        static::$_phpCodeDest = $config->get('storage_dir').'/compiled';
+        BUtil::ensureDir(static::$_phpCodeDest);
+
+        static::$_forceReparse = $config->get('modules/BPHPTAL/force_reparse');
+
+        static::$_fcomVars = BData::i(true, array(
+            'request' => BRequest::i(),
+            'layout' => BLayout::i(),
+        ));
+
+        BPubSub::i()->on('BLayout::theme.load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
     }
 
     public static function singleton($class)
@@ -26,6 +44,7 @@ class BPHPTAL extends BClass
     public static function factory($tpl=null)
     {
         $tal = new PHPTAL($tpl);
+        $tal->setPhpCodeDestination(static::$_phpCodeDest);
         $tal->setOutputMode(static::$_outputMode);
 
         $tal->addPreFilter(static::singleton('BPHPTAL_PreFilter'));
@@ -33,11 +52,48 @@ class BPHPTAL extends BClass
         #$tal->setTranslator(static::singleton('BPHPTAL_TranslationService'));
         $tal->setTranslator(new BPHPTAL_TranslationService);
 
-        if (static::$_nocache) {
+        if (static::$_forceReparse) {
             $tal->setForceReparse(true);
         }
+
+        $tal->set('FCOM', static::$_fcomVars);
+
         BPubSub::i()->fire(__METHOD__, array('tal'=>$tal, 'tpl'=>$tpl));
         return $tal;
+    }
+
+    public static function renderer($view)
+    {
+        $source = $view->param('source');
+        if (!$source) {
+            $template = $view->getTemplateFileName(static::$_defaultFileExt);
+            $tal = static::factory($template);
+        } else {
+            $tal = static::factory();
+        }
+        foreach ($view->getAllArgs() as $k=>$v) {
+            if ($k[0]!=='_') {
+                $tal->set($k, $v);
+            }
+        }
+        if ($source) {
+            $source = '<tal:block>'.$source.'</tal:block>';
+            $sourceName = $view->param('source_name');
+            $tal->setSource($source, $sourceName ? $sourceName : __METHOD__);
+        }
+        return $tal->execute();
+    }
+
+    public static function onLayoutThemeLoadBefore($args)
+    {
+        $root = BLayout::i()->view('root');
+        if ($root) {
+            $root->xmlns('tal', 'http://xml.zope.org/namespaces/tal')
+                ->xmlns('metal', 'http://xml.zope.org/namespaces/metal')
+                ->xmlns('i18n', 'http://xml.zope.org/namespaces/i18n')
+                ->xmlns('phptal', 'http://phptal.org/ns/phptal')
+            ;
+        }
     }
 }
 

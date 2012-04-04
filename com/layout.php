@@ -339,7 +339,7 @@ class BLayout extends BClass
         return $this;
     }
 
-    public function addLayout($layoutName, $layout=null)
+    public function addLayout($layoutName, $layout)
     {
         if (is_array($layoutName)) {
             foreach ($layoutName as $l=>$def) {
@@ -596,6 +596,8 @@ class BLayout extends BClass
 */
 class BView extends BClass
 {
+    protected static $_renderer;
+
     /**
     * View parameters
     * - view_class
@@ -676,6 +678,11 @@ class BView extends BClass
         return isset($this->_params['args'][$name]) ? $this->_params['args'][$name] : null;
     }
 
+    public function getAllArgs()
+    {
+        return $this->_params['args'];
+    }
+
     /**
     * Magic method to retrieve argument, accessible from view/template as $this->var
     *
@@ -748,6 +755,25 @@ class BView extends BClass
         return join('', $result);
     }
 
+    public function getTemplateFileName($defaultFileExt, $quiet=false)
+    {
+        $template = $this->param('template');
+        if (!$template && ($viewName = $this->param('view_name'))) {
+            $template = $viewName.$defaultFileExt;
+        }
+        if ($template) {
+            if (!BUtil::isPathAbsolute($template)) {
+                $template = BLayout::i()->getViewRootDir().'/'.$template;
+            }
+            if (!is_readable($template) && !$quiet) {
+                BDebug::notice('TEMPLATE NOT FOUND: '.$template);
+            } else {
+                BDebug::debug('TEMPLATE '.$template);
+            }
+        }
+        return $template;
+    }
+
     /**
     * View class specific rendering
     *
@@ -757,11 +783,7 @@ class BView extends BClass
     */
     protected function _render()
     {
-        $template = ($tpl = $this->param('template')) ? $tpl : ($this->param('view_name').'.php');
-        if (!BUtil::isPathAbsolute($template)) {
-            $template = BLayout::i()->viewRootDir().'/'.$template;
-        }
-BDebug::debug('TEMPLATE '.$template);
+        $template = $this->getTemplateFileName('.php');
         ob_start();
         include $template;
         return ob_get_clean();
@@ -792,7 +814,11 @@ BDebug::debug('TEMPLATE '.$template);
 
         $result = '';
         $result .= join('', BPubSub::i()->fire('BView::render.before', array('view'=>$this)));
-        $result .= $this->_render();
+        if (($renderer = $this->param('renderer'))) {
+            $result .= call_user_func($renderer, $this);
+        } else {
+            $result .= $this->_render();
+        }
         $result .= join('', BPubSub::i()->fire('BView::render.after', array('view'=>$this)));
 
         BDebug::profile($timer);

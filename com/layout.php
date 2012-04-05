@@ -680,7 +680,7 @@ class BView extends BClass
 
     public function getAllArgs()
     {
-        return $this->_params['args'];
+        return !empty($this->_params['args']) ? $this->_params['args'] : array();
     }
 
     /**
@@ -1265,7 +1265,11 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
 
         $file = !empty($args['file']) ? $args['file'] : $name;
         if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
+            $fsFile = str_replace('{'.$m[1].'}', BApp::m($m[1])->root_dir, $file);
             $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
+            if (file_exists($fsFile)) {
+                $file .= '?'.filemtime($fsFile);
+            }
         }
         if (strpos($file, 'http:')===false && strpos($file, 'https:')===false && $file[0]!=='/') {
             $module = !empty($args['module_name']) ? BModuleRegistry::i()->module($args['module_name']) : null;

@@ -95,6 +95,47 @@ class BPHPTAL extends BClass
             ;
         }
     }
+
+    public static function talesView($src)
+    {
+        $view = BLayout::i()->view($src);
+        if (!$view) {
+            BDebug::warning('Invalid view name: '.$src);
+            return '';
+        }
+        return $view->render();
+    }
+
+    public static function talesCmsBlock($src)
+    {
+        $block = FCom_Cms_Model_Block::i()->load($src, 'handle');
+        if (!$block) {
+            BDebug::warning('Invalid CMS block handle: '.$src);
+            return '';
+        }
+        return $block->render();
+    }
+}
+
+function phptal_tales_view($src, $nothrow)
+{
+    return "BPHPTAL::talesView('".str_replace("'","\\'",$src)."')";
+}
+
+function phptal_tales_cms_block($src, $nothrow)
+{
+    return "BPHPTAL::talesCmsBlock('".str_replace("'","\\'",$src)."')";
+}
+
+function phptal_tales_href($src, $nothrow)
+{
+    return "BApp::href('".str_replace("'","\\'",$src)."')";
+}
+
+function phptal_tales_src($src, $nothrow)
+{
+    list($modName, $file) = explode('/', $src, 2)+array('');
+    return "BApp::src('".str_replace("'","\\'",$modName)."','".str_replace("'","\\'",$file)."')";
 }
 
 class BPHPTAL_PreFilter extends PHPTAL_PreFilter

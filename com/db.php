@@ -521,6 +521,7 @@ class BDb
             if (!$modules) continue; // skip database if none of the modules needs migration
 
             BDb::connect($connectionName);
+
             BDbModule::init();
             $dbModules = BDbModule::i()->factory()->find_many();
 
@@ -637,8 +638,10 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
             throw new BException(BLocale::_("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
         }
         $schemaVersion = $mod['schema_version'];
-        // if schema is newer than requested target version, skip
-        if (version_compare($schemaVersion, $fromVersion, '>=') || version_compare($schemaVersion, $toVersion, '>')) {
+
+        // if schema is newer or equal than requested target version, skip
+        // if schema is newer than requested source version, skip
+        if (version_compare($schemaVersion, $fromVersion, '>') || version_compare($schemaVersion, $toVersion, '>=')) {
             return true;
         }
         $module = BDbModule::i()->load($mod['module_name'], 'module_name')->set(array(

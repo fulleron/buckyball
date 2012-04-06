@@ -1542,6 +1542,9 @@ class BActionController extends BClass
         $this->_forward = null;
         if (!$this->beforeDispatch($args)) {
             return $this;
+        } elseif (!$this->authenticate($args) && $actionName!=='unauthenticated') {
+            $this->forward('unauthenticated');
+            return $this;
         } elseif (!$this->authorize($args) && $actionName!=='unauthorized') {
             $this->forward('unauthorized');
             return $this;
@@ -1631,6 +1634,18 @@ class BActionController extends BClass
     }
 
     /**
+    * Authenticate logic for current action controller, based on arguments
+    *
+    * Use $this->_action to fetch current action
+    *
+    * @param array $args
+    */
+    public function authenticate($args=array())
+    {
+        return true;
+    }
+
+    /**
     * Authorize logic for current action controller, based on arguments
     *
     * Use $this->_action to fetch current action
@@ -1678,9 +1693,18 @@ class BActionController extends BClass
     * Default unauthorized action
     *
     */
+    public function action_unauthenticated()
+    {
+        BResponse::i()->set("Unauthenticated")->status(401);
+    }
+
+    /**
+    * Default unauthorized action
+    *
+    */
     public function action_unauthorized()
     {
-        BResponse::i()->set("Unauthorized")->status(401);
+        BResponse::i()->set("Unauthorized")->status(403);
     }
 
     /**

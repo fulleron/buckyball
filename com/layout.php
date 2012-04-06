@@ -890,17 +890,19 @@ class BView extends BClass
         if (is_null($str)) {
             return '';
         }
-        if (!is_string($str)) {
+        if (!is_scalar($str)) {
             var_dump($str);
             return ' ** ERROR ** ';
         }
         return htmlspecialchars($args ? BUtil::sprintfn($str, $args) : $str);
     }
 
-    public function optionsHtml($options, $default)
+    public function optionsHtml($options, $default='')
     {
         $html = '';
+        $default = (string)$default;
         foreach ($options as $k=>$v) {
+            $k = (string)$k;
             if (is_array($v) && !empty($v[0])) {
                 $html .= '<optgroup label="'.$this->q($k).'">'
                     .$this->selectOptions($v, $default)

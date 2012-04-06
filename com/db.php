@@ -193,16 +193,16 @@ class BDb
         $results = array();
         foreach ($queries as $query){
            if (strlen(trim($query)) > 0) {
-                try {
+                #try {
                     BDebug::debug('DB.RUN: '.$query);
                     if (is_null($params)) {
                         $results[] = BORM::get_db()->exec($query);
                     } else {
                         $results[] = BORM::get_db()->prepare($query)->execute($params);
                     }
-                } catch (Exception $e) {
-                    var_dump($e); exit;
-                }
+                #} catch (Exception $e) {
+                #    var_dump($e); exit;
+                #}
            }
         }
         return $results;
@@ -639,9 +639,8 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         }
         $schemaVersion = $mod['schema_version'];
 
-        // if schema is newer or equal than requested target version, skip
-        // if schema is newer than requested source version, skip
-        if (version_compare($schemaVersion, $fromVersion, '>') || version_compare($schemaVersion, $toVersion, '>=')) {
+        // if schema is newer than requested FROM version, skip
+        if (version_compare($schemaVersion, $fromVersion, '>')) {
             return true;
         }
         $module = BDbModule::i()->load($mod['module_name'], 'module_name')->set(array(

@@ -171,7 +171,7 @@ class BModuleRegistry extends BClass
             unset($dep);
             // is currently iterated module required?
             if ($mod->run_level===BModule::REQUIRED) {
-                $mod->run_status = BModule::PENDING;
+                $mod->run_status = BModule::PENDING; // only 2 options: PENDING or ERROR
             }
             $depsMet = true;
             // iterate over module dependencies
@@ -212,11 +212,11 @@ class BModuleRegistry extends BClass
                     //}
 
                 }
+                unset($dep);
             }
             if ($depsMet && $mod->run_level===BModule::REQUESTED) {
                 $mod->run_status = BModule::PENDING;
             }
-            unset($dep);
         }
         // propagate dependency errors into subdependent modules
         foreach (static::$_modules as $modName=>$mod) {

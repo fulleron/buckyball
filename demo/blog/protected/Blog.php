@@ -184,7 +184,7 @@ class Blog_Public extends BActionController
 
 class Blog_Admin extends BActionController
 {
-    public function authorize($args=array())
+    public function authenticate($args=array())
     {
         return $this->_action=='login' || Blog::user()=='admin';
     }

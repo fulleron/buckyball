@@ -467,11 +467,11 @@ class BUtil
     *
     * @return string
     */
-    static public function mcryptKey($key=null, $configPath='encrypt/key')
+    static public function mcryptKey($key=null, $configPath=null)
     {
         if (!is_null($key)) {
             static::$_mcryptKey = $key;
-        } elseif (is_null(static::$_mcryptKey)) {
+        } elseif (is_null(static::$_mcryptKey) && $configPath) {
             static::$_mcryptKey = BConfig::i()->get($configPath);
         }
         return static::$_mcryptKey;
@@ -965,10 +965,12 @@ class BDebug extends BClass
         OUTPUT    = 8,
         STOP      = 4096;
 
-    const MODE_DEBUG     = 'debug',
-        MODE_DEVELOPMENT = 'development',
-        MODE_STAGING     = 'staging',
-        MODE_PRODUCTION  = 'production';
+    const MODE_DEBUG     = 'DEBUG',
+        MODE_DEVELOPMENT = 'DEVELOPMENT',
+        MODE_STAGING     = 'STAGING',
+        MODE_PRODUCTION  = 'PRODUCTION',
+        MODE_MIGRATION   = 'MIGRATION',
+        MODE_RECOVERY    = 'RECOVERY';
 
 
     /**
@@ -1012,6 +1014,22 @@ class BDebug extends BClass
             self::STOP      => self::ERROR,
         ),
         self::MODE_DEBUG => array(
+            self::MEMORY    => self::DEBUG,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => false,//self::CRITICAL,
+            self::OUTPUT    => self::NOTICE,
+            self::STOP      => self::ERROR,
+        ),
+        self::MODE_RECOVERY => array(
+            self::MEMORY    => self::DEBUG,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => false,//self::CRITICAL,
+            self::OUTPUT    => self::NOTICE,
+            self::STOP      => self::ERROR,
+        ),
+        self::MODE_MIGRATION => array(
             self::MEMORY    => self::DEBUG,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,

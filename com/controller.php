@@ -1542,10 +1542,13 @@ class BActionController extends BClass
         $this->_forward = null;
         if (!$this->beforeDispatch($args)) {
             return $this;
-        } elseif (!$this->authenticate($args) && $actionName!=='unauthenticated') {
+        }
+        $authenticated = $this->authenticate($args);
+        if (!$authenticated && $actionName!=='unauthenticated') {
             $this->forward('unauthenticated');
             return $this;
-        } elseif (!$this->authorize($args) && $actionName!=='unauthorized') {
+        }
+        if ($authenticated && !$this->authorize($args) && $actionName!=='unauthorized') {
             $this->forward('unauthorized');
             return $this;
         }

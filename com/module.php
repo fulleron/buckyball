@@ -467,6 +467,21 @@ class BModule extends BClass
         ERROR   = 'ERROR'
     ;
 
+    protected static $_fieldOptions = array(
+        'run_level' => array(
+            self::DISABLED  => 'DISABLED',
+            self::ONDEMAND  => 'ONDEMAND',
+            self::REQUESTED => 'REQUESTED',
+            self::REQUIRED  => 'REQUIRED',
+        ),
+        'run_status' => array(
+            self::IDLE    => 'IDLE',
+            self::PENDING => 'PENDING',
+            self::LOADED  => 'LOADED',
+            self::ERROR   => 'ERROR'
+        ),
+    );
+
     /**
     * Shortcut to help with IDE autocompletion
     *

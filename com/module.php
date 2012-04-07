@@ -218,6 +218,9 @@ class BModuleRegistry extends BClass
             }
         }
         foreach (static::$_modules as $modName=>$mod) {
+            if (!is_object($mod)) {
+                var_dump($mod); exit;
+            }
             if ($mod->errors && !$mod->errorsPropagated) {
                 // propagate dependency errors into subdependent modules
                 $this->propagateDependErrors($mod);
@@ -241,6 +244,9 @@ class BModuleRegistry extends BClass
         $mod->run_status = BModule::ERROR;
         $mod->errorsPropagated = true;
         foreach ($mod->children as $childName) {
+            if (empty(static::$_modules[$childName])) {
+                continue;
+            }
             $child = static::$_modules[$childName];
             if ($child->run_level===BModule::REQUIRED && $child->run_status!==BModule::ERROR) {
                 $this->propagateDependErrors($child);
@@ -258,12 +264,15 @@ class BModuleRegistry extends BClass
     public function propagateDepends($mod)
     {
         foreach ($mod->parents as $parentName) {
-            $mod = static::$_modules[$parentName];
-            if ($mod->run_status===BModule::PENDING) {
+            if (empty(static::$_modules[$parentName])) {
                 continue;
             }
-            $mod->run_status = BModule::PENDING;
-            $this->propagateDepends($parentName);
+            $parent = static::$_modules[$parentName];
+            if ($parent->run_status===BModule::PENDING) {
+                continue;
+            }
+            $parent->run_status = BModule::PENDING;
+            $this->propagateDepends($parent);
         }
         return $this;
     }
@@ -500,10 +509,13 @@ class BModule extends BClass
 //echo "{$m['root_dir']}, {$args['root_dir']}\n";
             $this->root_dir = BUtil::normalizePath($m['root_dir'].'/'.$this->root_dir);
         }
+        $this->run_level = static::ONDEMAND; // disallow declaring run_level in manifest
+        /*
         if (!isset($this->run_level)) {
             $runLevel = BConfig::i()->get('request/module_run_level/'.$this->name);
             $this->run_level = $runLevel ? $runLevel : BModule::ONDEMAND;
         }
+        */
         if (!isset($this->run_status)) {
             $this->run_status = BModule::IDLE;
         }

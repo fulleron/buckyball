@@ -253,6 +253,17 @@ class BLayout extends BClass
         return $this;
     }
 
+    public function findViewsRegex($re)
+    {
+        $views = array();
+        foreach ($this->_views as $viewName=>$view) {
+            if (preg_match($re, $viewName)) {
+                $views[$viewName] = $view;
+            }
+        }
+        return $views;
+    }
+
     /**
     * Set or retrieve main (root) view object
     *

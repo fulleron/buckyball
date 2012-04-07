@@ -1041,7 +1041,7 @@ class BDebug extends BClass
 
     static protected $_modules = array();
 
-    static protected $_mode = 'development';
+    static protected $_mode = 'DEVELOPMENT';
 
     static protected $_startTime;
     static protected $_events = array();
@@ -1148,6 +1148,11 @@ class BDebug extends BClass
         error_log($msg."\n", 3, self::$_logDir.'/'.$file);
     }
 
+    public static function logException($e)
+    {
+        //TODO:log exception
+    }
+
     public static function adminEmail($email)
     {
         self::$_adminEmail = $email;
@@ -1201,7 +1206,7 @@ class BDebug extends BClass
             $e['module'] = $moduleName;
         }
 
-        if (is_null(static::$_level)) {
+        if (is_null(static::$_level) && !empty(static::$_levelPreset[self::$_mode])) {
             static::$_level = static::$_levelPreset[self::$_mode];
         }
 
@@ -1291,7 +1296,7 @@ class BDebug extends BClass
 
     public static function debug($msg, $stackPop=0)
     {
-        if ('debug'!==self::$_mode) return; // to speed things up
+        if ('DEBUG'!==self::$_mode) return; // to speed things up
         return self::trigger(self::DEBUG, $msg, $stackPop+1);
     }
 

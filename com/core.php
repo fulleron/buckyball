@@ -178,7 +178,9 @@ class BApp extends BClass
         BModuleRegistry::i()->bootstrap();
 
         // run module migration scripts if neccessary
-        BDb::i()->runMigrationScripts();
+        if (BConfig::i()->get('db/implicit_migration')) {
+            BDb::i()->runMigrationScripts();
+        }
 
         // dispatch requested controller action
         BFrontController::i()->dispatch();

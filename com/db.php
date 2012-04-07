@@ -460,6 +460,11 @@ class BDb
         return $result;
     }
 
+    public static function getMigrationData()
+    {
+        return static::$_migration;
+    }
+
     /**
     * Declare DB Migration script for a module
     *
@@ -499,7 +504,7 @@ class BDb
         if (empty(static::$_migration)) {
             return;
         }
-        if (!BDebug::i()->is('debug,development,migrate')) {
+        if (!BDebug::i()->is('DEBUG,DEVELOPMENT,MIGRATION')) {
             return;
         }
         $modReg = BModuleRegistry::i();

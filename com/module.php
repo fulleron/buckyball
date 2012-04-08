@@ -6,6 +6,13 @@
 class BModuleRegistry extends BClass
 {
     /**
+    * Local cache for BApp::i()->get('area');
+    *
+    * @var mixed
+    */
+    protected $_area;
+
+    /**
     * Module information collected from manifests
     *
     * @var array
@@ -67,7 +74,19 @@ class BModuleRegistry extends BClass
         } else {
             $params = (array)$params;
         }
+
         $params['name'] = $modName;
+        if (is_null($this->_area)) {
+            if ($area = BApp::i()->get('area')) {
+                $this->_area = $area;
+            } else {
+                $this->_area = false;
+            }
+        }
+        if ($this->_area && !empty($params['areas'][$this->_area])) {
+            $params = BUtil::arrayMerge($params, $params['areas'][$this->_area]);
+        }
+
         if (!empty(static::$_modules[$modName])) {
             $mod = static::$_modules[$modName];
             if (empty($params['update'])) {
@@ -134,12 +153,20 @@ class BModuleRegistry extends BClass
                 default:
                     BDebug::error(BLocale::_("Unknown manifest file format: %s", $file));
             }
-            if (empty($manifest['modules'])) {
+            if (empty($manifest['modules']) && empty($manifest['include'])) {
                 BDebug::error(BLocale::_("Could not read manifest file: %s", $file));
             }
-            foreach ($manifest['modules'] as $modName=>$params) {
-                $params['manifest_file'] = $file;
-                $this->module($modName, $params);
+            if (!empty($manifest['modules'])) {
+                foreach ($manifest['modules'] as $modName=>$params) {
+                    $params['manifest_file'] = $file;
+                    $this->module($modName, $params);
+                }
+            }
+            if (!empty($manifest['include'])) {
+                $dir = dirname($file);
+                foreach ($manifest['include'] as $include) {
+                    $this->scan($dir.'/'.$include);
+                }
             }
         }
         return $this;
@@ -158,7 +185,7 @@ class BModuleRegistry extends BClass
             if (!empty(static::$_modules[$modName])) {
                 static::$_modules[$modName]->run_level = $runLevel;
             } elseif ($runLevel===BModule::REQUIRED) {
-                BDebug::error('Module is required but not found: '.$modName);
+                BDebug::warning('Module is required but not found: '.$modName);
             }
         }
         // scan for dependencies
@@ -522,13 +549,12 @@ class BModule extends BClass
 
     }
 
-
     protected function _getManifestData()
     {
         if (empty($this->manifest_file)) {
             $bt = debug_backtrace();
             foreach ($bt as $i=>$t) {
-                if (!empty($t['function']) && $t['function'] === 'module') {
+                if (!empty($t['function']) && ($t['function']==='module' || $t['function']==='addModule')) {
                     $t1 = $t;
                     break;
                 }

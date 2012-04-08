@@ -62,6 +62,12 @@ class BLayout extends BClass
         'view' => 'BLayout::metaDirectiveViewCallback',
     );
 
+    protected static $_extRenderers = array(
+        '.php' => array(),
+    );
+
+    protected static $_extRegex = '\.php';
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -103,6 +109,16 @@ class BLayout extends BClass
         } else {
             $this->_viewRootDir = $rootDir;
         }
+        return $this;
+    }
+
+    public function addExtRenderer($ext, $params)
+    {
+        if (is_string($params)) {
+            $params = array('renderer'=>$params);
+        }
+        static::$_extRenderers[$ext] = $params;
+        static::$_extRegex = join('|', array_map('preg_quote', array_keys(static::$_extRenderers)));
         return $this;
     }
 
@@ -153,7 +169,7 @@ class BLayout extends BClass
         if ($prefix) {
             $prefix = rtrim($prefix, '/').'/';
         }
-        $re = '#^('.preg_quote(realpath($rootDir).'/', '#').')(.*)(\.php)$#';
+        $re = '#^('.preg_quote(realpath($rootDir).'/', '#').')(.*)('.static::$_extRegex.')$#';
         foreach ($files as $file) {
             if (!is_file($file)) {
                 continue;
@@ -161,7 +177,7 @@ class BLayout extends BClass
             if (preg_match($re, $file, $m)) {
 #echo $re.', '.$file; print_r($m); echo '<hr>';
                 //$this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
-                $this->view($prefix.$m[2], array('template'=>$file));
+                $this->view($prefix.$m[2], array('template'=>$file)+static::$_extRenderers[$m[3]]);
             }
         }
         return $this;

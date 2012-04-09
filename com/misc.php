@@ -467,11 +467,11 @@ class BUtil
     *
     * @return string
     */
-    static public function mcryptKey($key=null, $configPath='encrypt/key')
+    static public function mcryptKey($key=null, $configPath=null)
     {
         if (!is_null($key)) {
             static::$_mcryptKey = $key;
-        } elseif (is_null(static::$_mcryptKey)) {
+        } elseif (is_null(static::$_mcryptKey) && $configPath) {
             static::$_mcryptKey = BConfig::i()->get($configPath);
         }
         return static::$_mcryptKey;
@@ -660,21 +660,79 @@ class BUtil
     * @param array $data
     * @return string
     */
-    public static function post($url, $data) {
+    public static function remote($method, $url, $data=array()) {
         $request = http_build_query($data);
-        $opts = array(
-            'http' => array(
-                'method' => 'POST',
-                'header' => "Content-Type: application/x-www-form-urlencoded\r\n"
-                    ."Content-Length: ".strlen($request)."\r\n",
-                'content' => $request,
-                'timeout' => 5,
-            ),
-        );
-        $context = stream_context_create($opts);
-        $response = file_get_contents($url, false, $context);
-        parse_str($response, $result);
-        return $result;
+        $timeout = 5;
+        $userAgent = 'Mozilla/5.0';
+        if ($method==='GET' && $data) {
+            $url .= (strpos($url, '?')===false ? '?' : '&').$request;
+        }
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init();
+            curl_setopt_array($ch, array(
+                CURLOPT_USERAGENT => $userAgent,
+                CURLOPT_URL => $url,
+                CURLOPT_ENCODING => '',
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_AUTOREFERER => true,
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_CONNECTTIMEOUT => $timeout,
+                CURLOPT_TIMEOUT => $timeout,
+                CURLOPT_MAXREDIRS => 10,
+            ));
+            if (false) { // TODO: figure out cookies handling
+                $cookieDir = BConfig::i()->get('fs/storage_dir').'/cache';
+                BUtil::ensureDir($cookieDir);
+                $cookie = tempnam($cookieDir, 'CURLCOOKIE');
+                curl_setopt_array($ch, array(
+                    CURLOPT_COOKIEJAR => $cookie,
+                    CURLOPT_FOLLOWLOCATION => true,
+                ));
+            }
+            if ($method==='POST' || $method==='PUT') {
+                curl_setopt_array($ch, array(
+                    CURLOPT_POSTFIELDS => $request,
+                    CURLOPT_POST => $method==='POST',
+                    CURLOPT_PUT => $method==='PUT',
+                ));
+            }
+            $content = curl_exec($ch);
+            //$response = curl_getinfo($ch);
+            $response = array();
+            curl_close($ch);
+
+        } else {
+            $opts = array('http' => array(
+                'method' => $method,
+                'timeout' => $timeout,
+                'header' => "User-Agent: {$userAgent}\r\n",
+            ));
+            if ($method==='POST' || $method==='PUT') {
+                $opts['http']['content'] = $request;
+                $opts['http']['header'] .= "Content-Type: application/x-www-form-urlencoded\r\n"
+                    ."Content-Length: ".strlen($request)."\r\n";
+            }
+            $content = file_get_contents($url, false, stream_context_create($opts));
+            $response = array();
+        }
+
+        return array($content, $response);
+    }
+
+    /**
+    * put your comment there...
+    *
+    * @deprecated legacy use
+    * @param mixed $url
+    * @param mixed $data
+    * @return string
+    */
+    public static function post($url, $data)
+    {
+        list($content) = static::i()->remote('POST', $url, $data);
+        parse_str($content, $response);
+        return $response;
     }
 
     public static function normalizePath($path)
@@ -708,7 +766,11 @@ class BUtil
 
     public static function ensureDir($dir)
     {
-        if (!is_dir($dir) && !is_file($dir)) {
+        if (is_file($dir)) {
+            BDebug::warning($dir.' is a file, directory required');
+            return;
+        }
+        if (!is_dir($dir)) {
             mkdir($dir, 0777, true);
         }
     }
@@ -965,10 +1027,12 @@ class BDebug extends BClass
         OUTPUT    = 8,
         STOP      = 4096;
 
-    const MODE_DEBUG     = 'debug',
-        MODE_DEVELOPMENT = 'development',
-        MODE_STAGING     = 'staging',
-        MODE_PRODUCTION  = 'production';
+    const MODE_DEBUG     = 'DEBUG',
+        MODE_DEVELOPMENT = 'DEVELOPMENT',
+        MODE_STAGING     = 'STAGING',
+        MODE_PRODUCTION  = 'PRODUCTION',
+        MODE_MIGRATION   = 'MIGRATION',
+        MODE_RECOVERY    = 'RECOVERY';
 
 
     /**
@@ -1019,11 +1083,27 @@ class BDebug extends BClass
             self::OUTPUT    => self::NOTICE,
             self::STOP      => self::ERROR,
         ),
+        self::MODE_RECOVERY => array(
+            self::MEMORY    => self::DEBUG,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => false,//self::CRITICAL,
+            self::OUTPUT    => self::NOTICE,
+            self::STOP      => self::ERROR,
+        ),
+        self::MODE_MIGRATION => array(
+            self::MEMORY    => self::DEBUG,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => false,//self::CRITICAL,
+            self::OUTPUT    => self::NOTICE,
+            self::STOP      => self::ERROR,
+        ),
     );
 
     static protected $_modules = array();
 
-    static protected $_mode = 'development';
+    static protected $_mode = 'PRODUCTION';
 
     static protected $_startTime;
     static protected $_events = array();
@@ -1122,12 +1202,18 @@ class BDebug extends BClass
 
     public static function logDir($dir)
     {
-        self::$_logDir = $dir;
+        BUtil::ensureDir($dir);
+        static::$_logDir = $dir;
     }
 
     public static function log($msg, $file='debug.log')
     {
-        error_log($msg."\n", 3, self::$_logDir.'/'.$file);
+        error_log($msg."\n", 3, static::$_logDir.'/'.$file);
+    }
+
+    public static function logException($e)
+    {
+        static::log(print_r($e, 1), 'exceptions.log');
     }
 
     public static function adminEmail($email)
@@ -1138,11 +1224,11 @@ class BDebug extends BClass
     public static function mode($mode=null, $setLevels=true)
     {
         if (is_null($mode)) {
-            return self::$_mode;
+            return static::$_mode;
         }
         self::$_mode = $mode;
         if ($setLevels) {
-            self::$_level = self::$_levelPreset[$mode];
+            static::$_level = static::$_levelPreset[$mode];
         }
     }
 
@@ -1183,7 +1269,7 @@ class BDebug extends BClass
             $e['module'] = $moduleName;
         }
 
-        if (is_null(static::$_level)) {
+        if (is_null(static::$_level) && !empty(static::$_levelPreset[self::$_mode])) {
             static::$_level = static::$_levelPreset[self::$_mode];
         }
 
@@ -1273,7 +1359,7 @@ class BDebug extends BClass
 
     public static function debug($msg, $stackPop=0)
     {
-        if ('debug'!==self::$_mode) return; // to speed things up
+        if ('DEBUG'!==self::$_mode) return; // to speed things up
         return self::trigger(self::DEBUG, $msg, $stackPop+1);
     }
 
@@ -1396,6 +1482,62 @@ class BLocale extends BClass
     static protected $_defaultLanguage = 'en_US';
     static protected $_currentLanguage;
 
+    static protected $_transliterateMap = array(
+        '&amp;' => 'and',   '@' => 'at',    '©' => 'c', '®' => 'r', 'À' => 'a',
+        'Á' => 'a', 'Â' => 'a', 'Ä' => 'a', 'Å' => 'a', 'Æ' => 'ae','Ç' => 'c',
+        'È' => 'e', 'É' => 'e', 'Ë' => 'e', 'Ì' => 'i', 'Í' => 'i', 'Î' => 'i',
+        'Ï' => 'i', 'Ò' => 'o', 'Ó' => 'o', 'Ô' => 'o', 'Õ' => 'o', 'Ö' => 'o',
+        'Ø' => 'o', 'Ù' => 'u', 'Ú' => 'u', 'Û' => 'u', 'Ü' => 'u', 'Ý' => 'y',
+        'ß' => 'ss','à' => 'a', 'á' => 'a', 'â' => 'a', 'ä' => 'a', 'å' => 'a',
+        'æ' => 'ae','ç' => 'c', 'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i', 'ò' => 'o', 'ó' => 'o',
+        'ô' => 'o', 'õ' => 'o', 'ö' => 'o', 'ø' => 'o', 'ù' => 'u', 'ú' => 'u',
+        'û' => 'u', 'ü' => 'u', 'ý' => 'y', 'þ' => 'p', 'ÿ' => 'y', 'Ā' => 'a',
+        'ā' => 'a', 'Ă' => 'a', 'ă' => 'a', 'Ą' => 'a', 'ą' => 'a', 'Ć' => 'c',
+        'ć' => 'c', 'Ĉ' => 'c', 'ĉ' => 'c', 'Ċ' => 'c', 'ċ' => 'c', 'Č' => 'c',
+        'č' => 'c', 'Ď' => 'd', 'ď' => 'd', 'Đ' => 'd', 'đ' => 'd', 'Ē' => 'e',
+        'ē' => 'e', 'Ĕ' => 'e', 'ĕ' => 'e', 'Ė' => 'e', 'ė' => 'e', 'Ę' => 'e',
+        'ę' => 'e', 'Ě' => 'e', 'ě' => 'e', 'Ĝ' => 'g', 'ĝ' => 'g', 'Ğ' => 'g',
+        'ğ' => 'g', 'Ġ' => 'g', 'ġ' => 'g', 'Ģ' => 'g', 'ģ' => 'g', 'Ĥ' => 'h',
+        'ĥ' => 'h', 'Ħ' => 'h', 'ħ' => 'h', 'Ĩ' => 'i', 'ĩ' => 'i', 'Ī' => 'i',
+        'ī' => 'i', 'Ĭ' => 'i', 'ĭ' => 'i', 'Į' => 'i', 'į' => 'i', 'İ' => 'i',
+        'ı' => 'i', 'Ĳ' => 'ij','ĳ' => 'ij','Ĵ' => 'j', 'ĵ' => 'j', 'Ķ' => 'k',
+        'ķ' => 'k', 'ĸ' => 'k', 'Ĺ' => 'l', 'ĺ' => 'l', 'Ļ' => 'l', 'ļ' => 'l',
+        'Ľ' => 'l', 'ľ' => 'l', 'Ŀ' => 'l', 'ŀ' => 'l', 'Ł' => 'l', 'ł' => 'l',
+        'Ń' => 'n', 'ń' => 'n', 'Ņ' => 'n', 'ņ' => 'n', 'Ň' => 'n', 'ň' => 'n',
+        'ŉ' => 'n', 'Ŋ' => 'n', 'ŋ' => 'n', 'Ō' => 'o', 'ō' => 'o', 'Ŏ' => 'o',
+        'ŏ' => 'o', 'Ő' => 'o', 'ő' => 'o', 'Œ' => 'oe','œ' => 'oe','Ŕ' => 'r',
+        'ŕ' => 'r', 'Ŗ' => 'r', 'ŗ' => 'r', 'Ř' => 'r', 'ř' => 'r', 'Ś' => 's',
+        'ś' => 's', 'Ŝ' => 's', 'ŝ' => 's', 'Ş' => 's', 'ş' => 's', 'Š' => 's',
+        'š' => 's', 'Ţ' => 't', 'ţ' => 't', 'Ť' => 't', 'ť' => 't', 'Ŧ' => 't',
+        'ŧ' => 't', 'Ũ' => 'u', 'ũ' => 'u', 'Ū' => 'u', 'ū' => 'u', 'Ŭ' => 'u',
+        'ŭ' => 'u', 'Ů' => 'u', 'ů' => 'u', 'Ű' => 'u', 'ű' => 'u', 'Ų' => 'u',
+        'ų' => 'u', 'Ŵ' => 'w', 'ŵ' => 'w', 'Ŷ' => 'y', 'ŷ' => 'y', 'Ÿ' => 'y',
+        'Ź' => 'z', 'ź' => 'z', 'Ż' => 'z', 'ż' => 'z', 'Ž' => 'z', 'ž' => 'z',
+        'ſ' => 'z', 'Ə' => 'e', 'ƒ' => 'f', 'Ơ' => 'o', 'ơ' => 'o', 'Ư' => 'u',
+        'ư' => 'u', 'Ǎ' => 'a', 'ǎ' => 'a', 'Ǐ' => 'i', 'ǐ' => 'i', 'Ǒ' => 'o',
+        'ǒ' => 'o', 'Ǔ' => 'u', 'ǔ' => 'u', 'Ǖ' => 'u', 'ǖ' => 'u', 'Ǘ' => 'u',
+        'ǘ' => 'u', 'Ǚ' => 'u', 'ǚ' => 'u', 'Ǜ' => 'u', 'ǜ' => 'u', 'Ǻ' => 'a',
+        'ǻ' => 'a', 'Ǽ' => 'ae','ǽ' => 'ae','Ǿ' => 'o', 'ǿ' => 'o', 'ə' => 'e',
+        'Ё' => 'jo','Є' => 'e', 'І' => 'i', 'Ї' => 'i', 'А' => 'a', 'Б' => 'b',
+        'В' => 'v', 'Г' => 'g', 'Д' => 'd', 'Е' => 'e', 'Ж' => 'zh','З' => 'z',
+        'И' => 'i', 'Й' => 'j', 'К' => 'k', 'Л' => 'l', 'М' => 'm', 'Н' => 'n',
+        'О' => 'o', 'П' => 'p', 'Р' => 'r', 'С' => 's', 'Т' => 't', 'У' => 'u',
+        'Ф' => 'f', 'Х' => 'h', 'Ц' => 'c', 'Ч' => 'ch','Ш' => 'sh','Щ' => 'sch',
+        'Ъ' => '-', 'Ы' => 'y', 'Ь' => '-', 'Э' => 'je','Ю' => 'ju','Я' => 'ja',
+        'а' => 'a', 'б' => 'b', 'в' => 'v', 'г' => 'g', 'д' => 'd', 'е' => 'e',
+        'ж' => 'zh','з' => 'z', 'и' => 'i', 'й' => 'j', 'к' => 'k', 'л' => 'l',
+        'м' => 'm', 'н' => 'n', 'о' => 'o', 'п' => 'p', 'р' => 'r', 'с' => 's',
+        'т' => 't', 'у' => 'u', 'ф' => 'f', 'х' => 'h', 'ц' => 'c', 'ч' => 'ch',
+        'ш' => 'sh','щ' => 'sch','ъ' => '-','ы' => 'y', 'ь' => '-', 'э' => 'je',
+        'ю' => 'ju','я' => 'ja','ё' => 'jo','є' => 'e', 'і' => 'i', 'ї' => 'i',
+        'Ґ' => 'g', 'ґ' => 'g', 'א' => 'a', 'ב' => 'b', 'ג' => 'g', 'ד' => 'd',
+        'ה' => 'h', 'ו' => 'v', 'ז' => 'z', 'ח' => 'h', 'ט' => 't', 'י' => 'i',
+        'ך' => 'k', 'כ' => 'k', 'ל' => 'l', 'ם' => 'm', 'מ' => 'm', 'ן' => 'n',
+        'נ' => 'n', 'ס' => 's', 'ע' => 'e', 'ף' => 'p', 'פ' => 'p', 'ץ' => 'C',
+        'צ' => 'c', 'ק' => 'q', 'ר' => 'r', 'ש' => 'w', 'ת' => 't', '™' => 'tm',
+    );
+
     /**
     * Default timezone
     *
@@ -1453,6 +1595,12 @@ class BLocale extends BClass
         date_default_timezone_set($this->_defaultTz);
         setlocale(LC_ALL, $this->_defaultLocale);
         $this->_tzCache['GMT'] = new DateTimeZone('GMT');
+    }
+
+    public static function transliterate($str, $filler='-')
+    {
+        return strtolower(trim(preg_replace('#[^0-9a-z]+#i', $filler,
+            strtr($str, static::$_transliterateMap)), $filler));
     }
 
     public static function setCurrentLanguage($lang)

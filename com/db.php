@@ -460,6 +460,11 @@ class BDb
         return $result;
     }
 
+    public static function getMigrationData()
+    {
+        return static::$_migration;
+    }
+
     /**
     * Declare DB Migration script for a module
     *
@@ -499,7 +504,7 @@ class BDb
         if (empty(static::$_migration)) {
             return;
         }
-        if (!BDebug::i()->is('debug,development,migrate')) {
+        if (!BDebug::i()->is('DEBUG,DEVELOPMENT,MIGRATION')) {
             return;
         }
         $modReg = BModuleRegistry::i();
@@ -810,6 +815,27 @@ class BORM extends ORMWrapper
     * @var string|null
     */
     protected $_writeConnectionName;
+
+    /**
+    * Read DB name
+    *
+    * @var string
+    */
+    protected $_readDbName;
+
+    /**
+    * Write DB name
+    *
+    * @var string
+    */
+    protected $_writeDbName;
+
+    /**
+    * Old values in the object before ->set()
+    *
+    * @var array
+    */
+    protected $_old_values = array();
 
     /**
     * Shortcut factory for generic instance
@@ -1124,6 +1150,10 @@ exit;
             || is_scalar($this->_data[$key]) && is_scalar($value)
                 && ((string)$this->_data[$key] !== (string)$value)
         ) {
+#echo "DIRTY: "; var_dump($this->_data[$key], $value); echo "\n";
+            if (!array_key_exists($key, $this->_old_values)) {
+                $this->_old_values[$key] = array_key_exists($key, $this->_data) ? $this->_data[$key] : BNULL;
+            }
             $this->_dirty_fields[$key] = $value;
         }
         $this->_data[$key] = $value;
@@ -1166,7 +1196,18 @@ exit;
     {
         BDb::connect($this->_writeConnectionName);
         $this->_dirty_fields = BDb::cleanForTable($this->_table_name, $this->_dirty_fields);
-        $result = parent::save();
+        if (true) {
+            #if (array_diff_assoc($this->_old_values, $this->_dirty_fields)) {
+                $result = parent::save();
+            #}
+        } else {
+            echo $this->_class_name.'['.$this->id.']: ';
+            print_r($this->_data);
+            echo 'FROM: '; print_r($this->_old_values);
+            echo 'TO: '; print_r($this->_dirty_fields); echo "\n\n";
+            $result = true;
+        }
+        $this->_old_values = array();
         return $result;
     }
 
@@ -1402,7 +1443,7 @@ class BModel extends Model
     *
     * @var array
     */
-    protected $_instanceCache = array();
+    protected static $_instanceCache = array();
 
     /**
     * TRUE after save if a new record
@@ -1736,7 +1777,9 @@ class BModel extends Model
         $class = $this->_origClass();
         if (!empty(static::$_cache[$class][$field])) {
             foreach (static::$_cache[$class][$field] as $c) {
-                if ($c->is_dirty()) $c->save();
+                if ($c->is_dirty()) {
+                    $c->save();
+                }
             }
         }
         return $this;
@@ -2002,22 +2045,25 @@ class BModel extends Model
     */
     public function instanceCache($key, $value=null)
     {
+        $thisHash = spl_object_hash($this);
         if (null===$value) {
-            return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
+            return isset(static::$_instanceCache[$thisHash][$key]) ? static::$_instanceCache[$thisHash][$key] : null;
         }
-        $this->_instanceCache[$key] = $value;
+        static::$_instanceCache[$thisHash][$key] = $value;
         return $this;
     }
 
     public function saveInstanceCache($key, $value)
     {
-        $this->_instanceCache[$key] = $value;
+        $thisHash = spl_object_hash($this);
+        static::$_instanceCache[$thisHash][$key] = $value;
         return $this;
     }
 
     public function loadInstanceCache($key)
     {
-        return isset($this->_instanceCache[$key]) ? $this->_instanceCache[$key] : null;
+        $thisHash = spl_object_hash($this);
+        return isset(static::$_instanceCache[$thisHash][$key]) ? static::$_instanceCache[$thisHash][$key] : null;
     }
 
     /**
@@ -2048,7 +2094,6 @@ class BModel extends Model
             }
             $this->saveInstanceCache($cacheKey, $model);
         }
-
         return $model;
     }
 
@@ -2084,7 +2129,19 @@ class BModel extends Model
 
     public function __destruct()
     {
-        unset(static::$_cache[$this->_origClass()], $this->_instanceCache);
+        if ($this->orm) {
+            $class = $this->_origClass();
+            if (!empty(static::$_cache[$class])) {
+                foreach (static::$_cache[$class] as $key=>$cache) {
+                    $keyValue = $this->get($key);
+                    if (!empty($cache[$keyValue])) {
+                        unset(static::$_cache[$class][$keyValue]);
+                    }
+                }
+            }
+
+            unset(static::$_instanceCache[spl_object_hash($this)]);
+        }
     }
 
     public function fieldOptions($field, $key=null)

@@ -79,6 +79,13 @@ class BApp extends BClass
     protected $_vars = array();
 
     /**
+    * Flags whether vars shouldn't be changed
+    *
+    * @var mixed
+    */
+    protected $_isConst = array();
+
+    /**
     * Verify if a feature is currently supported. Features:
     *
     * - PHP5.3
@@ -178,7 +185,9 @@ class BApp extends BClass
         BModuleRegistry::i()->bootstrap();
 
         // run module migration scripts if neccessary
-        BDb::i()->runMigrationScripts();
+        if (BConfig::i()->get('db/implicit_migration')) {
+            BDb::i()->runMigrationScripts();
+        }
 
         // dispatch requested controller action
         BFrontController::i()->dispatch();
@@ -272,9 +281,14 @@ class BApp extends BClass
         return $m->$method() . '/' . rtrim($url, '/');
     }
 
-    public function set($key, $val)
+    public function set($key, $val, $const=false)
     {
+        if (!empty($this->_isConst[$key])) {
+            BDebug::warning('Trying to reset a constant var: '.$key.' = '.$val);
+            return $this;
+        }
         $this->_vars[$key] = $val;
+        if ($const) $this->_isConst[$key] = true;
         return $this;
     }
 
@@ -364,7 +378,8 @@ class BConfig extends BClass
     public function addFile($filename, $toSave=false)
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-        if (!BUtil::isPathAbsolute($filename) && ($dir = $this->get('config_dir'))) {
+#echo "<pre>"; print_r($this); echo "</pre>";
+        if (!BUtil::isPathAbsolute($filename) && ($dir = $this->get('fs/config_dir'))) {
             $filename = $dir.'/'.$filename;
         }
         if (!is_readable($filename)) {
@@ -476,7 +491,7 @@ class BConfig extends BClass
         }
 
         if (!BUtil::isPathAbsolute($filename)) {
-            $filename = BConfig::i()->get('config_dir').'/'.$filename;
+            $filename = BConfig::i()->get('fs/config_dir').'/'.$filename;
         }
         // Write contents
         if (!file_put_contents($filename, $contents, LOCK_EX)) {
@@ -1039,6 +1054,7 @@ class BClassAutoload extends BClass
     */
     public function callback($class)
     {
+#echo $this->root_dir.' : '.$class.'<br>';
         if ($this->filename_cb) {
             $file = call_user_func($this->filename_cb, $class);
         } else {

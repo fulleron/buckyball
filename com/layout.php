@@ -62,6 +62,12 @@ class BLayout extends BClass
         'view' => 'BLayout::metaDirectiveViewCallback',
     );
 
+    protected static $_extRenderers = array(
+        '.php' => array(),
+    );
+
+    protected static $_extRegex = '\.php';
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -106,6 +112,16 @@ class BLayout extends BClass
         return $this;
     }
 
+    public function addExtRenderer($ext, $params)
+    {
+        if (is_string($params)) {
+            $params = array('renderer'=>$params);
+        }
+        static::$_extRenderers[$ext] = $params;
+        static::$_extRegex = join('|', array_map('preg_quote', array_keys(static::$_extRenderers)));
+        return $this;
+    }
+
     /**
     * put your comment there...
     *
@@ -134,7 +150,8 @@ class BLayout extends BClass
         if (is_null($rootDir)) {
             return $this->_views;
         }
-        if (($curModule = BModuleRegistry::i()->currentModule())) {
+        $curModule = BModuleRegistry::i()->currentModule();
+        if ($curModule && !BUtil::isPathAbsolute($rootDir)) {
             $rootDir = $curModule->root_dir.'/'.$rootDir;
         }
         if (!is_dir($rootDir)) {
@@ -153,7 +170,7 @@ class BLayout extends BClass
         if ($prefix) {
             $prefix = rtrim($prefix, '/').'/';
         }
-        $re = '#^('.preg_quote(realpath($rootDir).'/', '#').')(.*)(\.php)$#';
+        $re = '#^('.preg_quote(realpath($rootDir).'/', '#').')(.*)('.static::$_extRegex.')$#';
         foreach ($files as $file) {
             if (!is_file($file)) {
                 continue;
@@ -161,7 +178,7 @@ class BLayout extends BClass
             if (preg_match($re, $file, $m)) {
 #echo $re.', '.$file; print_r($m); echo '<hr>';
                 //$this->view($prefix.$m[2], array('template'=>$m[2].$m[3]));
-                $this->view($prefix.$m[2], array('template'=>$file));
+                $this->view($prefix.$m[2], array('template'=>$file)+static::$_extRenderers[$m[3]]);
             }
         }
         return $this;
@@ -251,6 +268,17 @@ class BLayout extends BClass
             ));
         }
         return $this;
+    }
+
+    public function findViewsRegex($re)
+    {
+        $views = array();
+        foreach ($this->_views as $viewName=>$view) {
+            if (preg_match($re, $viewName)) {
+                $views[$viewName] = $view;
+            }
+        }
+        return $views;
     }
 
     /**
@@ -1267,6 +1295,11 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
 
         $file = !empty($args['file']) ? $args['file'] : $name;
         if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
+            $mod = BApp::m($m[1]);
+            if (!$mod) {
+                BDebug::notice('Module not found: '.$file);
+                return '';
+            }
             $fsFile = str_replace('{'.$m[1].'}', BApp::m($m[1])->root_dir, $file);
             $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
             if (file_exists($fsFile)) {

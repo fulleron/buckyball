@@ -734,21 +734,6 @@
             return $this;
         }
 
-        /**
-         * Add an ORDER BY expression DESC clause
-         */
-        public function order_by_expr_desc($expression) {
-            $this->_order_by[] = "{$expression} DESC";
-            return $this;
-        }
-
-        /**
-         * Add an ORDER BY expression ASC clause
-         */
-        public function order_by_expr_asc($expression) {
-            $this->_order_by[] = "{$expression} ASC";
-            return $this;
-        }
 
         /**
          * Add an ORDER BY column DESC clause

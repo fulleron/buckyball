@@ -340,6 +340,9 @@ if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre
          * Getter method, allows $model->get('property') access to data
          */
         public function get($property) {
+if (!$this->orm) {
+    debug_print_backtrace();
+}
             return $this->orm->get($property);
         }
 

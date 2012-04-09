@@ -1295,6 +1295,11 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
 
         $file = !empty($args['file']) ? $args['file'] : $name;
         if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
+            $mod = BApp::m($m[1]);
+            if (!$mod) {
+                BDebug::notice('Module not found: '.$file);
+                return '';
+            }
             $fsFile = str_replace('{'.$m[1].'}', BApp::m($m[1])->root_dir, $file);
             $file = str_replace('{'.$m[1].'}', BApp::m($m[1])->baseSrc(), $file);
             if (file_exists($fsFile)) {

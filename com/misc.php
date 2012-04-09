@@ -1103,7 +1103,7 @@ class BDebug extends BClass
 
     static protected $_modules = array();
 
-    static protected $_mode = 'DEVELOPMENT';
+    static protected $_mode = 'PRODUCTION';
 
     static protected $_startTime;
     static protected $_events = array();

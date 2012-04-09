@@ -80,7 +80,7 @@ class BModuleRegistry extends BClass
             if ($area = BApp::i()->get('area')) {
                 $this->_area = $area;
             } else {
-                $this->_area = false;
+                $this->_area = null; // false;
             }
         }
         if ($this->_area && !empty($params['areas'][$this->_area])) {
@@ -159,7 +159,7 @@ class BModuleRegistry extends BClass
             if (!empty($manifest['modules'])) {
                 foreach ($manifest['modules'] as $modName=>$params) {
                     $params['manifest_file'] = $file;
-                    $this->module($modName, $params);
+                    $this->addModule($modName, $params);
                 }
             }
             if (!empty($manifest['include'])) {

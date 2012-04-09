@@ -150,7 +150,8 @@ class BLayout extends BClass
         if (is_null($rootDir)) {
             return $this->_views;
         }
-        if (($curModule = BModuleRegistry::i()->currentModule())) {
+        $curModule = BModuleRegistry::i()->currentModule();
+        if ($curModule && !BUtil::isPathAbsolute($rootDir)) {
             $rootDir = $curModule->root_dir.'/'.$rootDir;
         }
         if (!is_dir($rootDir)) {

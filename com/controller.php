@@ -123,6 +123,26 @@ class BRequest extends BClass
     }
 
     /**
+    * Entry point script file name
+    *
+    * @return string
+    */
+    public static function scriptFilename()
+    {
+        return !empty($_SERVER['SCRIPT_FILENAME']) ? $_SERVER['SCRIPT_FILENAME'] : null;
+    }
+
+    /**
+    * Entry point directory name
+    *
+    * @return string
+    */
+    public static function scriptDir()
+    {
+        return ($script = static::scriptFilename()) ? dirname($script) : null;
+    }
+
+    /**
     * Web root path for current application
     *
     * If request is /folder1/folder2/index.php, return /folder1/folder2/

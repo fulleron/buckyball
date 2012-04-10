@@ -760,7 +760,7 @@ class BMigrate extends BClass
     *
     * @return array
     */
-    public static function getModulesData()
+    public static function getMigrationData()
     {
         $migration = array();
         foreach (BModuleRegistry::getAllModules() as $modName=>$mod) {
@@ -823,7 +823,7 @@ class BMigrate extends BClass
     public static function migrateModules($limitModules=false)
     {
         $modReg = BModuleRegistry::i();
-        $migration = static::getModulesData();
+        $migration = static::getMigrationData();
         if (!$migration) {
             return;
         }

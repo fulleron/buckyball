@@ -1027,12 +1027,13 @@ class BDebug extends BClass
         OUTPUT    = 8,
         STOP      = 4096;
 
-    const MODE_DEBUG     = 'DEBUG',
-        MODE_DEVELOPMENT = 'DEVELOPMENT',
-        MODE_STAGING     = 'STAGING',
-        MODE_PRODUCTION  = 'PRODUCTION',
-        MODE_MIGRATION   = 'MIGRATION',
-        MODE_RECOVERY    = 'RECOVERY';
+    const MODE_DEBUG      = 'DEBUG',
+        MODE_DEVELOPMENT  = 'DEVELOPMENT',
+        MODE_STAGING      = 'STAGING',
+        MODE_PRODUCTION   = 'PRODUCTION',
+        MODE_MIGRATION    = 'MIGRATION',
+        MODE_INSTALLATION = 'INSTALLATION',
+        MODE_RECOVERY     = 'RECOVERY';
 
 
     /**
@@ -1092,6 +1093,14 @@ class BDebug extends BClass
             self::STOP      => self::ERROR,
         ),
         self::MODE_MIGRATION => array(
+            self::MEMORY    => self::DEBUG,
+            self::SYSLOG    => false,
+            self::FILE      => self::WARNING,
+            self::EMAIL     => false,//self::CRITICAL,
+            self::OUTPUT    => self::NOTICE,
+            self::STOP      => self::ERROR,
+        ),
+        self::MODE_INSTALLATION => array(
             self::MEMORY    => self::DEBUG,
             self::SYSLOG    => false,
             self::FILE      => self::WARNING,

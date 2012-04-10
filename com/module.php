@@ -51,6 +51,11 @@ class BModuleRegistry extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    public static function getAllModules()
+    {
+        return static::$_modules;
+    }
+
     /**
     * Register or return module object
     *
@@ -248,7 +253,7 @@ class BModuleRegistry extends BClass
             if (!is_object($mod)) {
                 var_dump($mod); exit;
             }
-            if ($mod->errors && !$mod->errorsPropagated) {
+            if ($mod->errors && !$mod->errors_propagated) {
                 // propagate dependency errors into subdependent modules
                 $this->propagateDependErrors($mod);
             } elseif ($mod->run_status===BModule::PENDING) {
@@ -269,7 +274,7 @@ class BModuleRegistry extends BClass
     {
         //$mod->action = !empty($dep['action']) ? $dep['action'] : 'error';
         $mod->run_status = BModule::ERROR;
-        $mod->errorsPropagated = true;
+        $mod->errors_propagated = true;
         foreach ($mod->children as $childName) {
             if (empty(static::$_modules[$childName])) {
                 continue;
@@ -473,7 +478,9 @@ class BModule extends BClass
     public $children = array();
     public $update;
     public $errors = array();
-    public $errorsPropagated;
+    public $errors_propagated;
+    public $description;
+    public $migrate;
 
     const
         // run_level
@@ -729,6 +736,294 @@ class BModule extends BClass
     }
 }
 
+class BMigrate extends BClass
+{
+    /**
+    * Information about current module being migrated
+    *
+    * @var array
+    */
+    protected static $_migratingModule;
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BMigrate
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
+    }
+
+    /**
+    * Collect migration data from all modules
+    *
+    * @return array
+    */
+    public static function getModulesData()
+    {
+        $migration = array();
+        foreach (BModuleRegistry::getAllModules() as $modName=>$mod) {
+            if ($mod->version && $mod->migrate) {
+                $connName = $mod->db_connection_name ? $mod->db_connection_name : 'DEFAULT';
+                $migration[$connName][$modName] = array(
+                    'code_version' => $mod->version,
+                    'script' => $mod->migrate,
+                    'run_status' => $mod->run_status,
+                    'module_name' => $modName,
+                    'connection_name' => $connName,
+                );
+            }
+        }
+        return $migration;
+    }
+
+    /**
+    * Declare DB Migration script for a module
+    *
+    * @param string $script callback, script file name, script class name or directory
+    * @param string|null $moduleName if null, use current module
+    */
+    /*
+    public static function migrate($script='migrate.php', $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::currentModuleName();
+        }
+        $module = BModuleRegistry::i()->module($moduleName);
+        $connectionName = $module->db_connection_name ? $module->db_connection_name : 'DEFAULT';
+        static::$_migration[$connectionName][$moduleName]['script'] = $script;
+    }
+    */
+
+    /**
+    * Declare DB uninstallation script for a module
+    *
+    * @param mixed $script
+    * @param empty $moduleName
+    */
+    /*
+    public static function uninstall($script, $moduleName=null)
+    {
+        if (is_null($moduleName)) {
+            $moduleName = BModuleRegistry::currentModuleName();
+        }
+        static::$_uninstall[$moduleName]['script'] = $script;
+    }
+    */
+
+    /**
+    * Run declared migration scripts to install or upgrade module DB scheme
+    *
+    * @param mixed $limitModules
+    *   - false: migrate ALL declared modules (including disabled)
+    *   - true: migrate only enabled modules in current request
+    *   - array or comma separated string: migrate only specified modules
+    */
+    public static function migrateModules($limitModules=false)
+    {
+        $modReg = BModuleRegistry::i();
+        $migration = static::getModulesData();
+        if (!$migration) {
+            return;
+        }
+        if (is_string($limitModules)) {
+            $limitModules = explode(',', $limitModules);
+        }
+        // initialize module tables
+        // find all installed modules
+        foreach ($migration as $connectionName=>&$modules) {
+            if ($limitModules) {
+                foreach ($modules as $modName=>$mod) {
+                    if ((true===$limitModules && $mod['run_status']==='LOADED')
+                        || (is_array($limitModules) && in_array($modName, $limitModules))
+                    ) {
+                        continue;
+                    }
+                    unset($modules[$modName]);
+                }
+            }
+            BDb::connect($connectionName); // switch connection
+            BDbModule::init(); // Ensure modules table in current connection
+            // collect module db schema versions
+            $dbModules = BDbModule::i()->factory()->find_many();
+            foreach ($dbModules as $m) {
+                if ($m->last_status==='INSTALLING') { // error during last installation
+                    $m->delete();
+                    continue;
+                }
+                $modules[$m->module_name]['schema_version'] = $m->schema_version;
+            }
+
+            // run required migration scripts
+            foreach ($modules as $modName=>$mod) {
+                if (empty($mod['code_version'])) {
+                    continue; // skip migration of registered module that is not current active
+                }
+                if (empty($mod['script'])) {
+                    BDebug::warning('No migration script found: '.$modName);
+                    continue;
+                }
+                $modReg->currentModule($modName);
+                $script = $mod['script'];
+                $module = $modReg->module($modName);
+                static::$_migratingModule =& $mod;
+                /*
+                try {
+                    BDb::transaction();
+                */
+                    BDebug::debug('DB.MIGRATE '.$script);
+                    if (is_callable($script)) {
+                        call_user_func($script);
+                    } elseif (is_file($module->root_dir.'/'.$script)) {
+                        include_once($module->root_dir.'/'.$script);
+                    } elseif (is_dir($module->root_dir.'/'.$script)) {
+                        //TODO: process directory of migration scripts
+                    } elseif (class_exists($script, true)) {
+                        $script::i()->run();
+                    }
+                /*
+                    BDb::commit();
+                } catch (Exception $e) {
+                    BDb::rollback();
+                    throw $e;
+                }
+                */
+            }
+        }
+        unset($modules);
+        $modReg->currentModule(null);
+        static::$_migratingModule = null;
+    }
+
+    /**
+    * Run module DB installation scripts and set module db scheme version
+    *
+    * @param string $version
+    * @param mixed $callback SQL string, callback or file name
+    */
+    public static function install($version, $callback)
+    {
+        $mod =& static::$_migratingModule;
+        // if no code version set, return
+        if (empty($mod['code_version'])) {
+            return false;
+        }
+        // if schema version exists, skip
+        if (!empty($mod['schema_version'])) {
+            return true;
+        }
+BDebug::debug(__METHOD__.': '.var_export($mod, 1));
+        // creating module before running install, so the module configuration values can be created within script
+        $module = BDbModule::i()->create(array(
+            'module_name' => $mod['module_name'],
+            'schema_version' => $version,
+            'last_upgrade' => BDb::now(),
+            'last_status' => 'INSTALLING',
+        ))->save();
+        // call install migration script
+        try {
+            if (is_callable($callback)) {
+                call_user_func($callback);
+            } elseif (is_file($callback)) {
+                include $callback;
+            } elseif (is_string($callback)) {
+                BDb::run($callback);
+            }
+            $module->set(array('last_status'=>'INSTALLED'))->save();
+            $mod['schema_version'] = $version;
+        } catch (Exception $e) {
+            // delete module schema record if unsuccessful
+            $module->delete();
+            throw $e;
+        }
+        return true;
+    }
+
+    /**
+    * Run module DB upgrade scripts for specific version difference
+    *
+    * @param string $fromVersion
+    * @param string $toVersion
+    * @param mixed $callback SQL string, callback or file name
+    */
+    public static function upgrade($fromVersion, $toVersion, $callback)
+    {
+        $mod =& static::$_migratingModule;
+        // if no code version set, return
+        if (empty($mod['code_version'])) {
+            return false;
+        }
+        // if schema doesn't exist, throw exception
+        if (empty($mod['schema_version'])) {
+            throw new BException(BLocale::_("Can't upgrade, module schema doesn't exist yet: %s", BModuleRegistry::currentModuleName()));
+        }
+        $schemaVersion = $mod['schema_version'];
+
+        // if schema is newer than requested FROM version, skip
+        if (version_compare($schemaVersion, $fromVersion, '>')) {
+            return true;
+        }
+        $module = BDbModule::i()->load($mod['module_name'], 'module_name')->set(array(
+            'last_upgrade' => BDb::now(),
+            'last_status'=>'UPGRADING',
+        ))->save();
+        // call upgrade migration script
+        try {
+            if (is_callable($callback)) {
+                call_user_func($callback);
+            } elseif (is_file($callback)) {
+                include $callback;
+            } elseif (is_string($callback)) {
+                BDb::run($callback);
+            }
+            // update module schema version to new one
+            $mod['schema_version'] = $toVersion;
+            $module->set(array(
+                'schema_version' => $toVersion,
+            ))->save();
+        } catch (Exception $e) {
+            $module->set(array('last_status'=>'UPGRADED'))->save();
+            throw $e;
+        }
+        return true;
+    }
+
+    /**
+    * Run declared uninstallation scripts on module uninstall
+    *
+    * @param string $modName
+    * @return boolean
+    */
+    public static function runUninstallScript($modName=null)
+    {
+        if (is_null($modName)) {
+            $modName = BModuleRegistry::currentModuleName();
+        }
+        $mod =& static::$_migratingModule;
+
+        // if no code version set, return
+        if (empty($mod['code_version'])) {
+            return false;
+        }
+        // if module schema doesn't exist, skip
+        if (empty($mod['schema_version'])) {
+            return true;
+        }
+        // call uninstall migration script
+        if (is_callable($callback)) {
+            call_user_func($callback);
+        } elseif (is_file($callback)) {
+            include $callback;
+        } elseif (is_string($callback)) {
+            BDb::run($callback);
+        }
+        // delete module schema version from db, related configuration entries will be deleted
+        BDbModule::i()->load($mod['module_name'], 'module_name')->delete();
+        return true;
+    }
+}
+
 
 class BDbModule extends BModel
 {
@@ -736,9 +1031,9 @@ class BDbModule extends BModel
 
     public static function init()
     {
+        //BDb::connect();
         $table = static::table();
-        BDb::connect();
-        if (BDebug::is('debug,development') && !BDb::ddlTableExists($table)) {
+        if (!BDb::ddlTableExists($table)) {
             BDb::run("
 CREATE TABLE {$table} (
 id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -751,10 +1046,10 @@ UNIQUE (module_name)
 ) ENGINE=INNODB;
             ");
         }
-        BDbModuleConfig::init();
+        //BDbModuleConfig::init();
     }
 }
-
+/*
 class BDbModuleConfig extends BModel
 {
     protected static $_table = 'buckyball_module_config';
@@ -777,3 +1072,4 @@ CONSTRAINT `FK_{$modTable}` FOREIGN KEY (`module_id`) REFERENCES `{$modTable}` (
         }
     }
 }
+*/

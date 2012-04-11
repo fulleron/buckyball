@@ -27,7 +27,7 @@ class BphpQuery extends BClass
 
     static public function bootstrap()
     {
-        BPubSub::i()->on('BLayout::render.after', array(__CLASS__, 'onLayoutRenderAfter'));
+        BPubSub::i()->on('BLayout::render.after', 'BphpQuery.onLayoutRenderAfter');
     }
 
     /**

@@ -42,7 +42,11 @@ class BphpQuery extends BClass
 
     public function ready($callback, $args=array())
     {
-        BPubSub::i()->on('BphpQuery::render', $callback, $args);
+        if (empty($args['on_path'])) {
+            BPubSub::i()->on('BphpQuery::render', $callback, $args);
+        } else {
+            BPubSub::i()->on('BphpQuery::render.'.$args['on_path'], $callback, $args);
+        }
         return $this;
     }
 
@@ -50,8 +54,9 @@ class BphpQuery extends BClass
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
         $args['doc'] = $this->doc();
-
+        $args['current_path'] = BRequest::i()->rawPath();
         BPubSub::i()->fire('BphpQuery::render', $args);
+        BPubSub::i()->fire('BphpQuery::render.'.$args['current_path'], $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;

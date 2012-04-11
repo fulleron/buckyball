@@ -116,11 +116,11 @@ class BModuleRegistry extends BClass
                 return $this;
             }
         }
-        if (empty($params['bootstrap']['callback'])) {
-            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
-        } else {
+//        if (empty($params['bootstrap']['callback'])) {
+//            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
+//        } else {
             static::$_modules[$modName] = BModule::i(true, $params);
-        }
+//        }
         return $this;
     }
 
@@ -717,6 +717,10 @@ class BModule extends BClass
 
     public function bootstrap($force=false)
     {
+        if (empty($this->bootstrap)) {
+            BDebug::notice('Module does not have bootstrap: '.$this->name);
+            return $this;
+        }
         if ($this->run_status!==BModule::PENDING && !$force) {
             return $this;
         }

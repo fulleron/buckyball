@@ -27,7 +27,7 @@ class BphpQuery extends BClass
 
     static public function bootstrap()
     {
-        BPubSub::i()->on('layout.render.after', array(__CLASS__, 'observer_layout_render_after'));
+        BPubSub::i()->on('BLayout::render.after', array(__CLASS__, 'onLayoutRenderAfter'));
     }
 
     /**
@@ -42,16 +42,16 @@ class BphpQuery extends BClass
 
     public function ready($callback, $args=array())
     {
-        BPubSub::i()->on('BphpQuery.render', $callback, $args);
+        BPubSub::i()->on('BphpQuery::render', $callback, $args);
         return $this;
     }
 
-    public function observer_layout_render_after($args)
+    public function onLayoutRenderAfter($args)
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
         $args['doc'] = $this->doc();
 
-        BPubSub::i()->fire('BphpQuery.render', $args);
+        BPubSub::i()->fire('BphpQuery::render', $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;

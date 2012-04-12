@@ -16,57 +16,57 @@
 */
 
 /**
-* Wrapper for phpQuery API
+* Wrapper for Ganon API
 *
-* @see http://code.google.com/p/phpquery/
+* @see http://code.google.com/p/ganon/
 */
-class BphpQuery extends BClass
+class BGanon extends BClass
 {
     protected $_doc;
     protected $_html;
 
     static public function bootstrap()
     {
-        BPubSub::i()->on('BLayout::render.after', 'BphpQuery.onLayoutRenderAfter');
+        BPubSub::i()->on('BLayout::render.after', 'BGanon.onLayoutRenderAfter');
     }
 
     /**
     * Shortcut to help with IDE autocompletion
     *
-    * @return BphpQuery
+    * @return BGanon
     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
-    public function ready($callback, $args=array())
-    {
-        if (empty($args['on_path'])) {
-            BPubSub::i()->on('BphpQuery::render', $callback, $args);
-        } else {
-            BPubSub::i()->on('BphpQuery::render.'.$args['on_path'], $callback, $args);
-        }
-        return $this;
-    }
-
     public function onLayoutRenderAfter($args)
     {
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
-        $args['doc'] = $this->doc();
+        //$args['doc'] = $this->doc();
         $args['current_path'] = BRequest::i()->rawPath();
-        BPubSub::i()->fire('BphpQuery::render', $args);
-        BPubSub::i()->fire('BphpQuery::render.'.$args['current_path'], $args);
+        BPubSub::i()->fire('BGanon::render', $args);
+        BPubSub::i()->fire('BGanon::render.'.$args['current_path'], $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;
         }
     }
 
+    public function ready($callback, $args=array())
+    {
+        if (empty($args['on_path'])) {
+            BPubSub::i()->on('BGanon::render', $callback, $args);
+        } else {
+            BPubSub::i()->on('BGanon::render.'.$args['on_path'], $callback, $args);
+        }
+        return $this;
+    }
+
     public function doc($html=null)
     {
         if (is_null($this->_doc)) {
-            require_once "phpQuery/phpQuery.php";
+            require_once "ganon.php";
         }
         if (!is_null($html) || is_null($this->_doc)) {
             if (is_null($html) && is_null($this->_doc)) {
@@ -75,8 +75,8 @@ class BphpQuery extends BClass
             } elseif (!is_null($html) && !is_null($this->_doc)) {
                 unset($this->_doc);
             }
-            $this->_doc = phpQuery::newDocument($html);
-            phpQuery::selectDocument($this->_doc);
+            $a = new HTML_Parser_HTML5($html);
+            $this->_doc = $a->root;
         }
         return $this->_doc;
     }
@@ -86,11 +86,9 @@ class BphpQuery extends BClass
         return $this->doc(file_get_contents($filename));
     }
 
-    public function find($selector)
+    public function find($selector, $idx=null)
     {
-        if (!$this->_doc) {
-            $this->doc();
-        }
-        return pq($selector);
+        $root = $this->doc();
+        return $root($selector, $idx);
     }
 }

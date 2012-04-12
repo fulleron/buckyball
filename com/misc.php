@@ -1033,8 +1033,9 @@ class BDebug extends BClass
         MODE_PRODUCTION   = 'PRODUCTION',
         MODE_MIGRATION    = 'MIGRATION',
         MODE_INSTALLATION = 'INSTALLATION',
-        MODE_RECOVERY     = 'RECOVERY';
-
+        MODE_RECOVERY     = 'RECOVERY',
+        MODE_DISABLED     = 'DISABLED'
+    ;
 
     /**
     * Trigger levels for different actions
@@ -1107,6 +1108,14 @@ class BDebug extends BClass
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
             self::STOP      => self::ERROR,
+        ),
+        self::MODE_DISABLED => array(
+            self::MEMORY    => false,
+            self::SYSLOG    => false,
+            self::FILE      => false,
+            self::EMAIL     => false,
+            self::OUTPUT    => false,
+            self::STOP      => false,
         ),
     );
 

@@ -1,9 +1,9 @@
 {
     "modules": {
-        "BphpQuery": {
-            "root_dir": "BphpQuery",
-            "bootstrap": {"file":"BphpQuery.php", "callback":"BphpQuery::bootstrap"},
-            "version": "0.9.5-0"
+        "BGanon": {
+            "root_dir": "BGanon",
+            "bootstrap": {"file":"BGanon.php", "callback":"BGanon::bootstrap"},
+            "version": "0.5.0"
         },
         "BPHPTAL": {
             "root_dir": "BPHPTAL",

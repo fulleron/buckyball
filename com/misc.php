@@ -660,7 +660,8 @@ class BUtil
     * @param array $data
     * @return string
     */
-    public static function remote($method, $url, $data=array()) {
+    public static function remoteHttp($method, $url, $data=array())
+    {
         $request = http_build_query($data);
         $timeout = 5;
         $userAgent = 'Mozilla/5.0';
@@ -730,7 +731,7 @@ class BUtil
     */
     public static function post($url, $data)
     {
-        list($content) = static::i()->remote('POST', $url, $data);
+        list($content) = static::i()->remoteHttp('POST', $url, $data);
         parse_str($content, $response);
         return $response;
     }

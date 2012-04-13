@@ -448,7 +448,12 @@ class BLayout extends BClass
         $view = $this->view($d['name']);
         if (!empty($d['set'])) {
             foreach ($d['set'] as $k=>$v) {
-                $view->$k = $v;
+                $view->set($k, $v);
+            }
+        }
+        if (!empty($d['param'])) {
+            foreach ($d['param'] as $k=>$v) {
+                $view->param($k, $v);
             }
         }
         if (!empty($d['do'])) {

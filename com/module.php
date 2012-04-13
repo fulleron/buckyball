@@ -320,6 +320,7 @@ class BModuleRegistry extends BClass
         // get modules without dependencies
         $rootModules = array();
         foreach ($modules as $modName=>$mod) {
+            $mod->children_copy = $mod->children;
             if (empty($mod->parents)) {
                 $rootModules[] = $mod;
             }
@@ -476,6 +477,7 @@ class BModule extends BClass
     public $depends = array();
     public $parents = array();
     public $children = array();
+    public $children_copy = array();
     public $update;
     public $errors = array();
     public $errors_propagated;

@@ -9,8 +9,10 @@ BDebug::i()->mode('debug');
 
 #BConfig::i()->addFile('protected/config.json');
 BConfig::i()->add(array(
-    'db' => array('dbname'=>'fulleron', 'username'=>'web', 'password'=>'',
-        'logging'=>true, 'implicit_migration'=>true),
+    'db' => array(
+        'dbname'=>'fulleron', 'username'=>'web', 'password'=>'',
+        'logging'=>true, 'implicit_migration'=>true
+    ),
     'request' => array('module_run_level'=>array('Blog'=>'REQUIRED')),
 ));
 

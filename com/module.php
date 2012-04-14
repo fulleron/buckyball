@@ -591,9 +591,21 @@ class BModule extends BClass
         static::$_env['web_root'] = $r->webRoot();
         static::$_env['http_host'] = $r->httpHost();
         static::$_env['root_dir'] = $c->get('fs/root_dir');
-        static::$_env['base_src'] = '//'.static::$_env['http_host'].$c->get('web/base_src');
-        static::$_env['base_href'] = '//'.static::$_env['http_host'].$c->get('web/base_href');
-
+        if (($rootDir = $c->get('fs/root_dir'))) {
+            static::$_env['root_dir'] = $rootDir;
+        } else {
+            static::$_env['root_dir'] = $r->scriptDir();;
+        }
+        if (($baseSrc = $c->get('web/base_src'))) {
+            static::$_env['base_src'] = '//'.static::$_env['http_host'].$baseSrc;
+        } else {
+            static::$_env['base_src'] = static::$_env['web_root'];
+        }
+        if (($baseHref = $c->get('web/base_href'))) {
+            static::$_env['base_href'] = '//'.static::$_env['http_host'].$c->get('web/base_href');
+        } else {
+            static::$_env['base_href'] = static::$_env['web_root'];
+        }
         foreach (static::$_manifestCache as &$m) {
             $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
         }
@@ -612,7 +624,9 @@ class BModule extends BClass
             $this->view_root_dir = $this->root_dir;
         }
         if (empty($this->base_src)) {
-            $this->base_src = BUtil::normalizePath(rtrim($m['base_src'].str_replace($m['root_dir'], '', $this->root_dir), '/'));
+            $url = $m['base_src'];
+            $url .= str_replace($m['root_dir'], '', $this->root_dir);
+            $this->base_src = BUtil::normalizePath(rtrim($url, '/'));
         }
         if (empty($this->base_href)) {
             $this->base_href = static::$_env['base_href'];

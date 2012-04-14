@@ -1,5 +1,4 @@
 {
-    "devmode": true,
     "db": {
         "engine": "mysql",
         "host": "127.0.0.1",
@@ -8,9 +7,9 @@
         "password": "",
         "logging": true
     },
-    "modules": {
-        "Blog": {
-            "run_level": "REQUIRED"
+    "request": {
+        "module_run_level": {
+            "Blog": "REQUIRED"
         }
     }
 }

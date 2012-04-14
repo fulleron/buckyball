@@ -1246,7 +1246,7 @@ class BDebug extends BClass
             return static::$_mode;
         }
         self::$_mode = $mode;
-        if ($setLevels) {
+        if ($setLevels && !empty(static::$_levelPreset[$mode])) {
             static::$_level = static::$_levelPreset[$mode];
         }
     }

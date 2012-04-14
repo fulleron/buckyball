@@ -17,32 +17,28 @@
 
 class Blog
 {
-    static public function init()
+    static public function bootstrap()
     {
         BFrontController::i()
         // public access
-            ->route('GET /', 'Blog_Public.index')
-            ->route('GET /posts/:post_id', 'Blog_Public.post')
-            ->route('POST /posts/:post_id/comments/', 'Blog_Public.new_comment')
+            ->route('GET /', 'Blog_Controller_Public.index')
+            ->route('GET /posts/:post_id', 'Blog_Controller_Public.post')
+            ->route('POST /posts/:post_id/comments/', 'Blog_Controller_Public.new_comment')
 
         // admin access
-            ->route('POST /login', 'Blog_Admin.login')
-            ->route('POST /posts/', 'Blog_Admin.new_post')
-            ->route('POST /posts/:post_id', 'Blog_Admin.update_post')
-            ->route('POST /posts/:post_id/comments/:com_id', 'Blog_Admin.update_comment')
-            ->route('GET /comments/', 'Blog_Admin.comments')
-            ->route('GET /logout', 'Blog_Admin.logout')
+            ->route('POST /login', 'Blog_Controller_Admin.login')
+            ->route('POST /posts/', 'Blog_Controller_Admin.new_post')
+            ->route('POST /posts/:post_id', 'Blog_Controller_Admin.update_post')
+            ->route('POST /posts/:post_id/comments/:com_id', 'Blog_Controller_Admin.update_comment')
+            ->route('GET /comments/', 'Blog_Controller_Admin.comments')
+            ->route('GET /logout', 'Blog_Controller_Admin.logout')
         ;
 
-        BLayout::i()
-            ->rootView('main')
-            ->allViews('protected/view')
+        BLayout::i()->addAllViews('views')
             ->view('head', array('view_class'=>'BViewHead'))
         ;
 
-        BPubSub::i()->on('BLayout::render.before', 'Blog::layout_render_before');
-
-        BDb::migrate('Blog::migrate');
+        BPubSub::i()->on('BLayout::render.before', 'Blog::onRenderBefore');
     }
 
     public static function user()
@@ -52,7 +48,8 @@ class Blog
 
     public static function redirect($url, $status, $msg, $msgArgs=array())
     {
-        $url = BApp::url('Blog', $url).'?status='.$status.'&msg='.urlencode(BApp::t($msg, $msgArgs));
+        $url = BApp::href($url).'?'
+            .http_build_query(array('status'=>$status, 'msg'=>BApp::t($msg, $msgArgs)));
         BResponse::i()->redirect($url);
     }
 
@@ -61,14 +58,13 @@ class Blog
         return strip_tags($str, '<a><p><b><i><u><ul><ol><li><strong><em><br><img>');
     }
 
-    public static function layout_render_before($args)
+    public static function onRenderBefore($args)
     {
         $layout = BLayout::i();
-        $layout->view('head')->css('css/common.css', array());
-
+        $layout->view('head')->css('{Blog}/css/common.css');
         $request = BRequest::i();
         if ($request->get('status') && $request->get('msg')) {
-            $layout->view('main')->set(array(
+            $layout->view('root')->set(array(
                 'messageClass' => $request->get('status'),
                 'message' => $request->get('msg'),
             ));
@@ -77,7 +73,7 @@ class Blog
 
     public static function migrate()
     {
-        BDb::install('0.1.0', "
+        BMigrate::install('0.1.0', "
 
 CREATE TABLE IF NOT EXISTS `".BlogPost::table()."` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
@@ -109,13 +105,13 @@ class BlogPost extends BModel {}
 
 class BlogPostComment extends BModel {}
 
-class Blog_Public extends BActionController
+class Blog_Controller_Public extends BActionController
 {
     public function action_index()
     {
         $layout = BLayout::i();
         $layout->hookView('body', 'index');
-        $layout->view('index')->posts = BlogPost::factory()->table_alias('b')
+        $layout->view('index')->posts = BlogPost::i()->orm('b')
             ->select('id')->select('title')->select('preview')->select('posted_at')
             ->select_expr('(select count(*) from '.BlogPostComment::table().' where post_id=b.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
@@ -132,7 +128,7 @@ class Blog_Public extends BActionController
             Blog::redirect('/', 'error', "Post not found!");
             #$this->forward('noroute');
         }
-        $commentsORM = BlogPostComment::factory()
+        $commentsORM = BlogPostComment::i()->orm('pc')
             ->select('id')->select('name')->select('body')->select('posted_at')->select('approved')
             ->where('post_id', $postId)
             ->order_by_asc('posted_at');
@@ -159,7 +155,7 @@ class Blog_Public extends BActionController
             if (!$request->post('name') || !$request->post('body')) {
                 throw new Exception("Not enough information for comment!");
             }
-            $comment = BlogPostComment::create(array(
+            $comment = BlogPostComment::i()->create(array(
                 'post_id'   => $post->id,
                 'name'      => $request->post('name'),
                 'body'      => $request->post('body'),
@@ -182,7 +178,7 @@ class Blog_Public extends BActionController
     }
 }
 
-class Blog_Admin extends BActionController
+class Blog_Controller_Admin extends BActionController
 {
     public function authenticate($args=array())
     {
@@ -217,7 +213,7 @@ class Blog_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
 
-            $post = BlogPost::create(array(
+            $post = BlogPost::i()->create(array(
                 'title' => $request->post('title'),
                 'preview' => $request->post('preview'),
                 'body' => $request->post('body'),
@@ -262,11 +258,11 @@ class Blog_Admin extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::load($request->params('post_id'));
+            $post = BlogPost::i()->load($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post ID");
             }
-            $comment = BlogPostComment::load($request->params('com_id'));
+            $comment = BlogPostComment::i()->load($request->params('com_id'));
             if (!$comment || $comment->post_id != $post->id) {
                 throw new Exception("Invalid comment ID");
             }

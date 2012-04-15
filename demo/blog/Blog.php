@@ -48,8 +48,10 @@ class Blog
 
     public static function redirect($url, $status, $msg, $msgArgs=array())
     {
-        $url = BApp::href($url).'?'
-            .http_build_query(array('status'=>$status, 'msg'=>BApp::t($msg, $msgArgs)));
+        $url = BApp::href($url).'?'.http_build_query(array(
+            'status' => $status,
+            'msg'    => BApp::t($msg, $msgArgs),
+        ));
         BResponse::i()->redirect($url);
     }
 
@@ -112,7 +114,7 @@ class Blog_Controller_Public extends BActionController
         $layout = BLayout::i();
         $layout->hookView('body', 'index');
         $layout->view('index')->posts = BlogPost::i()->orm('b')
-            ->select('id')->select('title')->select('preview')->select('posted_at')
+            ->select(array('id', 'title', 'preview', 'posted_at'))
             ->select_expr('(select count(*) from '.BlogPostComment::table().' where post_id=b.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
             ->find_many();
@@ -129,7 +131,7 @@ class Blog_Controller_Public extends BActionController
             #$this->forward('noroute');
         }
         $commentsORM = BlogPostComment::i()->orm('pc')
-            ->select('id')->select('name')->select('body')->select('posted_at')->select('approved')
+            ->select(array('id', 'name', 'body', 'posted_at', 'approved'))
             ->where('post_id', $postId)
             ->order_by_asc('posted_at');
         if (!Blog::user()) {
@@ -148,7 +150,7 @@ class Blog_Controller_Public extends BActionController
     {
         $request = BRequest::i();
         try {
-            $post = BlogPost::load($request->params('post_id'));
+            $post = BlogPost::i()->load($request->params('post_id'));
             if (!$post) {
                 throw new Exception("Invalid post");
             }
@@ -212,15 +214,9 @@ class Blog_Controller_Admin extends BActionController
             if (!$request->post('title') || !$request->post('body')) {
                 throw new Exception("Invalid post data");
             }
-
-            $post = BlogPost::i()->create(array(
-                'title' => $request->post('title'),
-                'preview' => $request->post('preview'),
-                'body' => $request->post('body'),
-                'posted_at' => BDb::now(),
-            ));
-            $post->save();
-
+            $post = BlogPost::i()->create(array('posted_at' => BDb::now()))
+                ->set(BUtil::maskFields($request, 'title,preview,body'))
+                ->save();
             Blog::redirect('/posts/'.$post->id, 'success',  "New post has been created!");
         } catch (Exception $e) {
             Blog::redirect('/', 'error', $e->getMessage());
@@ -243,10 +239,7 @@ class Blog_Controller_Admin extends BActionController
                 $post->delete();
                 Blog::redirect('/', 'success',  "The post has been deleted!");
             } else {
-                $post->title = $request->post('title');
-                $post->preview = $request->post('preview');
-                $post->body = $request->post('body');
-                $post->save();
+                $post->set(BUtil::maskFields($request, 'title,preview,body'))->save();
                 Blog::redirect('/posts/'.$post->id, 'success',  "The post has been updated!");
             }
         } catch (Exception $e) {

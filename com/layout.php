@@ -567,8 +567,8 @@ class BLayout extends BClass
     */
     public function dispatch($eventName, $routeName=null, $args=array())
     {
-        if (is_null($routeName) && ($node = BFrontController::i()->currentNode())) {
-            $args['route_name'] = $routeName = $node->route_name;
+        if (is_null($routeName) && ($route = BFrontController::i()->currentRoute())) {
+            $args['route_name'] = $routeName = $route->route_name;
         }
         $result = BPubSub::i()->fire("BLayout::{$eventName}", $args);
 

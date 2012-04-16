@@ -896,6 +896,8 @@ class BFrontController extends BClass
     */
     protected $_routes = array();
 
+    protected $_routesRegex = array();
+
     /**
     * Partial route changes
     *
@@ -908,14 +910,7 @@ class BFrontController extends BClass
     *
     * @var mixed
     */
-    protected $_currentNode;
-
-    /**
-    * Tree of routes
-    *
-    * @var array
-    */
-    protected $_routeTree = array();
+    protected $_currentRoute;
 
     /**
     * Templates to generate URLs based on routes
@@ -986,155 +981,6 @@ class BFrontController extends BClass
     }
 
     /**
-    * Save RESTful route in tree
-    *
-    * @param string|array $fullRoute "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
-    *           OR array('GET', '/part1/part2')
-    *           Accepts multiple methods separated with pipe: 'GET|POST /part1/part2'
-    * @param mixed $callback PHP callback
-    * @param array $args Route arguments
-    * @param mixed $multiple Allow multiple callbacks for the same route
-    */
-    public function saveRoute($fullRoute, $callback=null, $args=null, $multiple=false)
-    {
-        if (is_string($fullRoute)) {
-            $fullRoute = explode(' ', $fullRoute, 2);
-        }
-        list($method, $route) = $fullRoute;
-        if (empty($args['_processed'])) {
-            $route = $this->processRoutePath($route, $args);
-            $route = ltrim($route, '/');
-        }
-
-        if (strpos($method, '|')) {
-            $args['_processed'] = true;
-            foreach (explode('|', $method) as $m) {
-                $this->saveRoute(array($m, $route), $callback, $args, $multiple);
-            }
-            return $this;
-        }
-
-        if (!isset($this->_routeTree[$method])) {
-            $this->_routeTree[$method] = new BRouteNode();
-        }
-        /** @var BRouteNode */
-        $node = $this->_routeTree[$method];
-        $routeArr = explode('/', $route);
-
-        if (!empty(static::$_routeChanges['first'][$routeArr[0]])) {
-            $routeArr[0] = static::$_routeChanges['first'][$routeArr[0]];
-        }
-
-        foreach ($routeArr as $r) {
-            $r0 = $r!=='' ? $r[0] : false;
-            if ($r0==='?') {
-                $node->flag($r0);
-                $r = substr($r, 1);
-                $r0 = $r!=='' ? $r[0] : false;
-            }
-            if ($r0===':' || $r0==='*' || $r0==='.') {
-                $node = $node->child($r0, $r, true);
-            } else {
-                $node = $node->child('/', $r==='' ? '__EMPTY__' : $r, true);
-            }
-        }
-        $node->observe($callback, $args, $multiple);
-
-        return $this;
-    }
-
-    /**
-    * Find a valid route  in the tree
-    *
-    * @param string $route route url path
-    * @return array|null Route node or null if not found
-    */
-    public function findRoute($route=null)
-    {
-        if (is_null($route)) {
-            $route = BRequest::i()->rawPath();
-        }
-        if (strpos($route, ' ')===false) {
-            $method = BRequest::i()->method();
-        } else {
-            list($method, $route) = explode(' ', $route, 2);
-        }
-        if (empty($this->_routeTree[$method])) {
-            return null;
-        }
-        $requestArr = $route=='' ? array('') : explode('/', ltrim($route, '/'));
-        $node = $this->_routeTree[$method];
-        $routeName = array($method.' ');
-        $params = array();
-        $dynAction = null;
-        $observer = null;
-
-        foreach ($requestArr as $i=>$r) {
-            $r1 = $r==='' ? '__EMPTY__' : $r; // adjusted url route part
-            $nextR = isset($requestArr[$i+1]) ? $requestArr[$i+1] : null; // next url route part
-            $nextR = $nextR==='' ? '__EMPTY__' : $nextR; // adjusted
-
-            if ($r1==='__EMPTY__' && is_null($nextR) // if last route part, url ends with slash
-                && ($child = $node->child('/', $r1)) // there's route child
-                && ($observer = $child->validObserver()) // and a valid observer
-            ) {
-                $node = $child; // found the route node
-                $routeName[] = $r;
-                break; // this is a final node
-            }
-
-            if (($children = $node->child('.'))) { // if route has children of type 'actions'
-                foreach ($children as $k=>$n) { // iterate children
-                    if (($n->child(':') || $n->child('/', $nextR)) // if has children 'param' or matching route
-                        || (is_null($nextR) && ($observer = $n->validObserver())) // OR final part and valid observer
-                    ) {
-                        $node = $n; // found the route node
-                        $dynAction = $r==='' ? 'index' : $r; // assign dynamic controller action name
-                        continue 2; // if $nextR continue to next child, otherwise final node
-                    }
-                }
-            }
-            if (($children = $node->child(':'))) { // if route has children of type 'param'
-                foreach ($children as $k=>$n) { // iterate children
-                    if ((!is_null($nextR) && ($n->child(':') || $n->child('/', $nextR))) // if has children of 'param' or matching route
-                        || (is_null($nextR) && ($observer = $n->validObserver())) // OR final part and valid observer
-                    ) {
-                        $params[substr($k, 1)] = $r; // assign parameter
-                        $node = $n; // found the route node
-                        continue 2; // if $nextR continue to next child, otherwise final node
-                    }
-                }
-            }
-            if (!$dynAction && ($child = $node->child('/', $r1))) { // if no dynamic action and route has matching route child
-                $node = $child; // found next route node
-                $routeName[] = $r; // add url part to route name
-                if (is_null($nextR)) { // is this the final url route part?
-                    if (!($observer = $node->validObserver())) { // is there a valid observer
-                        return null; // no valid observer found, no route found
-                    }
-                    break; // this is a final route
-                }
-                continue; // continue to next url route part
-            }
-            if (($children = $node->child('*'))) { // if has children of type 'anything'
-                foreach ($children as $k=>$n) { // iterate children
-                    if (!($observer = $n->validObserver())) continue; // if no valid observers found, next
-                    $params[substr($k, 1)] = join('/', array_slice($requestArr, $i)); // combine rest of request string into param
-                    $node = $n; // found the route node
-                    break 2; // this is a final node
-                }
-            }
-            return null; // none of the cases above match, no route found
-        }
-
-        $node->route_name = join('/', $routeName);
-        $node->action_name = $dynAction;
-        $node->params = $params;
-
-        return $node;
-    }
-
-    /**
     * Declare RESTful route
     *
     * @param string $route
@@ -1146,7 +992,7 @@ class BFrontController extends BClass
     * @param string $name optional name for the route for URL templating
     * @return BFrontController for chain linking
     */
-    public function route($route, $callback=null, $args=null, $name=null)
+    public function route($route, $callback=null, $args=null, $name=null, $multiple=true)
     {
         if (is_array($route)) {
             foreach ($route as $a) {
@@ -1163,11 +1009,47 @@ class BFrontController extends BClass
             $args['module_name'] = BModuleRegistry::currentModuleName();
         }
         BDebug::debug('ROUTE '.$route.': '.print_r($args,1));
-        $this->_routes[$route][] = array('cb'=>$callback, 'args'=>$args, 'name'=>$name);
+        if (empty($this->_routes[$route])) {
+            $this->_routes[$route] = new BRouteNode(array('route_name'=>$route));
+        }
+        $this->_routes[$route]->observe($callback, $args, $multiple);
 
         if (!is_null($name)) {
             $this->_urlTemplates[$name] = $route;
         }
+        return $this;
+    }
+
+    public function findRoute($requestRoute=null)
+    {
+        if (is_null($requestRoute)) {
+            $requestRoute = BRequest::i()->rawPath();
+        }
+        if (strpos($requestRoute, ' ')===false) {
+            $requestRoute = BRequest::i()->method().' '.$requestRoute;
+        }
+        if (!empty($this->_routes[$requestRoute])) {
+            BDebug::debug('DIRECT ROUTE: '.$requestRoute);
+            return $this->_routes[$requestRoute];
+        }
+
+        BDebug::debug('FIND ROUTE: '.$requestRoute);
+        foreach ($this->_routes as $route) {
+            if ($route->match($requestRoute)) {
+                return $route;
+            }
+        }
+        return null;
+    }
+
+    /**
+    * Convert collected routes into tree
+    *
+    * @return BFrontController
+    */
+    public function processRoutes()
+    {
+        uasort($this->_routes, function($a, $b) { $a1 = $a->num_parts; $b1 = $b->num_parts; return $a1<$b1 ? 1 : ($a1>$b1 ? -1 : 0); });
         return $this;
     }
 
@@ -1185,99 +1067,41 @@ class BFrontController extends BClass
 
     protected function _forwardCallback($args)
     {
-        return array('forward'=>$this->processRoutePath($args['target'], $args));
+        return $this->processRoutePath($args['target'], $args);
     }
 
     public function redirect($from, $to, $args=array())
     {
         $args['target'] = $to;
         $this->route($from, array($this, '_redirectCallback'), $args);
-        /*
-        $this->route($from, function($args) {
-            if (!empty($args['module_name'])) {
-                $module = BModuleRegistry::i()->module($args['module_name']);
-                $baseUrl = $module ? $module->baseHref() : BApp::i()->baseUrl();
-            } else {
-                $baseUrl = BApp::i()->baseHref();
-            }
-            BResponse::i()->redirect($baseUrl.'/'.$args['target']);
-        }, $args);
-        */
         return $this;
     }
 
     protected function _redirectCallback($args)
-    {#print_r($args); exit;
-        BResponse::i()->redirect(BApp::href($args['target']));
-        /*
-        if (!empty($args['module_name'])
-            && $module = BModuleRegistry::i()->module($args['module_name'])
-        ) {
-            $baseUrl = $module->baseHref();
-        } else {
-            $baseUrl = BApp::i()->baseHref();
-        }
-        BResponse::i()->redirect($baseUrl.'/'.$args['target']);
-        */
-    }
-
-    /**
-    * Set default route
-    *
-    * @deprecated
-    * @param mixed $callback PHP callback
-    * @param mixed $args Route arguments
-    * @param mixed $name optional route name
-    * @return BFrontController
-    */
-    /*
-    public function defaultRoute($callback, $args=null, $name='default')
     {
-        $route = array('callback'=>$callback, 'args'=>$args);
-        if ($name) {
-            $this->_defaultRoutes[$name] = $route;
-        } else {
-            $this->_defaultRoutes[] = $route;
-        }
-        return $this;
+        BResponse::i()->redirect(BApp::href($args['target']));
     }
-    */
 
     /**
     * Retrieve current route node
     *
     */
-    public function currentNode()
+    public function currentRoute()
     {
-        return $this->_currentNode;
-    }
-
-    /**
-    * Convert collected routes into tree
-    *
-    * @return BFrontController
-    */
-    public function processRoutes()
-    {
-        foreach ($this->_routes as $name=>$routes) {
-            foreach ($routes as $route) {
-                $this->saveRoute($name, $route['cb'], $route['args'], true);
-            }
-        }
-        return $this;
+        return $this->_currentRoute;
     }
 
     /**
     * Dispatch current route
     *
-    * @param string $route optional route for explicit route dispatch
+    * @param string $requestRoute optional route for explicit route dispatch
     * @return BFrontController
     */
-    public function dispatch($route=null)
+    public function dispatch($requestRoute=null)
     {
         BPubSub::i()->fire(__METHOD__.'.before');
 
-        $this->saveRoute('_ /noroute', 'BActionController.noroute', array(), true);
+        $this->route('_ /noroute', 'BActionController.noroute', array(), null, false);
 
         $this->processRoutes();
 
@@ -1285,28 +1109,27 @@ class BFrontController extends BClass
         $forward = true; // null: no forward, true: try next route, array: forward without new route
 
         while (($attempts++<100) && $forward) {
-            $node = $this->findRoute($route);
-
-            if (!$node) {
-                $node = $this->findRoute('_ /noroute');
+            $route = $this->findRoute($requestRoute);
+            if (!$route) {
+                $route = $this->findRoute('_ /noroute');
             }
-            $this->_currentNode = $node;
-            $forward = $node->dispatch();
+            $this->_currentRoute = $route;
+            $forward = $route->dispatch();
 
             if ($forward) {
                 if ($forward===true) {
                     $forward = array('noroute', null, array());
                 }
                 list($actionName, $forwardCtrlName, $params) = $forward;
-                $controllerName = $forwardCtrlName ? $forwardCtrlName : $node->controller_name;
-                $route = '_ /forward';
-                $this->saveRoute($route, $controllerName.'.'.$actionName, array('params'=>$params));
+                $controllerName = $forwardCtrlName ? $forwardCtrlName : $route->controller_name;
+                $requestRoute = '_ /forward';
+                $this->route($requestRoute, $controllerName.'.'.$actionName, array(), null, false);
             }
         }
 
         if ($attempts>=100) {
             echo "<pre>"; print_r($node); echo "</pre>";
-            BDebug::error(BLocale::_('Reached 100 route iterations: %s', print_r($node,1)));
+            BDebug::error(BLocale::_('BFrontController: Reached 100 route iterations: %s', print_r($node,1)));
         }
     }
 
@@ -1329,13 +1152,6 @@ class BRouteNode
     protected $_flags = array();
 
     /**
-    * Route Children
-    *
-    * @var array(BRouteNode)
-    */
-    protected $_children = array();
-
-    /**
     * Route Observers
     *
     * @var array(BRouteObserver)
@@ -1343,9 +1159,65 @@ class BRouteNode
     protected $_observers = array();
 
     public $controller_name;
+    public $action_idx;
     public $action_name;
     public $route_name;
+    public $regex;
+    public $num_parts; // specificity for sorting
     public $params;
+    public $params_values;
+
+    public function __construct($args=array())
+    {
+        foreach ($args as $k=>$v) {
+            $this->$k = $v;
+        }
+
+        // convert route name into regex and save param references
+        $a = explode(' ', $this->route_name);
+        if ($a[1]==='/') {
+            $this->regex = '#^('.$a[0].') (/)$#';
+        } else {
+            $a1 = explode('/', trim($a[1], '/'));
+            $this->num_parts = sizeof($a1);
+            $paramId = 2;
+            foreach ($a1 as $i=>$k) {
+                $k0 = $k[0];
+                if ($k0===':') { // optional param
+                    $this->params[++$paramId] = substr($k, 1);
+                    $a1[$i] = '([^/]*)';
+                }
+                if ($k0==='!') { // required param
+                    $this->params[++$paramId] = substr($k, 1);
+                    $a1[$i] = '([^/]+)';
+                }
+                elseif ($k0==='*') { // param until end of url
+                    $this->params[++$paramId] = substr($k, 1);
+                    $a1[$i] = '(.*)';
+                }
+                elseif ($k0==='.') { // dynamic action
+                    $this->params[++$paramId] = substr($k, 1);
+                    $this->action_idx = $paramId;
+                    $a1[$i] = '([^/]+)';
+                }
+            }
+            $this->regex = '#^('.$a[0].') (/'.join('/', $a1).'/?)$#'; // #...#i option?
+        }
+    }
+
+    public function match($route)
+    {
+        if (!preg_match($this->regex, $route, $match)) {
+            return false;
+        }
+        if ($this->params) {
+            $this->params_values = array();
+            foreach ($this->params as $i=>$p) {
+                $this->params_values[$p] = $match[$i];
+            }
+        }
+        return true;
+    }
 
     /**
     * Set route flag
@@ -1365,41 +1237,13 @@ class BRouteNode
     }
 
     /**
-    * Get Route child
-    *
-    * @param string $type
-    * @param string $key
-    * @param boolean $create whether to create a new one if not found
-    */
-    public function child($type, $key=null, $create=false)
-    {
-        if (is_null($key)) {
-            return !empty($this->_children[$type]) ? $this->_children[$type] : array();
-        }
-        if (empty($this->_children[$type][$key])) {
-            if ($create) {
-                $node = new BRouteNode();
-                $this->_children[$type][$key] = $node;
-            } else {
-                return null;
-            }
-        }
-        return $this->_children[$type][$key];
-    }
-
-    public function children()
-    {
-        return $this->_children;
-    }
-
-    /**
     * Add an observer to the route node
     *
     * @param mixed $callback
     * @param array $args
     * @param boolean $multiple whether to allow multiple observers for the route
     */
-    public function observe($callback, $args=null, $multiple=false)
+    public function observe($callback, $args=null, $multiple=true)
     {
         $observer = new BRouteObserver(array(
             'callback' => $callback,
@@ -1410,7 +1254,7 @@ class BRouteNode
             $this->_observers[] = $observer;
         } else {
             //$this->_observers = BUtil::arrayMerge($this->_observers[0], $observer);
-            $this->_observers[0] = $observer;
+            $this->_observers = array($observer);
         }
         return $this;
     }
@@ -1451,7 +1295,7 @@ class BRouteNode
             }
         }
         if ($attempts>=100) {
-            BDebug::error(BLocale::_('Reached 100 route iterations: %s', print_r($observer,1)));
+            BDebug::error(BLocale::_('BRouteNode: Reached 100 route iterations: %s', print_r($observer,1)));
         }
         return true;
     }
@@ -1509,14 +1353,13 @@ class BRouteObserver
     */
     public function dispatch()
     {
-        BModuleRegistry::i()->currentModule($this->module_name ? $this->module_name : null);
+        BModuleRegistry::i()->currentModule(!empty($this->args['module_name']) ? $this->args['module_name'] : null);
 
         $node = $this->route_node;
-        BRequest::i()->initParams($node->params);
+        BRequest::i()->initParams((array)$node->params_values);
         if (is_string($this->callback) && $node->action_name) {
             $this->callback .= '.'.$node->action_name;
         }
-
         if (is_callable($this->callback)) {
             return call_user_func($this->callback, $this->args);
         }
@@ -1533,6 +1376,7 @@ class BRouteObserver
         $node->controller_name = $controllerName;
         $actionName = $this->callback[1];
         $controller = BClassRegistry::i()->instance($controllerName, array(), true);
+#echo "<pre>"; print_r($this); exit;
         return $controller->dispatch($actionName, $this->args);
     }
 
@@ -1597,11 +1441,12 @@ class BActionController extends BClass
             return $this->_forward;
         }
 
-        if (!$this->authenticate($args) && $actionName!=='unauthenticated') {
+        $authenticated = $this->authenticate($args);
+        if (!$authenticated && $actionName!=='unauthenticated') {
             $this->forward('unauthenticated');
             return $this->_forward;
         }
-        if (!$this->_forward && !$this->authorize($args) && $actionName!=='unauthorized') {
+        if ($authenticated && !$this->authorize($args) && $actionName!=='unauthorized') {
             $this->forward('unauthorized');
             return $this->_forward;
         }

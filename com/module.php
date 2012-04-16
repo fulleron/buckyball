@@ -38,7 +38,7 @@ class BModuleRegistry extends BClass
 
     public function __construct()
     {
-        BPubSub::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
+        //BPubSub::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
     }
 
     /**
@@ -426,7 +426,7 @@ echo "</pre>"; exit;
         }
         return static::$_currentModuleName;
     }
-
+/*
     public function onBeforeDispatch()
     {
         $front = BFrontController::i();
@@ -436,7 +436,7 @@ echo "</pre>"; exit;
             }
         }
     }
-
+*/
     public function debug()
     {
         return static::$_modules;

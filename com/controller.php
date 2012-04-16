@@ -1135,7 +1135,7 @@ class BFrontController extends BClass
 
     public function debug()
     {
-        echo "<pre>"; print_r($this->_routeTree); echo "</pre>";
+        echo "<pre>"; print_r($this->_routes); echo "</pre>";
     }
 }
 
@@ -1209,6 +1209,9 @@ class BRouteNode
     {
         if (!preg_match($this->regex, $route, $match)) {
             return false;
+        }
+        if ($this->action_idx) {
+            $this->action_name = $match[$this->action_idx];
         }
         if ($this->params) {
             $this->params_values = array();
@@ -1373,6 +1376,9 @@ class BRouteObserver
             }
         }
         $controllerName = $this->callback[0];
+if (strlen($controllerName)===1) {
+    echo "<pre>"; print_r($this); exit;
+}
         $node->controller_name = $controllerName;
         $actionName = $this->callback[1];
         $controller = BClassRegistry::i()->instance($controllerName, array(), true);

@@ -131,7 +131,7 @@ class BDb
                     throw new BException(BLocale::_('Invalid DB engine: %s', $engine));
             }
         }
-        $profile = BDebug::debug('DB.CONNECT '.$name.': '.print_r($config,1));
+        $profile = BDebug::debug('DB.CONNECT '.$name);
         static::$_currentConnectionName = $name;
 
         BORM::configure($dsn);

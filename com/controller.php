@@ -1116,10 +1116,7 @@ class BFrontController extends BClass
             $this->_currentRoute = $route;
             $forward = $route->dispatch();
 
-            if ($forward) {
-                if ($forward===true) {
-                    $forward = array('noroute', null, array());
-                }
+            if (is_array($forward)) {
                 list($actionName, $forwardCtrlName, $params) = $forward;
                 $controllerName = $forwardCtrlName ? $forwardCtrlName : $route->controller_name;
                 $requestRoute = '_ /forward';
@@ -1208,6 +1205,9 @@ class BRouteNode
     public function match($route)
     {
         if (!preg_match($this->regex, $route, $match)) {
+            return false;
+        }
+        if (!$this->validObserver()) {
             return false;
         }
         if ($this->action_idx) {
@@ -1376,9 +1376,6 @@ class BRouteObserver
             }
         }
         $controllerName = $this->callback[0];
-if (strlen($controllerName)===1) {
-    echo "<pre>"; print_r($this); exit;
-}
         $node->controller_name = $controllerName;
         $actionName = $this->callback[1];
         $controller = BClassRegistry::i()->instance($controllerName, array(), true);

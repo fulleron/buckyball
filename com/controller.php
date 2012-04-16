@@ -1439,10 +1439,7 @@ class BRouteNode
     {
         $attempts = 0;
         $observer = $this->validObserver();
-BFrontController::i()->debug();
-echo "<pre>"; print_r($this->_observers); echo "</pre>";
         while ((++$attempts<100) && $observer) {
-echo "<pre>"; print_r($observer); echo "</pre>";
             $forward = $observer->dispatch();
             if (is_array($forward)) {
                 return $forward;

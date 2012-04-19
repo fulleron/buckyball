@@ -818,6 +818,22 @@ class BUtil
         $parsed['query'] = http_build_query($query);
         return static::unparseUrl($parsed);
     }
+
+    /**
+    * Strip html tags and shorten to specified length, to the whole word
+    *
+    * @param string $text
+    * @param integer $limit
+    */
+    public static function previewText($text, $limit)
+    {
+        $text = strip_tags($text);
+        if (strlen($text) < $limit) {
+            return $text;
+        }
+        preg_match('/^(.{1,'.$limit.'})\b/', $text, $matches);
+        return $matches[1];
+    }
 }
 
 /**

@@ -580,6 +580,11 @@ class BModule extends BClass
         return static::$_manifestCache[$file];
     }
 
+    /**
+    * put your comment there...
+    *
+    * @todo optional omit http(s):
+    */
     protected static function _initEnvData()
     {
         if (!empty(static::$_env)) {
@@ -597,12 +602,12 @@ class BModule extends BClass
             static::$_env['root_dir'] = $r->scriptDir();;
         }
         if (($baseSrc = $c->get('web/base_src'))) {
-            static::$_env['base_src'] = '//'.static::$_env['http_host'].$baseSrc;
+            static::$_env['base_src'] = $r->scheme().'://'.static::$_env['http_host'].$baseSrc;
         } else {
             static::$_env['base_src'] = static::$_env['web_root'];
         }
         if (($baseHref = $c->get('web/base_href'))) {
-            static::$_env['base_href'] = '//'.static::$_env['http_host'].$c->get('web/base_href');
+            static::$_env['base_href'] = $r->scheme().'://'.static::$_env['http_host'].$c->get('web/base_href');
         } else {
             static::$_env['base_href'] = static::$_env['web_root'];
         }

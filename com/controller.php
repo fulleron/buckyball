@@ -164,6 +164,7 @@ class BRequest extends BClass
     /**
     * Full base URL, including scheme and domain name
     *
+    * @todo optional omit http(s):
     * @param null|boolean $forceSecure - if not null, force scheme
     * @param boolean $includeQuery - add origin query string
     * @return string
@@ -171,11 +172,11 @@ class BRequest extends BClass
     public static function baseUrl($forceSecure=null, $includeQuery=false)
     {
         if (is_null($forceSecure)) {
-            $scheme = static::https() ? 'https' : 'http';
+            $scheme = static::https() ? 'https:' : 'http:';
         } else {
-            $scheme = $forceSecure ? 'https' : 'http';
+            $scheme = $forceSecure ? 'https:' : 'http:';
         }
-        $url = $scheme.'://'.static::serverName().static::webRoot();
+        $url = $scheme.'//'.static::serverName().static::webRoot();
         if ($includeQuery && ($query = static::rawGet())) {
             $url .= '?'.$query;
         }
@@ -317,6 +318,33 @@ class BRequest extends BClass
         return !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : $default;
     }
 
+    public static function receiveFiles($source, $targetDir, $typesRegex=null)
+    {
+        if (is_string($source) && !empty($_FILES[$source])) {
+            $source = $_FILES[$source];
+        }
+        if (empty($source)) {
+            return;
+        }
+        $result = array();
+        foreach ($source['error'] as $key=>$error) {
+            if ($error==UPLOAD_ERR_OK) {
+                $tmpName = $source['tmp_name'][$key];
+                $name = $source['name'][$key];
+                $type = $source['type'][$key];
+                if (!is_null($typesRegex) && !preg_match('#'.$typesRegex.'#i', $type)) {
+                    $result[$key] = array('error'=>'invalid_type', 'type'=>$type, 'name'=>$name);
+                    continue;
+                }
+                move_uploaded_file($tmpName, $targetDir.'/'.$name);
+                $result[$key] = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
+            } else {
+                $result[$key] = array('error'=>$error);
+            }
+        }
+        return $result;
+    }
+
     /**
     * Check whether the request can be CSRF attack
     *
@@ -351,8 +379,8 @@ class BRequest extends BClass
 
     public static function currentUrl()
     {
-        return static::scheme().'://'.static::httpHost().static::webRoot().static::rawPath()
-            .(($q = static::rawGet()) ? '?'.$q : '');
+        return static::scheme().'://'.static::httpHost().static::webRoot()
+            .static::rawPath().(($q = static::rawGet()) ? '?'.$q : '');
     }
 
     /**

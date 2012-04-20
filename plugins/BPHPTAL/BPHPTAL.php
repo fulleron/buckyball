@@ -20,7 +20,7 @@ class BPHPTAL extends BClass
     {
         $config = BConfig::i();
 
-        static::$_phpCodeDest = $config->get('fs/storage_dir').'/compiled';
+        static::$_phpCodeDest = $config->get('fs/storage_dir').'/phptal';
         BUtil::ensureDir(static::$_phpCodeDest);
 
         static::$_forceReparse = $config->get('modules/BPHPTAL/force_reparse');
@@ -30,7 +30,7 @@ class BPHPTAL extends BClass
             'layout' => BLayout::i(),
         ));
 
-        BLayout::i()->addExtRenderer('.zpt.html', 'BPHPTAL::renderer');
+        BLayout::i()->addExtRenderer(static::$_defaultFileExt, 'BPHPTAL::renderer');
 
         BPubSub::i()->on('BLayout::theme.load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
     }

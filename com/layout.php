@@ -1228,6 +1228,9 @@ class BViewHead extends BView
 
     public function getTitle()
     {
+        if (!$this->_title) {
+            return '';
+        }
         if ($this->_titleReverse) {
             $this->_title = array_reverse($this->_title);
         }
@@ -1336,12 +1339,16 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
 
     public function getAllElements()
     {
-        $result = '';
+        $res1 = array();
         foreach ($this->_elements as $typeName=>$els) {
             list($type, $name) = explode(':', $typeName, 2);
-            $result .= $this->getElement($type, $name)."\n";
+            $res1[$type=='css' ? 0 : 1][] = $this->getElement($type, $name);
         }
-        return $result;
+        $result = array();
+        foreach ($res1 as $i=>$arr) {
+            $result[] = join("\n", $arr);
+        }
+        return join("\n", $result);
     }
 
     /**

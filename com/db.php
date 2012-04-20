@@ -124,7 +124,7 @@ class BDb
             $host = !empty($config['host']) ? $config['host'] : '127.0.0.1';
             switch ($engine) {
                 case "mysql":
-                    $dsn = "mysql:host={$host};dbname={$config['dbname']}";
+                    $dsn = "mysql:host={$host};dbname={$config['dbname']};charset=UTF8";
                     break;
 
                 default:
@@ -615,6 +615,9 @@ class BORM extends ORMWrapper
             $username = static::$_config['username'];
             $password = static::$_config['password'];
             $driver_options = static::$_config['driver_options'];
+            if (empty($driver_options[PDO::MYSQL_ATTR_INIT_COMMAND])) { //ADDED
+                $driver_options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET NAMES utf8";
+            }
             $db = new BPDO($connection_string, $username, $password, $driver_options); //UPDATED
             $db->setAttribute(PDO::ATTR_ERRMODE, static::$_config['error_mode']);
             static::set_db($db);

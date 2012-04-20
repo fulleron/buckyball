@@ -568,6 +568,8 @@ class BResponse extends BClass
     */
     protected $_contentType = 'text/html';
 
+    protected $_charset = 'UTF-8';
+
     protected $_contentPrefix;
 
     protected $_contentSuffix;
@@ -841,7 +843,7 @@ class BResponse extends BClass
             $this->contentType($type);
         }
         BSession::i()->close();
-        header('Content-Type: '.$this->_contentType);
+        header('Content-Type: '.$this->_contentType.'; charset='.$this->_charset);
         if ($this->_contentType=='application/json') {
             $this->_content = is_string($this->_content) ? $this->_content : BUtil::toJson($this->_content);
         } elseif (is_null($this->_content)) {

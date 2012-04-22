@@ -230,13 +230,19 @@ class BApp extends BClass
     public static function baseUrl($full=true)
     {
         static $baseUrl = array();
-        if (empty($baseUrl[(int)$full])) {
+        $full = (int)$full;
+        if (empty($baseUrl[$full])) {
             /** @var BRequest */
             $r = BRequest::i();
-            $url = $full ? $r->baseUrl() : $r->webRoot();
-            $baseUrl[(int)$full] = rtrim($url, '/').'/';
+            if ($full) {
+                $url = BConfig::i()->get('web/base_href');
+                if (!$url) $url = $r->baseUrl();
+            } else {
+                $url = $r->webRoot();
+            }
+            $baseUrl[$full] = rtrim($url, '/').'/';
         }
-        return $baseUrl[(int)$full];
+        return $baseUrl[$full];
     }
 
     /**

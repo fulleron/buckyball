@@ -1601,11 +1601,13 @@ class BModel extends Model
     /**
     * Save method returns the model object for chaining
     *
+    *
+    * @param boolean $beforeAfter whether to run beforeSave and afterSave
     * @return BModel
     */
-    public function save()
+    public function save($beforeAfter=true)
     {
-        if (!$this->beforeSave()) {
+        if ($beforeAfter && !$this->beforeSave()) {
             return $this;
         }
 
@@ -1613,7 +1615,9 @@ class BModel extends Model
 
         parent::save();
 
-        $this->afterSave();
+        if ($beforeAfter) {
+            $this->afterSave();
+        }
 
         if (static::$_cacheAuto) {
             $this->cacheStore();

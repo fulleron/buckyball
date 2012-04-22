@@ -262,7 +262,7 @@ class BLayout extends BClass
                 'view'=>$this->_views[$viewAlias],
             ));
         } else {
-            $this->_views[$viewAlias]->param($params);
+            $this->_views[$viewAlias]->setParam($params);
             BPubSub::i()->fire('BLayout::view.update: '.$viewAlias, array(
                 'view'=>$this->_views[$viewAlias],
             ));
@@ -367,7 +367,7 @@ class BLayout extends BClass
         return $this;
     }
 
-    public function addLayout($layoutName, $layout)
+    public function addLayout($layoutName, $layout=null)
     {
         if (is_array($layoutName)) {
             foreach ($layoutName as $l=>$def) {
@@ -453,7 +453,7 @@ class BLayout extends BClass
         }
         if (!empty($d['param'])) {
             foreach ($d['param'] as $k=>$v) {
-                $view->param($k, $v);
+                $view->setParam($k, $v);
             }
         }
         if (!empty($d['do'])) {
@@ -627,6 +627,8 @@ class BView extends BClass
 {
     protected static $_renderer;
 
+    protected static $_metaDataRegex = '#<!--\{\s*(.*?):\s*(.*?)\s*\}-->#i';
+
     /**
     * View parameters
     * - view_class
@@ -664,30 +666,34 @@ class BView extends BClass
     }
 
     /**
-    * Set or retrieve view parameters
-    *
-    *
+    * Retrieve view parameters
     *
     * @param string $key
-    * @param string $value
     * @return mixed|BView
     */
-    public function param($key=null, $value=BNULL)
+    public function param($key=null)
     {
         if (is_null($key)) {
             return $this->_params;
         }
+        return isset($this->_params[$key]) ? $this->_params[$key] : null;
+    }
+
+    public function setParam($key, $value=null)
+    {
         if (is_array($key)) {
             foreach ($key as $k=>$v) {
-                $this->param($k, $v);
+                $this->setParam($k, $v);
             }
             return $this;
         }
-        if (BNULL===$value) {
-            return isset($this->_params[$key]) ? $this->_params[$key] : null;
-        }
         $this->_params[$key] = $value;
         return $this;
+    }
+
+    public function getParam($key)
+    {
+        return isset($this->_params[$key]) ? $this->_params[$key] : null;
     }
 
     public function set($name, $value=null)
@@ -824,7 +830,7 @@ class BView extends BClass
     * @param array $args
     * @return string
     */
-    public function render(array $args=array())
+    public function render(array $args=array(), $retrieveMetaData=true)
     {
         $timer = BDebug::debug('RENDER.VIEW '.$this->param('view_name'));
         if ($this->param('raw_text')!==null) {
@@ -844,10 +850,21 @@ class BView extends BClass
         $result = '';
         $result .= join('', BPubSub::i()->fire('BView::render.before', array('view'=>$this)));
         if (($renderer = $this->param('renderer'))) {
-            $result .= call_user_func($renderer, $this);
+            $viewContent = call_user_func($renderer, $this);
         } else {
-            $result .= $this->_render();
+            $viewContent = $this->_render();
         }
+        if ($retrieveMetaData) {
+            $metaData = array();
+            if (preg_match_all(static::$_metaDataRegex, $viewContent, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $m) {
+                    $metaData[$m[1]] = $m[2];
+                    $viewContent = str_replace($m[0], '', $viewContent);
+                }
+            }
+            $this->setParam('meta_data', $metaData);
+        }
+        $result .= $viewContent;
         $result .= join('', BPubSub::i()->fire('BView::render.after', array('view'=>$this)));
 
         BDebug::profile($timer);
@@ -977,21 +994,20 @@ class BView extends BClass
             $p = array('to'=>$p);
         }
 
-        $body = $this->render($p);
+        $body = $this->render($p, true);
         $headers = array();
         $params = array();
 
-        if (preg_match_all('#<!--\{\s*(.*?):\s*(.*?)\s*\}-->#i', $body, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $m) {
-                $lh = strtolower($m[1]);
+        if (($metaData = $this->param('meta_data'))) {
+            foreach ($metaData as $k=>$v) {
+                $lh = strtolower($k);
                 if ($lh=='subject') {
-                    $subject = $m[2];
+                    $subject = $v;
                 } elseif ($lh=='to') {
-                    $to = $m[2];
+                    $to = $v;
                 } elseif (in_array($lh, $availHeaders)) {
-                    $headers[$lh] = $m[1].': '.$m[2];
+                    $headers[$lh] = $k.': '.$v;
                 }
-                $body = str_replace($m[0], '', $body);
             }
         }
         foreach ($p as $k=>$v) {
@@ -1339,16 +1355,19 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
 
     public function getAllElements()
     {
+        $result = array();
         $res1 = array();
         foreach ($this->_elements as $typeName=>$els) {
             list($type, $name) = explode(':', $typeName, 2);
+            //$result[] = $this->getElement($type, $name);
+
             $res1[$type=='css' ? 0 : 1][] = $this->getElement($type, $name);
         }
-        $result = array();
-        foreach ($res1 as $i=>$arr) {
-            $result[] = join("\n", $arr);
+        for ($i=0; $i<=1; $i++) {
+            if (!empty($res1[$i])) $result[] = join("\n", $res1[$i]);
+
         }
-        return join("\n", $result);
+        return preg_replace('#\n{2,}#', "\n", join("\n", $result));
     }
 
     /**

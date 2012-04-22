@@ -875,6 +875,11 @@ class BData extends BClass implements ArrayAccess
         $this->_data = $data;
     }
 
+    public function as_array()
+    {
+        return $this->_data;
+    }
+
     public function __get($name)
     {
         return isset($this->_data[$name]) ? $this->_data[$name] : null;

@@ -317,10 +317,23 @@ class BModuleRegistry extends BClass
     public function sortDepends()
     {
         $modules = static::$_modules;
+        // take care of 'load_after' option
+        foreach ($modules as $modName=>$mod) {
+            $mod->children_copy = $mod->children;
+            if ($mod->load_after) {
+                foreach ($mod->load_after as $n) {
+                    if (empty($modules[$n])) {
+                        BDebug::notice('Invalid module name specified: '.$n);
+                        continue;
+                    }
+                    $mod->parents[] = $n;
+                    $modules[$n]->children[] = $mod->name;
+                }
+            }
+        }
         // get modules without dependencies
         $rootModules = array();
         foreach ($modules as $modName=>$mod) {
-            $mod->children_copy = $mod->children;
             if (empty($mod->parents)) {
                 $rootModules[] = $mod;
             }
@@ -483,6 +496,7 @@ class BModule extends BClass
     public $errors_propagated;
     public $description;
     public $migrate;
+    public $load_after;
 
     const
         // run_level

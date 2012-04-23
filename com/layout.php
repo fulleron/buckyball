@@ -602,7 +602,7 @@ class BLayout extends BClass
         $args['output'] =& $result;
         $this->dispatch('render.after', $routeName, $args);
 
-        BSession::i()->dirty(false); // disallow session change during layout render
+        //BSession::i()->dirty(false); // disallow session change during layout render
 
         return $result;
     }

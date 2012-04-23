@@ -1,8 +1,5 @@
 <?php
 
-/**
-* Sometimes NULL is a value too.
-*/
 define('BNULL', '!@BNULL#$');
 
 /**
@@ -1321,7 +1318,7 @@ class BSession extends BClass
     * @param string|null $id Optional session ID
     * @param bool $close Close and unlock PHP session immediately
     */
-    public function open($id=null, $autoClose=true)
+    public function open($id=null, $autoClose=false)
     {
         if (!is_null($this->data)) {
             return $this;
@@ -1354,7 +1351,14 @@ class BSession extends BClass
         }
 
         $namespace = !empty($config['session_namespace']) ? $config['session_namespace'] : 'default';
-        $this->data = !empty($_SESSION[$namespace]) ? $_SESSION[$namespace] : array();
+        if (empty($_SESSION[$namespace])) {
+            $_SESSION[$namespace] = array();
+        }
+        if ($autoClose) {
+            $this->data = $_SESSION[$namespace];
+        } else {
+            $this->data =& $_SESSION[$namespace];
+        }
 
         if (!empty($this->data['_locale'])) {
             if (is_array($this->data['_locale'])) {
@@ -1374,6 +1378,7 @@ class BSession extends BClass
             session_write_close();
             $this->_phpSessionOpen = false;
         }
+BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         return $this;
     }
 
@@ -1471,6 +1476,7 @@ class BSession extends BClass
         if (!$this->_dirty) {
             return;
         }
+BDebug::debug(__METHOD__.': '.spl_object_hash($this));
 #ob_start(); debug_print_backtrace(); BDebug::debug(nl2br(ob_get_clean()));
         if (!$this->_phpSessionOpen) {
             if (headers_sent()) {
@@ -1478,14 +1484,14 @@ class BSession extends BClass
             } else {
                 session_start();
             }
+            $namespace = BConfig::i()->get('cookie/session_namespace');
+            if (!$namespace) $namespace = 'default';
+            $_SESSION[$namespace] = $this->data;
         }
-        $namespace = BConfig::i()->get('cookie/session_namespace');
-        if (!$namespace) $namespace = 'default';
-        $_SESSION[$namespace] = $this->data;
-        BDebug::debug(__METHOD__);
+        BDebug::debug(__METHOD__, 1);
         session_write_close();
         $this->_phpSessionOpen = false;
-        $this->setDirty();
+        //$this->setDirty();
         return $this;
     }
 
@@ -1538,5 +1544,10 @@ class BSession extends BClass
             }
         }
         return $msgs;
+    }
+
+    public function __destruct()
+    {
+        //$this->close();
     }
 }

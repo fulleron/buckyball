@@ -842,7 +842,7 @@ class BResponse extends BClass
         if (!is_null($type)) {
             $this->contentType($type);
         }
-        BSession::i()->close();
+        //BSession::i()->close();
         header('Content-Type: '.$this->_contentType.'; charset='.$this->_charset);
         if ($this->_contentType=='application/json') {
             $this->_content = is_string($this->_content) ? $this->_content : BUtil::toJson($this->_content);

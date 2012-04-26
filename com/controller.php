@@ -123,6 +123,16 @@ class BRequest extends BClass
     }
 
     /**
+    * Entry point script web path
+    *
+    * @return string
+    */
+    public static function scriptName()
+    {
+        return !empty($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : null;
+    }
+
+    /**
     * Entry point script file name
     *
     * @return string
@@ -152,7 +162,10 @@ class BRequest extends BClass
     */
     public static function webRoot($parentDepth=null)
     {
-        $root = !empty($_SERVER['SCRIPT_NAME']) ? dirname($_SERVER['SCRIPT_NAME']) : null;
+        if (empty($_SERVER['SCRIPT_NAME'])) {
+            return null;
+        }
+        $root = dirname($_SERVER['SCRIPT_NAME']);
         if ($parentDepth) {
             $arr = explode('/', $root);
             $len = sizeof($arr)-$parentDepth;

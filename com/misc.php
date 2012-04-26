@@ -819,6 +819,20 @@ class BUtil
         return static::unparseUrl($parsed);
     }
 
+    public static function paginateSortUrl($url, $state, $field)
+    {
+        return static::setUrlQuery($url, array(
+            's'=>$field,
+            'sd'=>$state['s']!=$field || $state['sd']=='desc' ? 'asc' : 'desc',
+        ));
+    }
+
+    public static function paginateSortAttr($url, $state, $field, $class='')
+    {
+        return 'href="'.static::paginateSortUrl($url, $state, $field)
+            .'" class="'.$class.' '.($state['s']==$field ? $state['sd'] : '').'"';
+    }
+
     /**
     * Strip html tags and shorten to specified length, to the whole word
     *

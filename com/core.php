@@ -1195,57 +1195,57 @@ class BPubSub extends BClass
     {
         BDebug::debug('FIRE '.$eventName.(empty($this->_events[$eventName])?' (NO SUBSCRIBERS)':''), 1);
         $result = array();
-        if (!empty($this->_events[$eventName])) {
-            foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
+        if (empty($this->_events[$eventName])) {
+            return $result;
+        }
+        foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
+            if (!empty($this->_events[$eventName]['args'])) {
+                $args = array_merge($this->_events[$eventName]['args'], $args);
+            }
+            if (!empty($observer['args'])) {
+                $args = array_merge($observer['args'], $args);
+            }
 
-                if (!empty($this->_events[$eventName]['args'])) {
-                    $args = array_merge($this->_events[$eventName]['args'], $args);
+            // Set current module to be used in observer callback
+            if (!empty($observer['module_name'])) {
+                BModuleRegistry::i()->pushModule($observer['module_name']);
+            }
+
+            $cb = $observer['callback'];
+
+            // For cases like BView
+            if (is_object($cb) && !$cb instanceof Closure) {
+                if (is_callable(array($cb, 'set'))) {
+                    $cb->set($args);
                 }
-                if (!empty($observer['args'])) {
-                    $args = array_merge($observer['args'], $args);
-                }
+                $result[] = (string)$cb;
+                continue;
+            }
 
-                // Set current module to be used in observer callback
-                if (!empty($observer['module_name'])) {
-                    BModuleRegistry::i()->pushModule($observer['module_name']);
-                }
-
-                $cb = $observer['callback'];
-
-                // For cases like BView
-                if (is_object($cb) && !$cb instanceof Closure) {
-                    if (is_callable(array($cb, 'set'))) {
-                        $cb->set($args);
+            // Special singleton syntax
+            if (is_string($cb)) {
+                foreach (array('.', '->') as $sep) {
+                    $r = explode($sep, $cb);
+                    if (sizeof($r)==2) {
+                        $cb = array($r[0]::i(), $r[1]);
+                        $observer['callback'] = $cb;
+                        // remember for next call, don't want to use &$observer
+                        $this->_events[$eventName]['observers'][$i]['callback'] = $cb;
+                        break;
                     }
-                    $result[] = (string)$cb;
-                    continue;
                 }
+            }
 
-                // Special singleton syntax
-                if (is_string($cb)) {
-                    foreach (array('.', '->') as $sep) {
-                        $r = explode($sep, $cb);
-                        if (sizeof($r)==2) {
-                            $cb = array($r[0]::i(), $r[1]);
-                            $observer['callback'] = $cb;
-                            // remember for next call, don't want to use &$observer
-                            $this->_events[$eventName]['observers'][$i]['callback'] = $cb;
-                            break;
-                        }
-                    }
-                }
+            // Invoke observer
+            if (is_callable($cb)) {
+                BDebug::debug('ON '.$eventName/*.' : '.var_export($cb, 1)*/, 1);
+                $result[] = call_user_func($cb, $args);
+            } else {
+                BDebug::warning('Invalid callback: '.var_export($cb, 1), 1);
+            }
 
-                // Invoke observer
-                if (is_callable($cb)) {
-                    BDebug::debug('ON '.$eventName/*.' : '.var_export($cb, 1)*/, 1);
-                    $result[] = call_user_func($cb, $args);
-                } else {
-                    BDebug::warning('Invalid callback: '.var_export($cb, 1), 1);
-                }
-
-                if (!empty($observer['module_name'])) {
-                    BModuleRegistry::i()->popModule();
-                }
+            if (!empty($observer['module_name'])) {
+                BModuleRegistry::i()->popModule();
             }
         }
         return $result;

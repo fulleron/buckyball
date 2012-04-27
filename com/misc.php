@@ -286,21 +286,24 @@ class BUtil
     * @param callback $cb
     * @param array $args
     * @param boolean $ignoreExceptions
+    * @return array
     */
     static public function arrayWalk($arr, $cb, $args=array(), $ignoreExceptions=false)
     {
+        $result = array();
         foreach ($arr as $i=>$r) {
-            $callback = is_string($cb) && $cb[0]==='.' ? array($r, $cb) : $cb;
+            $callback = is_string($cb) && $cb[0]==='.' ? array($r, substr($cb, 1)) : $cb;
             if ($ignoreExceptions) {
                 try {
-                    call_user_func_array($callback, $args);
+                    $result[] = call_user_func_array($callback, $args);
                 } catch (Exception $e) {
                     BDebug::warning('EXCEPTION class('.get_class($r).') arrayWalk('.$i.'): '.$e->getMessage());
                 }
             } else {
-                call_user_func_array($callback, $args);
+                $result[] = call_user_func_array($callback, $args);
             }
         }
+        return $result;
     }
 
     /**
@@ -847,6 +850,30 @@ class BUtil
         }
         preg_match('/^(.{1,'.$limit.'})\b/', $text, $matches);
         return $matches[1];
+    }
+
+    public static function isEmptyDate($date)
+    {
+        return preg_replace('#[0 :-]#', '', (string)$date)==='';
+    }
+
+    /**
+    * Get gravatar image src by email
+    *
+    * @param string $email
+    * @param array $params
+    *   - size (default 80)
+    *   - rating (G, PG, R, X)
+    *   - default
+    *   - border
+    */
+    public static function gravatar($email, $params=array())
+    {
+        if (empty($params['default'])) {
+            $params['default'] = 'identicon';
+        }
+        return 'http://www.gravatar.com/avatar/'.md5(strtolower($email))
+            .($params ? '?'.http_build_query($params) : '');
     }
 }
 

@@ -589,7 +589,7 @@ class BModule extends BClass
         //TODO: eliminate need for manifest file
         $file = $this->manifest_file;
         if (empty(static::$_manifestCache[$file])) {
-            static::$_manifestCache[$file] = array('root_dir' => dirname(realpath($file)));
+            static::$_manifestCache[$file] = array('root_dir' => str_replace('\\', '/', dirname(realpath($file))));
         }
         return static::$_manifestCache[$file];
     }
@@ -609,11 +609,10 @@ class BModule extends BClass
         static::$_env['doc_root'] = $r->docRoot();
         static::$_env['web_root'] = $r->webRoot();
         static::$_env['http_host'] = $r->httpHost();
-        static::$_env['root_dir'] = $c->get('fs/root_dir');
         if (($rootDir = $c->get('fs/root_dir'))) {
-            static::$_env['root_dir'] = $rootDir;
+            static::$_env['root_dir'] = str_replace('\\', '/', $rootDir);
         } else {
-            static::$_env['root_dir'] = $r->scriptDir();;
+            static::$_env['root_dir'] = str_replace('\\', '/', $r->scriptDir());
         }
         if (($baseSrc = $c->get('web/base_src'))) {
             static::$_env['base_src'] = $r->scheme().'://'.static::$_env['http_host'].$baseSrc;
@@ -913,9 +912,9 @@ class BMigrate extends BClass
                 */
                     BDebug::debug('DB.MIGRATE '.$script);
                     if (is_callable($script)) {
-                        call_user_func($script);
+                        $result = call_user_func($script);
                     } elseif (is_file($module->root_dir.'/'.$script)) {
-                        include_once($module->root_dir.'/'.$script);
+                        $result = include_once($module->root_dir.'/'.$script);
                     } elseif (is_dir($module->root_dir.'/'.$script)) {
                         //TODO: process directory of migration scripts
                     } elseif (class_exists($script, true)) {
@@ -963,11 +962,16 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         // call install migration script
         try {
             if (is_callable($callback)) {
-                call_user_func($callback);
+                $result = call_user_func($callback);
             } elseif (is_file($callback)) {
-                include $callback;
+                $result = include $callback;
             } elseif (is_string($callback)) {
                 BDb::run($callback);
+                $result = null;
+            }
+            if (false===$result) {
+                $module->delete();
+                return false;
             }
             $module->set(array('last_status'=>'INSTALLED'))->save();
             $mod['schema_version'] = $version;
@@ -1010,11 +1014,15 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         // call upgrade migration script
         try {
             if (is_callable($callback)) {
-                call_user_func($callback);
+                $result = call_user_func($callback);
             } elseif (is_file($callback)) {
-                include $callback;
+                $result = include $callback;
             } elseif (is_string($callback)) {
                 BDb::run($callback);
+                $result = null;
+            }
+            if (false===$result) {
+                return false;
             }
             // update module schema version to new one
             $mod['schema_version'] = $toVersion;

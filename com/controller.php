@@ -914,8 +914,10 @@ class BResponse extends BClass
 
     public function nocache()
     {
-        header("Cache-Control: no-cache, must-revalidate"); // HTTP/1.1
         header("Expires: Sat, 26 Jul 1997 05:00:00 GMT"); // Date in the past
+        header("Last-Modified: " . gmdate("D, d M Y H:i:s") . " GMT"); // Current time
+        header("Cache-Control: no-cache, must-revalidate"); // HTTP/1.1
+        header("Pragma: no-cache");
         return $this;
     }
 
@@ -1092,7 +1094,11 @@ class BFrontController extends BClass
     */
     public function processRoutes()
     {
-        uasort($this->_routes, function($a, $b) { $a1 = $a->num_parts; $b1 = $b->num_parts; return $a1<$b1 ? 1 : ($a1>$b1 ? -1 : 0); });
+        uasort($this->_routes, function($a, $b) {
+            $a1 = $a->num_parts;
+            $b1 = $b->num_parts;
+            return $a1<$b1 ? 1 : ($a1>$b1 ? -1 : 0);
+        });
         return $this;
     }
 
@@ -1214,6 +1220,10 @@ class BRouteNode
         }
 
         // convert route name into regex and save param references
+        if ($this->route_name[0]==='^') {
+            $this->regex = $this->route_name;
+            return;
+        }
         $a = explode(' ', $this->route_name);
         if ($a[1]==='/') {
             $this->regex = '#^('.$a[0].') (/)$#';
@@ -1256,7 +1266,9 @@ class BRouteNode
         if ($this->action_idx) {
             $this->action_name = $match[$this->action_idx];
         }
-        if ($this->params) {
+        if ($this->route_name[0]==='^') {
+            $this->params_values = $match;
+        } elseif ($this->params) {
             $this->params_values = array();
             foreach ($this->params as $i=>$p) {
                 $this->params_values[$p] = $match[$i];
@@ -1457,6 +1469,11 @@ class BActionController extends BClass
     * @var string
     */
     protected $_actionMethodPrefix = 'action_';
+
+    public function __construct()
+    {
+
+    }
 
     /**
     * Shortcut for fetching layout views

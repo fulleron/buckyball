@@ -1394,13 +1394,15 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
         if (!$this->param('template')) {
             $html = $this->getTitle()."\n".$this->getMeta()."\n".$this->getAllElements();
 
-            if ($this->_headJs['scripts']) {
-                $scripts = 'head.js("'.join('", "', $this->_headJs['scripts']).'");';
-
+            if ($this->_headJs['scripts'] || $this->_headJs['jquery']) {
+                $scripts = '';
+                if ($this->_headJs['scripts']) {
+                    $scripts = 'head.js("'.join('", "', $this->_headJs['scripts']).'");';
+                }
                 if ($this->_headJs['jquery']) {
                     $scripts = 'head.js({jquery:"'.$this->_headJs['jquery'].'"}, function() { jQuery.fn.ready = head; '.$scripts.'});';
                 }
-                $html .= "<script>{$scripts}</script>";
+                $html .= "<script>$ = head; {$scripts}</script>";
             }
 
             return $html;

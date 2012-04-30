@@ -58,7 +58,9 @@ class BGanon extends BClass
         if (empty($args['on_path'])) {
             BPubSub::i()->on('BGanon::render', $callback, $args);
         } else {
-            BPubSub::i()->on('BGanon::render.'.$args['on_path'], $callback, $args);
+            foreach ((array)$args['on_path'] as $path) {
+                BPubSub::i()->on('BGanon::render.'.$path, $callback, $args);
+            }
         }
         return $this;
     }

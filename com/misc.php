@@ -43,11 +43,16 @@ class BUtil
     /**
     * Convert any data to JSON string
     *
+    * $data can be array of BModel objects, will be automatically converted to array
+    *
     * @param mixed $data
     * @return string
     */
     public static function toJson($data)
     {
+        if (is_array($data) && is_object(current($data)) && current($data) instanceof BModel) {
+            $data = BDb::many_as_array($data);
+        }
         return json_encode($data);
     }
 

@@ -762,7 +762,7 @@ class BModule extends BClass
         if (!empty($this->bootstrap['file'])) {
             $includeFile = BUtil::normalizePath($this->root_dir.'/'.$this->bootstrap['file']);
             BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
-            require ($includeFile);
+            require_once ($includeFile);
         }
         $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
         call_user_func($this->bootstrap['callback']);

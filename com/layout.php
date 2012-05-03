@@ -493,28 +493,10 @@ class BLayout extends BClass
         return $this->_defaultTheme;
     }
 
-    /**
-    * @deprecated
-    *
-    * @param mixed $themeName
-    * @param mixed $params
-    * @return BLayout
-    */
-    public function theme($themeName=null, $params=null)
-    {
-#$bt = debug_backtrace();BDebug::debug(print_r($bt[1], 1));
-        if (!is_null($params)) {
-            $this->addTheme($themeName, $params);
-        } else {
-            $this->applyTheme($themeName);
-        }
-        return $this;
-    }
-
     public function addTheme($themeName, $params)
     {
         BDebug::debug('THEME.ADD '.$themeName);
-        $area = FCom::area();
+        $area = BApp::i()->get('area');
         if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
             BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
             return $this;

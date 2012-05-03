@@ -1033,7 +1033,7 @@ exit;
     public function paginate($r=null, $d=array())
     {
         if (is_null($r)) {
-            $r = BRequest::i()->get(); // GET request
+            $r = BRequest::i()->request(); // GET request
         }
         $d = (array)$d; // make sure it's array
         if (!empty($r['sc']) && empty($r['s']) && empty($r['sd'])) { // sort and dir combined
@@ -1095,7 +1095,7 @@ exit;
                 'sd' => !empty($r['sord']) ? $r['sord'] : null,
             ), $d);
         } else { // jqgrid config adapted
-            $data = $this->paginate(null, $d);
+            $data = $this->paginate($r, $d);
         }
         $res = $data['state'];
         $res['rows'] = $data['rows'];

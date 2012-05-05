@@ -414,7 +414,7 @@ class BRequest extends BClass
     * @param boolean $fallbackToGet
     * @return array|string|null
     */
-    public function params($key=null, $fallbackToGet=false)
+    public function param($key=null, $fallbackToGet=false)
     {
         if (is_null($key)) {
             return $this->_params;
@@ -425,6 +425,18 @@ class BRequest extends BClass
         } else {
             return null;
         }
+    }
+
+    /**
+    * Alias for legacy code
+    *
+    * @deprecated
+    * @param mixed $key
+    * @param mixed $fallbackToGet
+    */
+    public function params($key=null, $fallbackToGet=false)
+    {
+        return $this->param($key, $fallbackToGet);
     }
 
     /**

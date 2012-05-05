@@ -261,9 +261,9 @@ class BApp extends BClass
         return $m->$method() . $url;
     }
 
-    public static function href($url='')
+    public static function href($url='', $full=true)
     {
-        return BApp::baseUrl().BFrontController::processHref($url);
+        return BApp::baseUrl($full) . BFrontController::processHref($url);
     }
 
     /**

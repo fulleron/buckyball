@@ -548,7 +548,7 @@ class BModule extends BClass
         $this->set($args);
 
         $m = $this->_getManifestData();
-        if (empty($this->bootstrap['file'])) {
+        if (!empty($this->bootstrap) && empty($this->bootstrap['file'])) {
             $this->bootstrap['file'] = null;
         }
         if (empty($this->root_dir)) {
@@ -752,9 +752,10 @@ class BModule extends BClass
     public function bootstrap($force=false)
     {
         if (empty($this->bootstrap)) {
-            BDebug::notice('Module does not have bootstrap: '.$this->name);
+            BDebug::debug('Module does not have bootstrap for this area: '.$this->name);
             return $this;
         }
+//echo "<hr>"; var_dump($this->bootstrap);
         if ($this->run_status!==BModule::PENDING && !$force) {
             return $this;
         }

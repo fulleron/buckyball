@@ -58,6 +58,11 @@ class BClass
     {
         return BClassRegistry::i()->callMethod($this, $name, $args, static::$_origClass);
     }
+
+    public function __callStatic($name, $args)
+    {
+        return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args, static::$_origClass);
+    }
 }
 
 /**
@@ -613,7 +618,7 @@ class BClassRegistry extends BClass
     * @param callback $callback
     * @return BClassRegistry
     */
-    public function addMethod($class, $name, $callback)
+    public function addMethod($class, $name, $callback, $static=false)
     {
         $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
             'module_name' => BModuleRegistry::currentModuleName(),
@@ -805,11 +810,17 @@ class BClassRegistry extends BClass
     * @param string $method
     * @param array $args
     */
-    public function callStaticMethod($class, $method, array $args=array())
+    public function callStaticMethod($class, $method, array $args=array(), $origClass=null)
     {
-        $callback = !empty($this->_methods[$class][1][$method])
-            ? $this->_methods[$class][1][$method]['override']['callback']
-            : array($class, $method);
+        $class = $origClass ? $origClass : $class;
+
+        if (!empty($this->_methods[$class][1][$method]['override'])) {
+            $callback = $this->_methods[$class][1][$method]['override']['callback'];
+        } elseif (!empty($this->_methods['*'][1][$method]['override'])) {
+            $callback = $this->_methods['*'][1][$method]['override']['callback'];
+        } else {
+            $callback = array($class, $method);
+        }
 
         $result = call_user_func_array($callback, $args);
 

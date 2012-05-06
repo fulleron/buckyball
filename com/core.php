@@ -539,6 +539,13 @@ class BClassRegistry extends BClass
     protected $_methods = array();
 
     /**
+    * Classes that require decoration because of overridden methods
+    *
+    * @var array
+    */
+    protected $_decoratedClasses = array();
+
+    /**
     * Property setter/getter overrides and augmentations
     *
     * @var array
@@ -599,6 +606,23 @@ class BClassRegistry extends BClass
     }
 
     /**
+    * Dynamically add a class method
+    *
+    * @param string $class if '*' will add method to all classes
+    * @param string $name
+    * @param callback $callback
+    * @return BClassRegistry
+    */
+    public function addMethod($class, $name, $callback)
+    {
+        $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
+            'module_name' => BModuleRegistry::currentModuleName(),
+            'callback' => $callback,
+        );
+        return $this;
+    }
+
+    /**
     * Dynamically override a class method (decorator pattern)
     *
     * Already existing instances of the class will not be affected.
@@ -640,21 +664,8 @@ class BClassRegistry extends BClass
             'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
+        $this->_decoratedClasses[$class] = true;
         return $this;
-    }
-
-    /**
-    * Alias for overrideMethod
-    *
-    * @todo figure out if needed a separate handling
-    * @param string $class
-    * @param string $name
-    * @param callback $callback
-    * @return BClassRegistry
-    */
-    public function addMethod($class, $name, $callback)
-    {
-        return $this->overrideMethod($class, $name, $callback);
     }
 
     /**
@@ -693,6 +704,7 @@ class BClassRegistry extends BClass
             'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
+        $this->_decoratedClasses[$class] = true;
         return $this;
     }
 
@@ -756,6 +768,10 @@ class BClassRegistry extends BClass
         if (!empty($this->_methods[$class][0][$method]['override'])) {
             $overridden = true;
             $callback = $this->_methods[$class][0][$method]['override']['callback'];
+            array_unshift($args, $origObject);
+        } elseif (!empty($this->_methods['*'][0][$method]['override'])) {
+            $overridden = true;
+            $callback = $this->_methods['*'][0][$method]['override']['callback'];
             array_unshift($args, $origObject);
         } else {
             $overridden = false;
@@ -904,7 +920,7 @@ class BClassRegistry extends BClass
         $instance = new $className($args);
 
         // if any methods are overridden or augmented, get decorator
-        if (!empty($this->_methods[$class])) {
+        if (!empty($this->_decoratedClasses[$class])) {
             $instance = $this->instance('BClassDecorator', array($instance));
         }
 

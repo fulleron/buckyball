@@ -993,6 +993,11 @@ class BFrontController extends BClass
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
 
+    public function __construct()
+    {
+        $this->route('_ /noroute', 'BActionController.noroute', array(), null, false);
+    }
+
     /**
     * Change route part (usually 1st)
     *
@@ -1161,8 +1166,6 @@ class BFrontController extends BClass
     public function dispatch($requestRoute=null)
     {
         BPubSub::i()->fire(__METHOD__.'.before');
-
-        $this->route('_ /noroute', 'BActionController.noroute', array(), null, false);
 
         $this->processRoutes();
 

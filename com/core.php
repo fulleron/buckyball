@@ -53,6 +53,11 @@ class BClass
         }
         return BClassRegistry::i()->instance($class, $args, !$new);
     }
+
+    public function __call($name, $args)
+    {
+        return BClassRegistry::i()->callMethod($this, $name, $args, static::$_origClass);
+    }
 }
 
 /**
@@ -639,6 +644,20 @@ class BClassRegistry extends BClass
     }
 
     /**
+    * Alias for overrideMethod
+    *
+    * @todo figure out if needed a separate handling
+    * @param string $class
+    * @param string $name
+    * @param callback $callback
+    * @return BClassRegistry
+    */
+    public function addMethod($class, $name, $callback)
+    {
+        return $this->overrideMethod($class, $name, $callback);
+    }
+
+    /**
     * Dynamically augment class method result
     *
     * Allows to change result of a method for every invokation.
@@ -730,9 +749,9 @@ class BClassRegistry extends BClass
     * @param mixed $args
     * @return mixed
     */
-    public function callMethod($origObject, $method, array $args=array())
+    public function callMethod($origObject, $method, array $args=array(), $origClass=null)
     {
-        $class = get_class($origObject);
+        $class = $origClass ? $origClass : get_class($origObject);
 
         if (!empty($this->_methods[$class][0][$method]['override'])) {
             $overridden = true;

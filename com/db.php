@@ -1908,6 +1908,11 @@ class BModel extends Model
         }
         return $options;
     }
+
+    public function __call($name, $args)
+    {
+        return BClassRegistry::i()->callMethod($this, $name, $args, $this->_origClass());
+    }
 }
 
 class BModelException extends BException

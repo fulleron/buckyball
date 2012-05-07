@@ -544,6 +544,13 @@ class BClassRegistry extends BClass
     protected $_methods = array();
 
     /**
+    * Cache for method callbacks
+    *
+    * @var array
+    */
+    protected $_methodOverrideCache = array();
+
+    /**
     * Classes that require decoration because of overridden methods
     *
     * @var array
@@ -613,14 +620,24 @@ class BClassRegistry extends BClass
     /**
     * Dynamically add a class method
     *
-    * @param string $class if '*' will add method to all classes
+    * @param string $class
+    *   - '*' - will add method to all classes
+    *   - 'extends AbstractClass' - will add method to all classes extending AbstractClass
+    *   - 'implements Interface' - will add method to all classes implementing Interface
     * @param string $name
     * @param callback $callback
     * @return BClassRegistry
     */
-    public function addMethod($class, $name, $callback, $static=false)
+    public function addMethod($class, $method, $callback, $static=false)
     {
-        $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
+        $arr = explode(' ', $class);
+        if (!empty($arr[1])) {
+            $rel = $arr[0];
+            $class = $arr[1];
+        } else {
+            $rel = 'is';
+        }
+        $this->_methods[$method][$static ? 1 : 0]['override'][$rel][$class] = array(
             'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
@@ -655,8 +672,6 @@ class BClassRegistry extends BClass
     *
     * Remembering the module that overrode the method for debugging
     *
-    * @todo decide whether static overrides are needed
-    *
     * @param string $class Class to be overridden
     * @param string $method Method to be overridden
     * @param mixed $callback Callback to invoke on method call
@@ -665,10 +680,7 @@ class BClassRegistry extends BClass
     */
     public function overrideMethod($class, $method, $callback, $static=false)
     {
-        $this->_methods[$class][$static ? 1 : 0][$method]['override'] = array(
-            'module_name' => BModuleRegistry::currentModuleName(),
-            'callback' => $callback,
-        );
+        $this->addMethod($class, $method, $callback, $static);
         $this->_decoratedClasses[$class] = true;
         return $this;
     }
@@ -705,7 +717,7 @@ class BClassRegistry extends BClass
     */
     public function augmentMethod($class, $method, $callback, $static=false)
     {
-        $this->_methods[$class][$static ? 1 : 0][$method]['augment'][] = array(
+        $this->_methods[$method][$static ? 1 : 0]['augment']['is'][$class][] = array(
             'module_name' => BModuleRegistry::currentModuleName(),
             'callback' => $callback,
         );
@@ -758,6 +770,42 @@ class BClassRegistry extends BClass
         return $this;
     }
 
+    public function findMethodInfo($class, $method, $static=0, $type='override')
+    {
+        //$this->_methods[$method][$static ? 1 : 0]['override'][$rel][$class]
+        if (!empty($this->_methods[$method][$static][$type]['is'][$class])) {
+            return $class;
+        }
+        $cacheKey = $class.'|'.$method.'|'.$static.'|'.$type;
+        if (!empty($this->_methodOverrideCache[$cacheKey])) {
+            return $this->_methodOverrideCache[$cacheKey];
+        }
+        if (!empty($this->_methods[$method][$static][$type]['extends'])) {
+            $parents = array_flip(class_parents($class));
+            foreach ($this->_methods[$method][$static][$type]['extends'] as $c=>$v) {
+                if (isset($parents[$c])) {
+                    $this->_methodOverrideCache[$cacheKey] = $v;
+                    return $v;
+                }
+            }
+        }
+        if (!empty($this->_methods[$method][$static][$type]['implements'])) {
+            $implements = array_flip(class_implements($class));
+            foreach ($this->_methods[$method][$static][$type]['implements'] as $i) {
+                if (isset($implements[$p])) {
+                    $this->_methodOverrideCache[$cacheKey] = $v;
+                    return $v;
+                }
+            }
+        }
+        if (!empty($this->_methods[$method][$static][$type]['is']['*'])) {
+            $v = $this->_methods[$method][$static][$type]['is']['*'];
+            $this->_methodOverrideCache[$cacheKey] = $v;
+            return $v;
+        }
+        return null;
+    }
+
     /**
     * Call overridden method
     *
@@ -770,27 +818,26 @@ class BClassRegistry extends BClass
     {
         $class = $origClass ? $origClass : get_class($origObject);
 
-        if (!empty($this->_methods[$class][0][$method]['override'])) {
-            $overridden = true;
-            $callback = $this->_methods[$class][0][$method]['override']['callback'];
+        if (($info = $this->findMethodInfo($class, $method, 0, 'override'))) {
+            $callback = $info['callback'];
             array_unshift($args, $origObject);
-        } elseif (!empty($this->_methods['*'][0][$method]['override'])) {
             $overridden = true;
-            $callback = $this->_methods['*'][0][$method]['override']['callback'];
-            array_unshift($args, $origObject);
-        } else {
-            $overridden = false;
+        } elseif (method_exists($origObject, $method)) {
             $callback = array($origObject, $method);
+            $overridden = false;
+        } else {
+            BDebug::error('Invalid method: '.get_class($origObject).'::'.$method);
+            return null;
         }
 
         $result = call_user_func_array($callback, $args);
 
-        if (!empty($this->_methods[$class][0][$method]['augment'])) {
+        if (($info = $this->findMethodInfo($class, $method, 0, 'augment'))) {
             if (!$overridden) {
                 array_unshift($args, $origObject);
             }
             array_unshift($args, $result);
-            foreach ($this->_methods[$class][0][$method]['augment'] as $augment) {
+            foreach ($info as $augment) {
                 $result = call_user_func_array($augment['callback'], $args);
                 $args[0] = $result;
             }
@@ -814,19 +861,17 @@ class BClassRegistry extends BClass
     {
         $class = $origClass ? $origClass : $class;
 
-        if (!empty($this->_methods[$class][1][$method]['override'])) {
-            $callback = $this->_methods[$class][1][$method]['override']['callback'];
-        } elseif (!empty($this->_methods['*'][1][$method]['override'])) {
-            $callback = $this->_methods['*'][1][$method]['override']['callback'];
+        if (($info = $this->findMethodInfo($class, $method, 1, 'override'))) {
+            $callback = $info['callback'];
         } else {
             $callback = array($class, $method);
         }
 
         $result = call_user_func_array($callback, $args);
 
-        if (!empty($this->_methods[$class][1][$method]['augment'])) {
+        if (($info = $this->findMethodInfo($class, $method, 1, 'augment'))) {
             array_unshift($args, $result);
-            foreach ($this->_methods[$class][1][$method]['augment'] as $augment) {
+            foreach ($info as $augment) {
                 $result = call_user_func_array($augment['callback'], $args);
                 $args[0] = $result;
             }
@@ -1261,7 +1306,7 @@ class BPubSub extends BClass
 
             // For cases like BView
             if (is_object($cb) && !$cb instanceof Closure) {
-                if (is_callable(array($cb, 'set'))) {
+                if (method_exists($cb, 'set')) {
                     $cb->set($args);
                 }
                 $result[] = (string)$cb;

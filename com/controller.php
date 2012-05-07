@@ -87,6 +87,20 @@ class BRequest extends BClass
         return !empty($_SERVER['HTTPS']);
     }
 
+    /**
+    * Server protocol (HTTP/1.0 or HTTP/1.1)
+    *
+    * @return string
+    */
+    public static function serverProtocol()
+    {
+        $protocol = "HTTP/1.0";
+        if(isset($_SERVER['SERVER_PROTOCOL']) && stripos($_SERVER['SERVER_PROTOCOL'],"HTTP") >= 0){
+            $protocol = $_SERVER['SERVER_PROTOCOL'];
+        }
+        return $protocol;
+    }
+
     public static function scheme()
     {
         return static::https() ? 'https' : 'http';
@@ -586,6 +600,47 @@ class BRequest extends BClass
 */
 class BResponse extends BClass
 {
+    protected static $_httpStatuses = array(
+        100 => 'Continue',
+        101 => 'Switching Protocols',
+        200 => 'OK',
+        201 => 'Created',
+        202 => 'Accepted',
+        203 => 'Non-Authorative Information',
+        204 => 'No Content',
+        205 => 'Reset Content',
+        206 => 'Partial Content',
+        300 => 'Multiple Choices',
+        301 => 'Moved Permanently',
+        302 => 'Found',
+        303 => 'See Other',
+        304 => 'Not Modified',
+        307 => 'Temporary Redirect',
+        400 => 'Bad Request',
+        401 => 'Unauthorized',
+        402 => 'Payment Required',
+        403 => 'Forbidden',
+        404 => 'Not Found',
+        405 => 'Method Not Allowed',
+        406 => 'Not Acceptable',
+        407 => 'Proxy Authentication Required',
+        408 => 'Request Time-out',
+        409 => 'Conflict',
+        410 => 'Gone',
+        411 => 'Length Required',
+        412 => 'Precondition Failed',
+        413 => 'Request Entity Too Large',
+        414 => 'Request-URI Too Large',
+        415 => 'Unsupported Media Type',
+        416 => 'Requested Range Not Satisfiable',
+        417 => 'Expectation Failed',
+        500 => 'Internal Server Error',
+        501 => 'Not Implemented',
+        502 => 'Bad Gateway',
+        503 => 'Service Unavailable',
+        504 => 'Gateway Time-out',
+        505 => 'HTTP Version Not Supported',
+    );
     /**
     * Response content MIME type
     *
@@ -676,7 +731,7 @@ class BResponse extends BClass
     * Set or retrieve response content MIME type
     *
     * @deprecated
-    * @param string $type 'json' will expand to 'application/json'
+    * @param string $type
     * @return BResponse|string
     */
     public function contentType($type=BNULL)
@@ -835,17 +890,14 @@ class BResponse extends BClass
     public function status($status, $message=null, $output=true)
     {
         if (is_null($message)) {
-            switch ((int)$status) {
-                case 301: $message = 'Moved Permanently'; break;
-                case 302: $message = 'Moved Temporarily'; break;
-                case 303: $message = 'See Other'; break;
-                case 401: $message = 'Unauthorized'; break;
-                case 404: $message = 'Not Found'; break;
-                case 503: $message = 'Service Unavailable'; break;
-                default: $message = 'Unknown';
+            if (!empty(static::$_httpStatuses[$status])) {
+                $message = static::$_httpStatuses[$status];
+            } else {
+                $message = 'Unknown';
             }
         }
-        header("HTTP/1.0 {$status} {$message}");
+        $protocol = BRequest::i()->serverProtocol();
+        header("{$protocol} {$status} {$message}");
         header("Status: {$status} {$message}");
         if (is_string($output)) {
             echo $output;
@@ -1006,7 +1058,7 @@ class BFrontController extends BClass
     */
     public function changeRoute($from, $opt)
     {
-        if (is_array($opt)) {
+        if (!is_array($opt)) {
             $opt = array('to'=>$opt);
         }
         $type = !empty($opt['type']) ? $opt['type'] : 'first';
@@ -1189,8 +1241,8 @@ class BFrontController extends BClass
         }
 
         if ($attempts>=100) {
-            echo "<pre>"; print_r($node); echo "</pre>";
-            BDebug::error(BLocale::_('BFrontController: Reached 100 route iterations: %s', print_r($node,1)));
+            echo "<pre>"; print_r($route); echo "</pre>";
+            BDebug::error(BLocale::_('BFrontController: Reached 100 route iterations: %s', print_r($route,1)));
         }
     }
 
@@ -1448,8 +1500,8 @@ class BRouteObserver
         $controllerName = $this->callback[0];
         $node->controller_name = $controllerName;
         $actionName = $this->callback[1];
+        /** @var BActionController */
         $controller = BClassRegistry::i()->instance($controllerName, array(), true);
-#echo "<pre>"; print_r($this); exit;
         return $controller->dispatch($actionName, $this->args);
     }
 
@@ -1524,6 +1576,7 @@ class BActionController extends BClass
             $this->forward('unauthenticated');
             return $this->_forward;
         }
+
         if ($authenticated && !$this->authorize($args) && $actionName!=='unauthorized') {
             $this->forward('unauthorized');
             return $this->_forward;
@@ -1557,11 +1610,11 @@ class BActionController extends BClass
         $actionMethod = $this->_actionMethodPrefix.$actionName;
         if (($reqMethod = BRequest::i()->method())!=='GET') {
             $tmpMethod = $actionMethod.'__'.$reqMethod;
-            if (is_callable(array($this, $tmpMethod))) {
+            if (method_exists($this, $tmpMethod)) {
                 $actionMethod = $tmpMethod;
             }
         }
-        if (!is_callable(array($this, $actionMethod))) {
+        if (!method_exists($this, $actionMethod)) {
             $this->forward(true);
             return $this;
         }

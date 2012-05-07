@@ -905,6 +905,17 @@ class BMigrate extends BClass
                 }
                 $modReg->currentModule($modName);
                 $script = $mod['script'];
+                if (is_array($script)) {
+                     if (!empty($script['file'])) {
+                         $filename = BApp::m($modName)->root_dir.'/'.$script['file'];
+                         if (!file_exists($filename)) {
+                             BDebug::warning('Migration file not exists: '.$filename);
+                             continue;
+                         }
+                         require_once $filename;
+                     }
+                     $script = $script['callback'];
+                }
                 $module = $modReg->module($modName);
                 static::$_migratingModule =& $mod;
                 /*

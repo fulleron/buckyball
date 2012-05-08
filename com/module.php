@@ -753,6 +753,7 @@ class BModule extends BClass
     {
         if (empty($this->bootstrap)) {
             BDebug::debug('Module does not have bootstrap for this area: '.$this->name);
+            $this->run_status = static::IDLE;
             return $this;
         }
 //echo "<hr>"; var_dump($this->bootstrap);

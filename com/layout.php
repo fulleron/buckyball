@@ -421,6 +421,11 @@ class BLayout extends BClass
             BDebug::error('Layout recursion detected: '.$d['name']);
             return;
         }
+        static $layoutsApplied = array();
+        if (!empty($layoutsApplied[$d['name']]) && empty($d['repeat'])) {
+            return;
+        }
+        $layoutsApplied[$d['name']] = 1;
         $this->applyLayout($d['name']);
     }
 
@@ -496,13 +501,26 @@ class BLayout extends BClass
     public function addTheme($themeName, $params)
     {
         BDebug::debug('THEME.ADD '.$themeName);
-        $area = BApp::i()->get('area');
-        if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
-            BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
-            return $this;
-        }
         $this->_themes[$themeName] = $params;
         return $this;
+    }
+
+    public function getThemes($area=null, $asOptions=false)
+    {
+        if (is_null($area)) {
+            return $this->_themes;
+        }
+        $themes = array();
+        foreach ($this->_themes as $name=>$theme) {
+            if (!empty($theme['area']) && $theme['area']===$area) {
+                if ($asOptions) {
+                    $themes[$name] = !empty($theme['description']) ? $theme['description'] : $name;
+                } else {
+                    $themes[$name] = $theme;
+                }
+            }
+        }
+        return $themes;
     }
 
     public function applyTheme($themeName=null)
@@ -523,9 +541,14 @@ class BLayout extends BClass
             BDebug::error('Invalid theme name: '.$themeName);
             return $this;
         }
+        $area = BApp::i()->get('area');
+        if (!empty($params['area']) && !in_array($area, (array)$params['area'])) {
+            BDebug::debug('Theme '.$themeName.' can not be used in '.$area);
+            return $this;
+        }
         BDebug::debug('THEME.LOAD '.$themeName);
         BPubSub::i()->fire('BLayout::theme.load.before', array('theme_name'=>$themeName));
-        call_user_func($this->_themes[$themeName]['callback']);
+        BUtil::call($this->_themes[$themeName]['callback']);
         BPubSub::i()->fire('BLayout::theme.load.after', array('theme_name'=>$themeName));
         return $this;
     }
@@ -747,15 +770,20 @@ class BView extends BClass
     *
     * @todo detect multi-level circular references
     * @param string $viewname
+    * @param array $params
     * @return BModule
     */
-    public function view($viewname)
+    public function view($viewname, $params = null)
     {
         if ($viewname===$this->param('view_name')) {
             throw new BException(BLocale::_('Circular reference detected: %s', $viewname));
         }
+        $view = BLayout::i()->view($viewname);
 
-        return BLayout::i()->view($viewname);
+        if ($view && $params) {
+            $view->set($params);
+        }
+        return $view;
     }
 
     /**
@@ -970,16 +998,14 @@ class BView extends BClass
     */
     public function email($p=array())
     {
-        static $availHeaders = array('to','from','cc','bcc','reply-to','return-path');
+        static $availHeaders = array('to','from','cc','bcc','reply-to','return-path','content-type');
 
         if (is_string($p)) {
             $p = array('to'=>$p);
         }
-
         $body = $this->render($p, true);
         $headers = array();
         $params = array();
-
         if (($metaData = $this->param('meta_data'))) {
             foreach ($metaData as $k=>$v) {
                 $lh = strtolower($k);
@@ -1315,7 +1341,7 @@ BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$nam
         }
 
         if ($type==='js' && $this->_headJs['loaded'] && $this->_headJs['loaded']!==$name
-            && empty($args['separate']) && empty($args['tag']) && empty($args['params'])
+            && empty($args['separate']) && empty($args['tag']) && empty($args['params']) && empty($args['if'])
         ) {
             if (!$this->_headJs['jquery'] && strpos($name, 'jquery')!==false) {
                 $this->_headJs['jquery'] = $file;

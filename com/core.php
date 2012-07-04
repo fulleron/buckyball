@@ -232,24 +232,42 @@ class BApp extends BClass
     /**
     * Shortcut for base URL to use in views and controllers
     *
+    * @param $full whether the URL should include schema and host
+    * @param $method
+    *   1 : use config for full url
+    *   2 : use entry point for full url
     * @return string
     */
-    public static function baseUrl($full=true)
+    public static function baseUrl($full=true, $method=1)
     {
         static $baseUrl = array();
         $full = (int)$full;
-        if (empty($baseUrl[$full])) {
+        $key = $full.'|'.$method;
+        if (empty($baseUrl[$key])) {
             /** @var BRequest */
             $r = BRequest::i();
-            if ($full) {
-                $url = BConfig::i()->get('web/base_href');
-                if (!$url) $url = $r->baseUrl();
-            } else {
-                $url = $r->webRoot();
+            $c = BConfig::i();
+            $scriptPath = pathinfo($r->scriptName());
+            switch ($method) {
+                case 1:
+                    $url = $c->get('web/base_href');
+                    if (!$url) {
+                        $url = $scriptPath['dirname'];
+                    }
+                    break;
+                case 2:
+                    $url = $scriptPath['dirname'];
+                    break;
             }
-            $baseUrl[$full] = rtrim($url, '/').'/';
+            if (!($r->modRewriteEnabled() && $c->get('web/hide_script_name'))) {
+                $url .= '/'.$scriptPath['basename'];
+            }
+            if ($full) {
+                $url = $r->scheme().'://'.$r->httpHost().$url;
+            }
+            $baseUrl[$key] = rtrim($url, '/').'/';
         }
-        return $baseUrl[$full];
+        return $baseUrl[$key];
     }
 
     /**
@@ -271,9 +289,10 @@ class BApp extends BClass
         return $m->$method() . $url;
     }
 
-    public static function href($url='', $full=true)
+    public static function href($url='', $full=true, $method=2)
     {
-        return BApp::baseUrl($full) . BFrontController::processHref($url);
+        return BApp::baseUrl($full, $method) 
+            . BFrontController::processHref($url);
     }
 
     /**
@@ -510,6 +529,7 @@ class BConfig extends BClass
         if (!BUtil::isPathAbsolute($filename)) {
             $filename = BConfig::i()->get('fs/config_dir').'/'.$filename;
         }
+        BUtil::ensureDir(dirname($filename));
         // Write contents
         if (!file_put_contents($filename, $contents, LOCK_EX)) {
             BDebug::error('Error writing configuration file: '.$filename);
@@ -781,16 +801,18 @@ class BClassRegistry extends BClass
             return $this->_methodOverrideCache[$cacheKey];
         }
         if (!empty($this->_methods[$method][$static][$type]['extends'])) {
-            $parents = array_flip(class_parents($class));
+            $parents = class_parents($class);
+#echo "<pre>"; echo $class.'::'.$method.';'; print_r($parents); print_r($this->_methods[$method][$static][$type]['extends']); echo "</pre><hr>";
             foreach ($this->_methods[$method][$static][$type]['extends'] as $c=>$v) {
                 if (isset($parents[$c])) {
+#echo ' * ';
                     $this->_methodOverrideCache[$cacheKey] = $v;
                     return $v;
                 }
             }
         }
         if (!empty($this->_methods[$method][$static][$type]['implements'])) {
-            $implements = array_flip(class_implements($class));
+            $implements = class_implements($class);
             foreach ($this->_methods[$method][$static][$type]['implements'] as $i) {
                 if (isset($implements[$p])) {
                     $this->_methodOverrideCache[$cacheKey] = $v;
@@ -816,7 +838,8 @@ class BClassRegistry extends BClass
     */
     public function callMethod($origObject, $method, array $args=array(), $origClass=null)
     {
-        $class = $origClass ? $origClass : get_class($origObject);
+        //$class = $origClass ? $origClass : get_class($origObject);
+        $class = get_class($origObject);
 
         if (($info = $this->findMethodInfo($class, $method, 0, 'override'))) {
             $callback = $info['callback'];
@@ -859,12 +882,16 @@ class BClassRegistry extends BClass
     */
     public function callStaticMethod($class, $method, array $args=array(), $origClass=null)
     {
-        $class = $origClass ? $origClass : $class;
+        //$class = $origClass ? $origClass : $class;
 
         if (($info = $this->findMethodInfo($class, $method, 1, 'override'))) {
             $callback = $info['callback'];
         } else {
-            $callback = array($class, $method);
+            if (method_exists($class, $method)) {
+                $callback = array($class, $method);
+            } else {
+                throw new Exception('Invalid static method: '.$class.'::'.$method);
+            }
         }
 
         $result = call_user_func_array($callback, $args);
@@ -1415,6 +1442,9 @@ class BSession extends BClass
             return $this;
         }
         $config = BConfig::i()->get('cookie');
+        if (!empty($config['session_disable'])) {
+            return $this;
+        }
         session_set_cookie_params(
             !empty($config['timeout']) ? $config['timeout'] : 3600,
             !empty($config['path']) ? $config['path'] : BRequest::i()->webRoot(),
@@ -1564,7 +1594,7 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
     */
     public function close()
     {
-        if (!$this->_dirty) {
+        if (!$this->_dirty || !empty($_SESSION)) {
             return;
         }
 BDebug::debug(__METHOD__.': '.spl_object_hash($this));

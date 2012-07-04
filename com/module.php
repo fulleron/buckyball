@@ -55,6 +55,11 @@ class BModuleRegistry extends BClass
     {
         return static::$_modules;
     }
+    
+    public static function isLoaded($modName)
+    {
+        return !empty(static::$_modules[$modName]) && static::$_modules[$modName]->run_level===BModule::LOADED;
+    }
 
     /**
     * Register or return module object
@@ -146,8 +151,8 @@ class BModuleRegistry extends BClass
             return $this;
         }
         foreach ($manifests as $file) {
-            $ext = pathinfo($file, PATHINFO_EXTENSION);
-            switch ($ext) {
+            $info = pathinfo($file);
+            switch ($info['extension']) {
                 case 'php':
                     $manifest = include($file);
                     break;
@@ -388,6 +393,7 @@ echo "</pre>"; exit;
             $mod->bootstrap();
             $this->popModule();
         }
+        BPubSub::i()->fire('bootstrap::after');
         return $this;
     }
 
@@ -557,7 +563,14 @@ class BModule extends BClass
         //TODO: optimize path calculations
         if (!BUtil::isPathAbsolute($this->root_dir)) {
 //echo "{$m['root_dir']}, {$args['root_dir']}\n";
-            $this->root_dir = BUtil::normalizePath($m['root_dir'].'/'.$this->root_dir);
+            if($m['root_dir'] != $this->root_dir)
+                $this->root_dir = BUtil::normalizePath($m['root_dir'].'/'.$this->root_dir);
+            else{
+                $this->root_dir = BUtil::normalizePath($this->root_dir);
+            }
+
+            //$this->root_dir = BUtil::normalizePath($this->root_dir);
+            //echo $this->root_dir."\n";
         }
         $this->run_level = static::ONDEMAND; // disallow declaring run_level in manifest
         /*
@@ -589,7 +602,7 @@ class BModule extends BClass
         //TODO: eliminate need for manifest file
         $file = $this->manifest_file;
         if (empty(static::$_manifestCache[$file])) {
-            static::$_manifestCache[$file] = array('root_dir' => str_replace('\\', '/', dirname(realpath($file))));
+            static::$_manifestCache[$file] = array('root_dir' => str_replace('\\', '/', dirname($file)));
         }
         return static::$_manifestCache[$file];
     }
@@ -614,6 +627,7 @@ class BModule extends BClass
         } else {
             static::$_env['root_dir'] = str_replace('\\', '/', $r->scriptDir());
         }
+
         if (($baseSrc = $c->get('web/base_src'))) {
             static::$_env['base_src'] = $baseSrc;//$r->scheme().'://'.static::$_env['http_host'].$baseSrc;
         } else {
@@ -625,7 +639,8 @@ class BModule extends BClass
             static::$_env['base_href'] = static::$_env['web_root'];
         }
         foreach (static::$_manifestCache as &$m) {
-            $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
+			//    $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
+			$m['base_src'] = rtrim(static::$_env['base_src'], '/').str_replace(static::$_env['root_dir'], '', $m['root_dir']);
         }
         unset($m);
     }
@@ -680,14 +695,24 @@ class BModule extends BClass
     *
     * @return string
     */
-    public function baseSrc()
+    public function baseSrc($full=true)
     {
-        return $this->base_src;
+        $src = $this->base_src;
+        if ($full) {
+            $r = BRequest::i();
+            $src = $r->scheme().'://'.$r->httpHost().$src;
+        }
+        return $src;
     }
 
-    public function baseHref()
+    public function baseHref($full=true)
     {
-        return $this->base_href;
+        $href = $this->base_src;
+        if ($full) {
+            $r = BRequest::i();
+            $href = $r->scheme().'://'.$r->httpHost().$href;
+        }
+        return $href;
     }
 
     public function runLevel($level=null, $updateConfig=false)
@@ -894,7 +919,6 @@ class BMigrate extends BClass
                 }
                 $modules[$m->module_name]['schema_version'] = $m->schema_version;
             }
-
             // run required migration scripts
             foreach ($modules as $modName=>$mod) {
                 if (empty($mod['code_version'])) {

@@ -157,31 +157,41 @@ class BDb
     */
     public static function now()
     {
-        return gmstrftime('%F %T');
+        return gmstrftime('%Y-%m-%d %H:%M:%S');
     }
 
     /**
     * Shortcut to run multiple queries from migrate scripts
     *
+    * It doesn't make sense to run multiple queries in the same call and use $params
+    *
     * @param string $sql
     * @param array $params
+    * @param array $options
+    *   - echo - echo all queries as they run
     */
-    public static function run($sql, $params=null)
+    public static function run($sql, $params=null, $options=array())
     {
         $queries = preg_split("/;+(?=([^'|^\\\']*['|\\\'][^'|^\\\']*['|\\\'])*[^'|^\\\']*[^'|^\\\']$)/", $sql);
         $results = array();
-        foreach ($queries as $query){
+        foreach ($queries as $i=>$query){
            if (strlen(trim($query)) > 0) {
-                #try {
+                try {
                     BDebug::debug('DB.RUN: '.$query);
+                    if (!empty($options['echo'])) {
+                        echo '<hr><pre>'.$query.'<pre>';
+                    }
                     if (is_null($params)) {
                         $results[] = BORM::get_db()->exec($query);
                     } else {
                         $results[] = BORM::get_db()->prepare($query)->execute($params);
                     }
-                #} catch (Exception $e) {
-                #    var_dump($e); exit;
-                #}
+                } catch (Exception $e) {
+                    echo "<hr>{$e->getMessage()}: <pre>{$query}</pre>";
+                    if (empty($options['try'])) {
+                        throw $e;
+                    }
+                }
            }
         }
         return $results;
@@ -369,7 +379,6 @@ class BDb
     public static function ddlClearCache()
     {
         static::$_tables = array();
-        return $this;
     }
 
     /**
@@ -656,7 +665,7 @@ class BORM extends ORMWrapper
     protected static function _log_query($query, $parameters)
     {
         $result = parent::_log_query($query, $parameters);
-        static::$_last_profile = BDebug::debug('DB.RUN: '.static::$_last_query);
+        static::$_last_profile = BDebug::debug('DB.RUN: '.(static::$_last_query ? static::$_last_query : 'LOGGING NOT ENABLED'));
         return $result;
     }
 
@@ -717,6 +726,23 @@ class BORM extends ORMWrapper
             return $this;
         }
         return parent::select($column, $alias);
+    }
+
+    protected $_use_index = array();
+
+    public function use_index($index, $type='USE', $table='_')
+    {
+        $this->_use_index[$table] = compact('index', 'type');
+        return $this;
+    }
+
+    protected function _build_select_start() {
+        $fragment = parent::_build_select_start();
+        if (!empty($this->_use_index['_'])) {
+            $idx = $this->_use_index['_'];
+            $fragment .= ' '.$idx['type'].' INDEX ('.$idx['index'].') ';
+        }
+        return $fragment;
     }
 
     /**
@@ -1054,20 +1080,25 @@ exit;
             'rs' => !empty($r['rs']) ? $r['rs'] : null,
             'rc' => !empty($r['rc']) ? $r['rc'] : null,
             'q'  => !empty($r['q'])  ? $r['q'] : null,
+            'c'  => !empty($d['c'])  ? $d['c'] : null, //total found
         );
 #print_r($r); print_r($d); print_r($s); exit;
         $s['sc'] = $s['s'].'|'.$s['sd']; // sort combined for state
 
         #$s['c'] = 600000;
-        $cntOrm = clone $this; // clone ORM to count
-        $s['c'] = $cntOrm->count(); // total row count
-        unset($cntOrm); // free mem
+        if (empty($s['c'])){
+            $cntOrm = clone $this; // clone ORM to count
+            $s['c'] = $cntOrm->count(); // total row count
+            unset($cntOrm); // free mem
+        }
 
         $s['mp'] = ceil($s['c']/$s['ps']); // max page
         if (($s['p']-1)*$s['ps']>$s['c']) $s['p'] = $s['mp']; // limit to max page
         if ($s['s']) $this->{'order_by_'.$s['sd']}($s['s']); // sort rows if requested
         $s['rs'] = max(0, isset($s['rs']) ? $s['rs'] : ($s['p']-1)*$s['ps']); // start from requested row or page
-        $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
+        if(empty($d['donotlimit'])){
+            $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
+        }
         $rows = $this->find_many(); // result data
         $s['rc'] = $rows ? sizeof($rows) : 0; // returned row count
         if (!empty($d['as_array'])) {
@@ -1586,10 +1617,21 @@ class BModel extends Model
     {
         try {
             BPubSub::i()->fire($this->origClass().'::beforeSave', array('model'=>$this));
+            BPubSub::i()->fire('BModel::beforeSave', array('model'=>$this));
         } catch (BModelException $e) {
             return false;
         }
         return true;
+    }
+
+    /**
+    * Return dirty fields for debugging
+    *
+    * @return array
+    */
+    public function dirty_fields()
+    {
+        return $this->orm->dirty_fields();
     }
 
     /**
@@ -1633,6 +1675,7 @@ class BModel extends Model
     public function afterSave()
     {
         BPubSub::i()->fire($this->_origClass().'::afterSave', array('model'=>$this));
+        BPubSub::i()->fire('BModel::afterSave', array('model'=>$this));
         return $this;
     }
 
@@ -1833,6 +1876,7 @@ class BModel extends Model
             } else {
                 $model = $modelClass::i()->load($idValue);
             }
+
             if ($autoCreate && !$model) {
                 if (is_array($idValue)) {
                     $model = $modelClass::i()->create($idValue);
@@ -1868,7 +1912,10 @@ class BModel extends Model
     public function childById($var, $id, $idField='id')
     {
         $collection = $this->get($var);
-        if (!$collection) return null;
+        if (!$collection){
+            $collection = $this->{$var};
+            if (!$collection) return null;
+        }
         foreach ($collection as $k=>$v) {
             if ($v->get($idField)==$id) return $v;
         }

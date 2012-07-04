@@ -686,6 +686,7 @@ class BUtil
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_AUTOREFERER => true,
                 CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
                 CURLOPT_CONNECTTIMEOUT => $timeout,
                 CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_MAXREDIRS => 10,
@@ -739,7 +740,15 @@ class BUtil
     */
     public static function post($url, $data)
     {
-        list($content) = static::i()->remoteHttp('POST', $url, $data);
+        list($content) = static::remoteHttp('POST', $url, $data);
+        parse_str($content, $response);
+        return $response;
+    }
+
+    public static function httpClient($method, $url, $data)
+    {
+        $method = strtoupper($method);
+        list($content) = static::remoteHttp($method, $url, $data);
         parse_str($content, $response);
         return $response;
     }
@@ -761,9 +770,13 @@ class BUtil
     public static function globRecursive($pattern, $flags=0)
     {
         $files = glob($pattern, $flags);
-        foreach (glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT) as $dir) {
-            $files = array_merge($files, self::globRecursive($dir.'/'.basename($pattern), $flags));
-        }
+	if (!$files) $files = array();
+	$dirs = glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT);
+	if ($dirs) {
+		foreach ($dirs as $dir) {
+		    $files = array_merge($files, self::globRecursive($dir.'/'.basename($pattern), $flags));
+		}
+	}
         return $files;
     }
 
@@ -819,7 +832,16 @@ class BUtil
         if (!empty($parsed['query'])) {
             foreach (explode('&', $parsed['query']) as $q) {
                 $a = explode('=', $q);
-                $query[$a[0]] = $a[1];
+                $a[0] = urldecode($a[0]);
+                $query[$a[0]] = urldecode($a[1]);
+            }
+        }
+        foreach($params as $k => $v){
+            if($v === ""){
+                if(isset($query[$k])){
+                    unset($query[$k]);
+                }
+                unset($params[$k]);
             }
         }
         $query = array_merge($query, $params);
@@ -879,6 +901,31 @@ class BUtil
         }
         return 'http://www.gravatar.com/avatar/'.md5(strtolower($email))
             .($params ? '?'.http_build_query($params) : '');
+    }
+
+    public static function extCallback($callback)
+    {
+        if (is_string($callback)) {
+            if (($c = explode('.', $callback))) {
+                list($class, $method) = $c;
+            } elseif (($c = explode('->', $callback))) {
+                list($class, $method) = $c;
+            }
+            if (!empty($class)) {
+                $callback = array($class::i(), $method);
+            }
+        }
+        return $callback;
+    }
+
+    public static function call($callback, $args=array(), $array=false)
+    {
+        $callback = static::extCallback($callback);
+        if ($array) {
+            return call_user_func_array($callback, $args);
+        } else {
+            return call_user_func($callback, $args);
+        }
     }
 }
 
@@ -1093,6 +1140,7 @@ class BDebug extends BClass
         SYSLOG    = 2,
         EMAIL     = 4,
         OUTPUT    = 8,
+        EXCEPTION = 16,
         STOP      = 4096;
 
     const MODE_DEBUG      = 'DEBUG',
@@ -1127,7 +1175,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::ERROR,
             self::OUTPUT    => self::CRITICAL,
-            self::STOP      => self::ALERT,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_STAGING => array(
             self::MEMORY    => false,
@@ -1135,7 +1184,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::ERROR,
             self::OUTPUT    => self::CRITICAL,
-            self::STOP      => self::ALERT,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_DEVELOPMENT => array(
             self::MEMORY    => self::INFO,
@@ -1143,7 +1193,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
-            self::STOP      => self::ERROR,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_DEBUG => array(
             self::MEMORY    => self::DEBUG,
@@ -1151,7 +1202,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
-            self::STOP      => self::ERROR,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_RECOVERY => array(
             self::MEMORY    => self::DEBUG,
@@ -1159,7 +1211,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
-            self::STOP      => self::ERROR,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_MIGRATION => array(
             self::MEMORY    => self::DEBUG,
@@ -1167,7 +1220,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
-            self::STOP      => self::ERROR,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_INSTALLATION => array(
             self::MEMORY    => self::DEBUG,
@@ -1175,7 +1229,8 @@ class BDebug extends BClass
             self::FILE      => self::WARNING,
             self::EMAIL     => false,//self::CRITICAL,
             self::OUTPUT    => self::NOTICE,
-            self::STOP      => self::ERROR,
+            self::EXCEPTION => self::ERROR,
+            self::STOP      => self::CRITICAL,
         ),
         self::MODE_DISABLED => array(
             self::MEMORY    => false,
@@ -1183,6 +1238,7 @@ class BDebug extends BClass
             self::FILE      => false,
             self::EMAIL     => false,
             self::OUTPUT    => false,
+            self::EXCEPTION => false,
             self::STOP      => false,
         ),
     );
@@ -1261,7 +1317,7 @@ class BDebug extends BClass
     public static function exceptionHandler($e)
     {
         //static::trigger($e->getCode(), $e->getMessage(), $e->stackPop+1);
-        static::trigger(self::ERROR, $e->getMessage());
+        static::trigger(self::ERROR, $e);
     }
 
     public static function shutdownHandler()
@@ -1327,7 +1383,15 @@ class BDebug extends BClass
 
     public static function trigger($level, $msg, $stackPop=0)
     {
-        $e = is_scalar($msg) ? array('msg'=>$msg) : $msg;
+        if (is_scalar($msg)) {
+            $e = array('msg'=>$msg);
+        } elseif (is_object($msg) && $msg instanceof Exception) {
+            $e = array('msg'=>$msg->getMessage());
+        } elseif (is_array($msg)) {
+            $e = $msg;
+        } else {
+            throw new Exception('Invalid message type: '.print_r($msg, 1));
+        }
 
         //$stackPop++;
         $bt = debug_backtrace(true);
@@ -1403,7 +1467,16 @@ class BDebug extends BClass
             echo nl2br(htmlspecialchars(ob_get_clean()));
             echo '</div>';
         }
-
+/*
+        $l = self::$_level[self::EXCEPTION];
+        if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
+            if (is_object($msg) && $msg instanceof Exception) {
+                throw $msg;
+            } else {
+                throw new Exception($msg);
+            }
+        }
+*/
         $l = self::$_level[self::STOP];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
             static::dumpLog();

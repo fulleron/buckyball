@@ -133,7 +133,7 @@ class BRequest extends BClass
     */
     public static function docRoot()
     {
-        return !empty($_SERVER['DOCUMENT_ROOT']) ? $_SERVER['DOCUMENT_ROOT'] : null;
+        return !empty($_SERVER['DOCUMENT_ROOT']) ? str_replace('\\', '/', $_SERVER['DOCUMENT_ROOT']) : null;
     }
 
     /**
@@ -143,7 +143,7 @@ class BRequest extends BClass
     */
     public static function scriptName()
     {
-        return !empty($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : null;
+        return !empty($_SERVER['SCRIPT_NAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : null;
     }
 
     /**
@@ -153,7 +153,7 @@ class BRequest extends BClass
     */
     public static function scriptFilename()
     {
-        return !empty($_SERVER['SCRIPT_FILENAME']) ? $_SERVER['SCRIPT_FILENAME'] : null;
+        return !empty($_SERVER['SCRIPT_FILENAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME']) : null;
     }
 
     /**
@@ -179,7 +179,7 @@ class BRequest extends BClass
         if (empty($_SERVER['SCRIPT_NAME'])) {
             return null;
         }
-        $root = dirname($_SERVER['SCRIPT_NAME']);
+        $root = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
         if ($parentDepth) {
             $arr = explode('/', $root);
             $len = sizeof($arr)-$parentDepth;
@@ -236,7 +236,14 @@ class BRequest extends BClass
     */
     public static function rawPath()
     {
-        return !empty($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] : '/';
+#echo "<pre>"; print_r($_SERVER); exit;
+        return !empty($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] :
+            (!empty($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : '/');
+            /*
+                (!empty($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] :
+                    (!empty($_SERVER['SERVER_URL']) ? $_SERVER['SERVER_URL'] : '/')
+                )
+            );*/
     }
 
     /**
@@ -1223,7 +1230,7 @@ class BFrontController extends BClass
 
         $attempts = 0;
         $forward = true; // null: no forward, true: try next route, array: forward without new route
-
+#echo "<pre>"; print_r($this->_routes); exit;
         while (($attempts++<100) && $forward) {
             $route = $this->findRoute($requestRoute);
             if (!$route) {
@@ -1288,7 +1295,7 @@ class BRouteNode
 
         // convert route name into regex and save param references
         if ($this->route_name[0]==='^') {
-            $this->regex = $this->route_name;
+            $this->regex = '#'.$this->route_name.'#';
             return;
         }
         $a = explode(' ', $this->route_name);

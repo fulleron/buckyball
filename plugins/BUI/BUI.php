@@ -38,7 +38,7 @@ class BViewGrid extends BView
     {
         $grid = $this->grid;
         $grid['request'] = BUtil::arrayMerge($grid['request'], $changeRequest);
-        return BApp::baseUrl().$grid['config']['gridUrl'].'?'.http_build_query($grid['request']);
+        return BApp::href($grid['config']['gridUrl']).'?'.http_build_query($grid['request']);
     }
 
     public function sortUrl($colId)
@@ -420,7 +420,7 @@ class BViewJqGrid extends BViewGrid
             $colModel[] = $col;
         }
         $result = $o + array(
-            'url' => BApp::baseUrl().'/'.$c['dataUrl'],
+            'url' => BApp::href($c['dataUrl']),
             'datatype' => 'json',
             'colNames' => $colNames,
             'colModel' => $colModel,

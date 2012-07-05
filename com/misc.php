@@ -24,7 +24,7 @@ class BUtil
     *
     * @var string default sha512 for strength and slowness
     */
-    protected static $_hashAlgo = 'sha256';
+    protected static $_hashAlgo = 'bcrypt';
 
     /**
     * Default number of hash iterations
@@ -578,6 +578,22 @@ class BUtil
         }
         return $pattern;
     }
+    
+    /**
+    * Create or verify password hash using bcrypt
+    * 
+    * @param string $plain
+    * @param string $hash
+    * @return boolean|string if $hash is null, return hash, otherwise return verification flag
+    */
+    public static function bcrypt($plain, $hash=null)
+    {
+        if (is_null($hash)) {
+            return crypt($plain, '$2a$09$'.static::randomString(20).'$');
+        } else {
+            return crypt($plain, substr($hash, 0, 28)) === $hash;
+        }
+    }
 
     /**
     * Generate salted hash
@@ -606,6 +622,9 @@ class BUtil
     public static function fullSaltedHash($string, $salt=null, $algo=null, $iter=null)
     {
         $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
+        if ('bcrypt'===$algo) {
+            return static::bcrypt($string);   
+        }
         $iter = !is_null($iter) ? $iter : static::$_hashIter;
         $s = static::$_hashSep;
         $hash = $s.$algo.$s.$iter;
@@ -625,6 +644,9 @@ class BUtil
     */
     public static function validateSaltedHash($string, $storedHash)
     {
+        if (strpos($storedHash, '$2a$')===0) {
+            return static::bcrypt($string, $storedHash);
+        }
         $sep = $storedHash[0];
         $arr = explode($sep, $storedHash);
         array_shift($arr);

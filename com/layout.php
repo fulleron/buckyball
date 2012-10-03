@@ -87,7 +87,6 @@ class BLayout extends BClass
     */
     public function viewRootDir($rootDir=null)
     {
-        $module = BModuleRegistry::i()->currentModule();
         if (is_null($rootDir)) {
             return $this->getViewRootDir();
         }
@@ -123,7 +122,7 @@ class BLayout extends BClass
     }
 
     /**
-    * put your comment there...
+    * Alias for addAllViews()
     *
     * @deprecated alias
     * @param mixed $rootDir
@@ -185,7 +184,7 @@ class BLayout extends BClass
     }
 
     /**
-    * put your comment there..
+    * Set default view class
     *
     * @todo rename to setDefaultViewClass()
     * @param mixed $className
@@ -436,14 +435,18 @@ class BLayout extends BClass
 
     public function metaDirectiveHookCallback($d)
     {
+        $args = !empty($d['args']) ? $d['args'] : array();
+        if (!empty($d['position'])) {
+            $args['position'] = $d['position'];
+        }
         if (!empty($d['callbacks'])) {
             foreach ($d['callbacks'] as $cb) {
-                $this->hook($d['name'], $cb);
+                $this->hook($d['name'], $cb, $args);
             }
         }
         if (!empty($d['views'])) {
             foreach ($d['views'] as $v) {
-                $this->hookView($d['name'], $v);
+                $this->hookView($d['name'], $v, $args);
             }
         }
     }
@@ -953,6 +956,11 @@ class BView extends BClass
         return htmlspecialchars($args ? BUtil::sprintfn($str, $args) : $str);
     }
 
+    public function s($str, $tags=null)
+    {
+        return strip_tags($str, $tags);
+    }
+
     public function optionsHtml($options, $default='')
     {
         $html = '';
@@ -1006,6 +1014,10 @@ class BView extends BClass
         $body = $this->render($p, true);
         $headers = array();
         $params = array();
+        $subject = '';
+        $files = array();
+        $to = '';
+
         if (($metaData = $this->param('meta_data'))) {
             foreach ($metaData as $k=>$v) {
                 $lh = strtolower($k);
@@ -1013,6 +1025,8 @@ class BView extends BClass
                     $subject = $v;
                 } elseif ($lh=='to') {
                     $to = $v;
+                } elseif ($lh=='attach') {
+                    $files[] = $v;
                 } elseif (in_array($lh, $availHeaders)) {
                     $headers[$lh] = $k.': '.$v;
                 }
@@ -1024,11 +1038,55 @@ class BView extends BClass
                 $subject = $v;
             } elseif ($lh=='to') {
                 $to = $v;
+            } elseif ($lh=='attach') {
+                $files[] = $v;
             } elseif (in_array($lh, $availHeaders)) {
                 $headers[$lh] = $k.': '.$v;
             } elseif ($k=='-f') $params[$k] = $k.' '.$v;
         }
+
+        if ($files) {
+            $this->addAttachment($files, $headers, $body);
+        }
+
         return mail($to, $subject, trim($body), join("\r\n", $headers), join(' ', $params));
+    }
+
+    function addAttachment($files, &$mailheaders, &$body)
+    {
+        $body = trim($body);
+        //$headers = array();
+        // boundary
+        $semi_rand = md5(time());
+        $mime_boundary = "==Multipart_Boundary_x{$semi_rand}x";
+
+        // headers for attachment
+        $headers = $mailheaders;
+        $headers[] = "MIME-Version: 1.0";
+        $headers[] = "Content-Type: multipart/mixed;" ;
+        $headers[] = " boundary=\"{$mime_boundary}\"";
+
+        //headers and message for text
+        $message = "--{$mime_boundary}\n\n" .  $body ."\n\n";
+
+        // preparing attachments
+        for($i=0;$i<count($files);$i++){
+            if(is_file($files[$i])){
+                $message .= "--{$mime_boundary}\n";
+                $fp = @fopen($files[$i],"rb");
+                $data = @fread($fp,filesize($files[$i]));
+                @fclose($fp);
+                $data = chunk_split(base64_encode($data));
+                $message .= "Content-Type: application/octet-stream; name=\"".basename($files[$i])."\"\n" .
+                "Content-Description: ".basename($files[$i])."\n" .
+                "Content-Disposition: attachment;\n" . " filename=\"".basename($files[$i])."\"; size=".filesize($files[$i]).";\n" .
+                "Content-Transfer-Encoding: base64\n\n" . $data . "\n\n";
+                }
+            }
+        $message .= "--{$mime_boundary}--";
+
+        $body = $message;
+        $mailheaders = $headers;
     }
 
     /**
@@ -1127,15 +1185,15 @@ class BViewHead extends BView
     }
 
     /**
-    * put your comment there...
+    * Alis for addTitle($title)
     *
     * @deprecated
     * @param mixed $title
     * @return BViewHead
     */
-    public function title($title)
+    public function title($title, $start=false)
     {
-        $this->addTitle($title);
+        $this->addTitle($title, $start);
     }
 
     /**
@@ -1154,6 +1212,12 @@ class BViewHead extends BView
             return $this->getMeta($name);
         }
         $this->addMeta($name, $content, $httpEquiv);
+        return $this;
+    }
+    
+    public function canonical($href)
+    {
+        $this->addElement('link', 'canonical', array('tag'=>'<link rel="canonical" href="'.$href.'"/>'));
         return $this;
     }
 
@@ -1232,9 +1296,13 @@ class BViewHead extends BView
         return $this;
     }
 
-    public function addTitle($title)
+    public function addTitle($title, $start=false)
     {
-        $this->_title[] = $title;
+        if ($start) {
+            array_splice($this->_title, 0, 1, $title);
+        } else {
+            $this->_title[] = $title;
+        }
         return $this;
     }
 
@@ -1309,7 +1377,7 @@ class BViewHead extends BView
                 $this->_headJs['loaded'] = $name;
             }
         }
-BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
+#BDebug::debug('EXT.RESOURCE '.$name.': '.print_r($this->_elements[$type.':'.$name], 1));
         return $this;
     }
 

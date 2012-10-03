@@ -55,10 +55,10 @@ class BModuleRegistry extends BClass
     {
         return static::$_modules;
     }
-    
+
     public static function isLoaded($modName)
     {
-        return !empty(static::$_modules[$modName]) && static::$_modules[$modName]->run_level===BModule::LOADED;
+        return !empty(static::$_modules[$modName]) && static::$_modules[$modName]->run_status===BModule::LOADED;
     }
 
     /**
@@ -159,6 +159,7 @@ class BModuleRegistry extends BClass
                 case 'json':
                     $json = file_get_contents($file);
                     $manifest = BUtil::fromJson($json);
+
                     break;
                 default:
                     BDebug::error(BLocale::_("Unknown manifest file format: %s", $file));
@@ -373,14 +374,145 @@ class BModuleRegistry extends BClass
     }
 
     /**
+    * Check module requirements
+    *
+    * @return BModuleRegistry
+    */
+    public function checkRequires()
+    {
+        if (!static::$_modules) {
+            // validate required modules
+            $requestRunLevels = (array)BConfig::i()->get('request/module_run_level');
+            foreach ($requestRunLevels as $modName=>$runLevel) {
+                if (!empty(static::$_modules[$modName])) {
+                    static::$_modules[$modName]->run_level = $runLevel;
+                } elseif ($runLevel===BModule::REQUIRED) {
+                    BDebug::warning('Module is required but not found: '.$modName);
+                }
+            }
+        }
+        // scan for require
+
+        foreach (static::$_modules as $modName=>$mod) {
+            if (!isset($mod->require)) {
+                continue;
+            }
+            // normalize require format
+            $mod->require = $this->normalizeManifestRequireFormat($mod->require);
+
+            // is currently iterated module required?
+            if ($mod->run_level===BModule::REQUIRED) {
+                $mod->run_status = BModule::PENDING; // only 2 options: PENDING or ERROR
+            }
+            if (!isset($mod->errors)) {
+                $mod->errors = array();
+            }
+            // iterate over require for modules
+            if (!empty($mod->require['module'])) {
+                foreach ($mod->require['module'] as &$req) {
+                    $reqMod = !empty(static::$_modules[$req['name']]) ? static::$_modules[$req['name']] : false;
+                    // is the module missing
+                    if (!$reqMod) {
+                        $mod->errors[] = array('type'=>'missing', 'mod'=>$req['name']);
+                        continue;
+                    // is the module disabled
+                    } elseif ($reqMod->run_level===BModule::DISABLED) {
+                        $mod->errors[] = array('type'=>'disabled', 'mod'=>$req['name']);
+                        continue;
+                    // is the module version not valid
+                    } elseif (!empty($req['version'])) {
+                        $reqVer = $req['version'];
+                        if (!empty($reqVer['from']) && version_compare($reqMod->version, $reqVer['from'], '<')
+                            || !empty($reqVer['to']) && version_compare($reqMod->version, $reqVer['to'], '>')
+                        ) {
+                            $mod->errors[] = array('type'=>'version', 'mod'=>$req['name']);
+                            continue;
+                        }
+                    }
+                    if (!in_array($req['name'], $mod->parents)) {
+                        $mod->parents[] = $req['name'];
+                    }
+                    if (!in_array($modName, $reqMod->children)) {
+                        $reqMod->children[] = $modName;
+                    }
+                    if ($mod->run_status===BModule::PENDING) {
+                        $reqMod->run_status = BModule::PENDING;
+                    }
+                }
+                unset($req);
+            }
+
+            if (!$mod->errors && $mod->run_level===BModule::REQUESTED) {
+                $mod->run_status = BModule::PENDING;
+            }
+        }
+
+        foreach (static::$_modules as $modName=>$mod) {
+            if (!is_object($mod)) {
+                var_dump($mod); exit;
+            }
+            if ($mod->errors && !$mod->errors_propagated) {
+                // propagate dependency errors into subdependent modules
+                $this->propagateDependErrors($mod);
+            } elseif ($mod->run_status===BModule::PENDING) {
+                // propagate pending status into deep dependent modules
+                $this->propagateDepends($mod);
+            }
+        }
+        //print_r(static::$_modules);exit;
+        return $this;
+    }
+
+    public function normalizeManifestRequireFormat($require)
+    {
+        // normalize require format
+            foreach ($require as $reqType => &$req) {
+                if (is_string($req)) {
+                    if (is_numeric($reqType)) {
+                        $require['module'] = array(array('name' => $req));
+                        unset($require[$reqType]);
+                    } else {
+                        $require[$reqType] = array(array('name' => $req));
+                    }
+                } else if (is_array($req)) {
+                    foreach($req as $reqMod => &$reqVer) {
+                        if (is_numeric($reqMod)) {
+                            $reqVer = array('name' => $reqVer);
+                        } else {
+                            $from = '';
+                            $to = '';
+
+                            $reqVerAr = explode(";", $reqVer);
+                            if (!empty($reqVerAr[0])) {
+                                $from = $reqVerAr[0];
+                            }
+                            if (!empty($reqVerAr[1])) {
+                                $to = $reqVerAr[1];
+                            }
+                            if (!empty($from)) {
+                                $reqVer = array('name' => $reqMod, 'version' => array('from' => $from, 'to' => $to));
+                            } else {
+                                $reqVer = array('name' => $reqMod);
+                            }
+                        }
+
+                    }
+                }
+            }
+            return $require;
+    }
+
+    /**
     * Run modules bootstrap callbacks
     *
     * @return BModuleRegistry
     */
     public function bootstrap()
     {
+        $language = BSession::i()->data('_language');
         $this->checkDepends();
         $this->sortDepends();
+        $this->checkRequires();
 /*
 echo "<pre>";
 print_r(BConfig::i()->get());
@@ -391,6 +523,15 @@ echo "</pre>"; exit;
         foreach (static::$_modules as $mod) {
             $this->pushModule($mod->name);
             $mod->bootstrap();
+            //load translations
+            if (!empty($language) && !empty($mod->translations[$language])) {
+                if (!is_array($mod->translations[$language])) {
+                    $mod->translations[$language] = array($mod->translations[$language]);
+                }
+                foreach($mod->translations[$language] as $file) {
+                    BLocale::addTranslationsFile($file);
+                }
+            }
             $this->popModule();
         }
         BPubSub::i()->fire('bootstrap::after');
@@ -473,6 +614,13 @@ class BModule extends BClass
     * @var array
     */
     static protected $_env = array();
+    
+    /**
+    * Default module run_level
+    * 
+    * @var string
+    */
+    static protected $_defaultRunLevel = 'ONDEMAND';
 
     /**
     * Manifest files cache
@@ -542,6 +690,16 @@ class BModule extends BClass
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
     }
+    
+    /**
+    * Set default run_level which new modules should initialize with
+    * 
+    * @param string $runLevel
+    */
+    public static function defaultRunLevel($runLevel)
+    {
+        static::$_defaultRunLevel = $runLevel;
+    }
 
     /**
     * Assign arguments as module parameters
@@ -572,7 +730,7 @@ class BModule extends BClass
             //$this->root_dir = BUtil::normalizePath($this->root_dir);
             //echo $this->root_dir."\n";
         }
-        $this->run_level = static::ONDEMAND; // disallow declaring run_level in manifest
+        $this->run_level = static::$_defaultRunLevel; // disallow declaring run_level in manifest
         /*
         if (!isset($this->run_level)) {
             $runLevel = BConfig::i()->get('request/module_run_level/'.$this->name);
@@ -715,6 +873,13 @@ class BModule extends BClass
         return $href;
     }
 
+    public function baseDir()
+    {
+        $dir = $this->root_dir;
+
+        return $dir;
+    }
+
     public function runLevel($level=null, $updateConfig=false)
     {
         if (is_null($level)) {
@@ -791,11 +956,13 @@ class BModule extends BClass
             BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
             require_once ($includeFile);
         }
-        $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
-        call_user_func($this->bootstrap['callback']);
-        #$mod->run_status = BModule::LOADED;
-        BDebug::profile($start);
-        BDebug::debug(BLocale::_('End bootstrap for %s', array($this->name)));
+        if (!empty($this->bootstrap['callback'])) {
+            $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
+            call_user_func($this->bootstrap['callback']);
+            #$mod->run_status = BModule::LOADED;
+            BDebug::profile($start);
+            BDebug::debug(BLocale::_('End bootstrap for %s', array($this->name)));
+        }
         $this->run_status = BModule::LOADED;
         return $this;
     }
@@ -911,7 +1078,7 @@ class BMigrate extends BClass
             BDb::connect($connectionName); // switch connection
             BDbModule::init(); // Ensure modules table in current connection
             // collect module db schema versions
-            $dbModules = BDbModule::i()->factory()->find_many();
+            $dbModules = BDbModule::i()->orm()->find_many();
             foreach ($dbModules as $m) {
                 if ($m->last_status==='INSTALLING') { // error during last installation
                     $m->delete();
@@ -947,6 +1114,7 @@ class BMigrate extends BClass
                 try {
                     BDb::transaction();
                 */
+                    BDb::ddlClearCache(); // clear DDL cache before each migration step
                     BDebug::debug('DB.MIGRATE '.$script);
                     if (is_callable($script)) {
                         $result = call_user_func($script);

@@ -3,7 +3,7 @@
 /**
 * Utility class to parse and construct strings and data structures
 */
-class BUtil
+class BUtil extends BClass
 {
     /**
     * IV for mcrypt operations
@@ -24,7 +24,7 @@ class BUtil
     *
     * @var string default sha512 for strength and slowness
     */
-    protected static $_hashAlgo = 'sha256';
+    protected static $_hashAlgo = 'bcrypt';
 
     /**
     * Default number of hash iterations
@@ -39,6 +39,26 @@ class BUtil
     * @var string
     */
     protected static $_hashSep = '$';
+    
+    /**
+    * Default character pool for random and sequence strings
+    * 
+    * Chars "c", "C" are ommited to avoid accidental obcene language
+    * Chars "0", "1", "I" are removed to avoid leading 0 and ambiguity in print
+    * 
+    * @var string
+    */
+    protected static $_defaultCharPool = '23456789abdefghijklmnopqrstuvwxyzABDEFGHJKLMNOPQRSTUVWXYZ';
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BUtil
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
+    }
 
     /**
     * Convert any data to JSON string
@@ -67,6 +87,65 @@ class BUtil
     {
         $obj = json_decode($json);
         return $asObject ? $obj : static::objectToArray($obj);
+    }
+
+    /**
+    * Indents a flat JSON string to make it more human-readable.
+    *
+    * @param string $json The original JSON string to process.
+    *
+    * @return string Indented version of the original JSON string.
+    */
+    public static function jsonIndent($json)
+    {
+
+        $result      = '';
+        $pos         = 0;
+        $strLen      = strlen($json);
+        $indentStr   = '  ';
+        $newLine     = "\n";
+        $prevChar    = '';
+        $outOfQuotes = true;
+
+        for ($i=0; $i<=$strLen; $i++) {
+
+            // Grab the next character in the string.
+            $char = substr($json, $i, 1);
+
+            // Are we inside a quoted string?
+            if ($char == '"' && $prevChar != '\\') {
+                $outOfQuotes = !$outOfQuotes;
+
+            // If this character is the end of an element,
+            // output a new line and indent the next line.
+            } else if(($char == '}' || $char == ']') && $outOfQuotes) {
+                $result .= $newLine;
+                $pos --;
+                for ($j=0; $j<$pos; $j++) {
+                    $result .= $indentStr;
+                }
+            }
+
+            // Add the character to the result string.
+            $result .= $char;
+
+            // If the last character was the beginning of an element,
+            // output a new line and indent the next line.
+            if (($char == ',' || $char == '{' || $char == '[') && $outOfQuotes) {
+                $result .= $newLine;
+                if ($char == '{' || $char == '[') {
+                    $pos ++;
+                }
+
+                for ($j = 0; $j < $pos; $j++) {
+                    $result .= $indentStr;
+                }
+            }
+
+            $prevChar = $char;
+        }
+
+        return $result;
     }
 
     /**
@@ -363,7 +442,7 @@ class BUtil
 
         case 'end': $result = array_merge($array, $items); break;
 
-        case 'offset':
+        case 'offset': // for associative only
             $i = 0;
             foreach ($array as $k=>$v) {
                 if ($key===$i++) {
@@ -375,7 +454,7 @@ class BUtil
             }
             break;
 
-        case 'key':
+        case 'key': // for associative only
             $rel = $w2[1];
             $key = $w1[1];
             foreach ($array as $k=>$v) {
@@ -521,34 +600,16 @@ class BUtil
     }
 
     /**
-    * Set or retrieve current hash algorithm
-    *
-    * @param string $algo
-    */
-    public static function hashAlgo($algo=null)
-    {
-        if (is_null($algo)) {
-            return static::$_hashAlgo;
-        }
-        static::$_hashAlgo = $algo;
-    }
-
-    public static function hashIter($iter=null)
-    {
-        if (is_null($iter)) {
-            return static::$_hashIter;
-        }
-        static::$iter = $iter;
-    }
-
-    /**
     * Generate random string
     *
     * @param int $strLen length of resulting string
     * @param string $chars allowed characters to be used
     */
-    public static function randomString($strLen=8, $chars='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNOPQRSTUVWXYZ23456789')
+    public static function randomString($strLen=8, $chars=null)
     {
+        if (is_null($chars)) {
+            $chars = static::$_defaultCharPool;
+        }
         $charsLen = strlen($chars)-1;
         $str = '';
         for ($i=0; $i<$strLen; $i++) {
@@ -578,10 +639,79 @@ class BUtil
         }
         return $pattern;
     }
+    
+    public static function nextStringValue($string='', $chars=null)
+    {
+        if (is_null($chars)) {
+            $chars = static::$_defaultCharPool; // avoid leading 0
+        }
+        $pos = strlen($string);
+        $lastChar = substr($chars, -1);
+        while (--$pos>=-1) {
+            if ($pos==-1) {
+                $string = $chars[0];
+                return $string;
+            } elseif ($string[$pos]===$lastChar) {
+                $string[$pos] = $chars[0];
+                continue;
+            } else {
+                $string[$pos] = $chars[strpos($chars, $string[$pos])+1];
+                return $string;
+            }
+        }
+        // should never get here
+        return $string;
+    }
+
+    /**
+    * Create or verify password hash using bcrypt
+    *
+    * @see http://bcrypt.sourceforge.net/
+    * @param string $plain
+    * @param string $hash
+    * @param string $prefix - 5 (SHA256) or 6 (SHA512)
+    * @return boolean|string if $hash is null, return hash, otherwise return verification flag
+    */
+    public static function bcrypt($plain, $hash=null, $prefix=null)
+    {
+        $plain = substr($plain, 0, 55);
+        if (is_null($hash)) {
+            $prefix = !empty($prefix) ? $prefix : (version_compare(phpversion(), '5.3.7', '>=') ? '2y' : '2a');
+            $cost = ($prefix=='5' || $prefix=='6') ? 'rounds=5000' : '10';
+            // speed up a bit salt generation, instead of:
+            // $salt = static::randomString(22);
+            $salt = substr(str_replace('+', '.', base64_encode(pack('N4', mt_rand(), mt_rand(), mt_rand(), mt_rand()))), 0, 22);
+            return crypt($plain, '$'.$prefix.'$'.$cost.'$'.$salt.'$');
+        } else {
+            return crypt($plain, $hash) === $hash;
+        }
+    }
+
+    /**
+    * Set or retrieve current hash algorithm
+    *
+    * @param string $algo
+    */
+    public static function hashAlgo($algo=null)
+    {
+        if (is_null($algo)) {
+            return static::$_hashAlgo;
+        }
+        static::$_hashAlgo = $algo;
+    }
+
+    public static function hashIter($iter=null)
+    {
+        if (is_null($iter)) {
+            return static::$_hashIter;
+        }
+        static::$iter = $iter;
+    }
 
     /**
     * Generate salted hash
     *
+    * @deprecated by BUtil::bcrypt()
     * @param string $string original text
     * @param mixed $salt
     * @param mixed $algo
@@ -598,6 +728,7 @@ class BUtil
     *
     * Ex: $sha512$2$<salt1>$<salt2>$<double-hashed-string-here>
     *
+    * @deprecated by BUtil::bcrypt()
     * @param string $string
     * @param string $salt
     * @param string $algo
@@ -606,6 +737,9 @@ class BUtil
     public static function fullSaltedHash($string, $salt=null, $algo=null, $iter=null)
     {
         $algo = !is_null($algo) ? $algo : static::$_hashAlgo;
+        if ('bcrypt'===$algo) {
+            return static::bcrypt($string);
+        }
         $iter = !is_null($iter) ? $iter : static::$_hashIter;
         $s = static::$_hashSep;
         $hash = $s.$algo.$s.$iter;
@@ -620,11 +754,15 @@ class BUtil
     /**
     * Validate salted hash against original text
     *
+    * @deprecated by BUtil::bcrypt()
     * @param string $string original text
     * @param string $storedHash fully composed salted hash
     */
     public static function validateSaltedHash($string, $storedHash)
     {
+        if (strpos($storedHash, '$2a$')===0 || strpos($storedHash, '$2y$')===0) {
+            return static::bcrypt($string, $storedHash);
+        }
         $sep = $storedHash[0];
         $arr = explode($sep, $storedHash);
         array_shift($arr);
@@ -670,7 +808,7 @@ class BUtil
     */
     public static function remoteHttp($method, $url, $data=array())
     {
-        $request = http_build_query($data);
+        $request = is_array($data) ? http_build_query($data) : $data;
         $timeout = 5;
         $userAgent = 'Mozilla/5.0';
         if ($method==='GET' && $data) {
@@ -720,7 +858,14 @@ class BUtil
             ));
             if ($method==='POST' || $method==='PUT') {
                 $opts['http']['content'] = $request;
-                $opts['http']['header'] .= "Content-Type: application/x-www-form-urlencoded\r\n"
+                $contentType = 'application/x-www-form-urlencoded';
+                foreach ($request as $k=>$v) {
+                    if (is_string($v) && $v[0]==='@') {
+                        $contentType = 'multipart/form-data';
+                        break;
+                    }
+                }
+                $opts['http']['header'] .= "Content-Type: {$contentType}\r\n"
                     ."Content-Length: ".strlen($request)."\r\n";
             }
             $content = file_get_contents($url, false, stream_context_create($opts));
@@ -770,13 +915,13 @@ class BUtil
     public static function globRecursive($pattern, $flags=0)
     {
         $files = glob($pattern, $flags);
-	if (!$files) $files = array();
-	$dirs = glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT);
-	if ($dirs) {
-		foreach ($dirs as $dir) {
-		    $files = array_merge($files, self::globRecursive($dir.'/'.basename($pattern), $flags));
-		}
-	}
+    if (!$files) $files = array();
+    $dirs = glob(dirname($pattern).'/*', GLOB_ONLYDIR|GLOB_NOSORT);
+    if ($dirs) {
+        foreach ($dirs as $dir) {
+            $files = array_merge($files, self::globRecursive($dir.'/'.basename($pattern), $flags));
+        }
+    }
         return $files;
     }
 
@@ -793,7 +938,10 @@ class BUtil
             return;
         }
         if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
+            @$res = mkdir($dir, 0777, true);
+            if (!$res) {
+                BDebug::warning("Can't create directory: ".$dir);
+            }
         }
     }
 
@@ -927,6 +1075,53 @@ class BUtil
             return call_user_func($callback, $args);
         }
     }
+
+    public static function formatDateRecursive($source, $format='m/d/Y')
+    {
+        foreach ($source as $i=>$val) {
+            if (is_string($val)) {
+                // checking only beginning of string for speed, assuming it is a date
+                if (preg_match('#^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]( |$)#', $val)) {
+                    $source[$i] = date($format, strtotime($val));
+                }
+            } elseif (is_array($val)) {
+                $source[$i] = static::formatDateRecursive($val, $format);
+            }
+        }
+        return $source;
+    }
+    
+    public static function timeAgo($ptime, $now=null, $long=false)
+    {
+        if (!is_numeric($ptime)) {
+            $ptime = strtotime($ptime);
+        }
+        if (!$now) {
+            $now = time();
+        } elseif (!is_numeric($now)) {
+            $now = strtotime($now);
+        }  
+        $etime = $now - $ptime;
+        if ($etime < 1) {
+            return 'less than 1 second';
+        }
+        $a = array( 
+            12 * 30 * 24 * 60 * 60  =>  'year',
+            30 * 24 * 60 * 60       =>  'month',
+            24 * 60 * 60            =>  'day',
+            60 * 60                 =>  'hour',
+            60                      =>  'minute',
+            1                       =>  'second'
+        );
+        
+        foreach ($a as $secs => $str) {
+            $d = $etime / $secs;
+            if ($d >= 1) {
+                $r = round($d);
+                return $r . ($long ? ' ' . $str . ($r > 1 ? 's' : '') : $str[0]);
+            }
+        }
+    }
 }
 
 /**
@@ -1010,47 +1205,60 @@ class BData extends BClass implements ArrayAccess
 /**
 * Basic user authentication and authorization class
 */
-class BUser extends BModel
+class BModelUser extends BModel
 {
     protected static $_sessionUser;
+    protected static $_sessionUserNamespace = 'user';
 
-    public function sessionUserId()
+    public static function sessionUserId()
     {
-        $userId = BSession::i()->data('user_id');
+        $userId = BSession::i()->data(static::$_sessionUserNamespace.'_id');
         return $userId ? $userId : false;
     }
 
-    public function sessionUser($reset=false)
+    public static function sessionUser($reset=false)
     {
         if (!static::isLoggedIn()) {
             return false;
         }
         $session = BSession::i();
         if ($reset || !static::$_sessionUser) {
-            static::$_sessionUser = $this->load($this->sessionUserId());
+            static::$_sessionUser = static::load(static::sessionUserId());
         }
         return static::$_sessionUser;
     }
 
-    public function isLoggedIn()
+    public static function isLoggedIn()
     {
-        return $this->sessionUserId() ? true : false;
+        return static::sessionUserId() ? true : false;
     }
 
-    public function password($password)
+    public function setPassword($password)
     {
         $this->password_hash = BUtil::fullSaltedHash($password);
         return $this;
     }
 
+    public function validatePassword($password)
+    {
+        return BUtil::validateSaltedHash($password, $this->password_hash);
+    }
+    
+    public function beforeSave()
+    {
+        if (!parent::beforeSave()) return false;
+        if (!$this->create_dt) $this->create_dt = BDb::now();
+        $this->update_dt = BDb::now();
+        if ($this->password) {
+            $this->password_hash = BUtil::fullSaltedHash($this->password);
+        }
+        return true;
+    }
+
     static public function authenticate($username, $password)
     {
         /** @var FCom_Admin_Model_User */
-        $user = static::i()->orm()
-            ->where_complex(array('OR'=>array(
-                'username'=>$username,
-                'email'=>$username)))
-            ->find_one();
+        $user = static::orm()->where(array('OR'=>array('username'=>$username, 'email'=>$username)))->find_one();
         if (!$user || !$user->validatePassword($password)) {
             return false;
         }
@@ -1061,7 +1269,10 @@ class BUser extends BModel
     {
         $this->set('last_login', BDb::now())->save();
 
-        BSession::i()->data('user', serialize($this));
+        BSession::i()->data(array(
+            static::$_sessionUserNamespace.'_id' => $this->id,
+            static::$_sessionUserNamespace => serialize($this->as_array()),
+        ));
         static::$_sessionUser = $this;
 
         if ($this->locale) {
@@ -1070,7 +1281,7 @@ class BUser extends BModel
         if ($this->timezone) {
             date_default_timezone_set($this->timezone);
         }
-        BPubSub::i()->fire('BUser::login.after', array('user'=>$user));
+        BPubSub::i()->fire(__METHOD__.'.after', array('user'=>$this));
         return $this;
     }
 
@@ -1084,12 +1295,50 @@ class BUser extends BModel
         return $this;
     }
 
-    public function logout()
+    public static function logout()
     {
-        BSession::i()->data('user_id', false);
+        BSession::i()->data(static::$_sessionUserNamespace.'_id', false);
         static::$_sessionUser = null;
-        BPubSub::i()->fire('BUser::login.after');
+        BPubSub::i()->fire(__METHOD__.'.after');
+    }
+    
+    public function recoverPassword($emailView='email/user-password-recover')
+    {
+        $this->set(array('token'=>BUtil::randomString(20)))->save();
+        if (($view = BLayout::i()->view($emailView))) {
+            $view->set('user', $this)->email();
+        }
         return $this;
+    }
+
+    public function resetPassword($password, $emailView='email/user-password-reset')
+    {
+        $this->set(array('token'=>null))->setPassword($password)->save()->login();
+        if (($view = BLayout::i()->view($emailView))) {
+            $view->set('user', $this)->email();
+        }
+        return $this;
+    }
+
+    public static function signup($r)
+    {
+        $r = (array)$r;
+        if (empty($r['email'])
+            || empty($r['password']) || empty($r['password_confirm'])
+            || $r['password']!=$r['password_confirm']
+        ) {
+            throw new Exception('Incomplete or invalid form data.');
+        }
+
+        $r = BUtil::maskFields($r, 'email,password');
+        $user = static::create($r)->save();
+        if (($view = BLayout::i()->view('email/user-new-user'))) {
+            $view->set('user', $user)->email();
+        }
+        if (($view = BLayout::i()->view('email/admin-new-user'))) {
+            $view->set('user', $user)->email();
+        }
+        return $user;
     }
 }
 
@@ -1277,6 +1526,8 @@ class BDebug extends BClass
 
     static protected $_verboseBacktrace = array();
 
+    static protected $_collectedErrors = array();
+
     /**
     * Contructor, remember script start time for delta timestamps
     *
@@ -1324,7 +1575,7 @@ class BDebug extends BClass
     {
         $e = error_get_last();
         if ($e && ($e['type']===E_ERROR || $e['type']===E_PARSE || $e['type']===E_COMPILE_ERROR || $e['type']===E_COMPILE_WARNING)) {
-            static::trigger(self::CRITICAL, $e['message'], 1);
+            static::trigger(self::CRITICAL, $e['file'].':'.$e['line'].': '.$e['message'], 1);
         }
     }
 
@@ -1460,12 +1711,12 @@ class BDebug extends BClass
 
         $l = self::$_level[self::OUTPUT];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
-            echo '<div style="text-align:left; border:solid 1px red; font-family:monospace;">';
+            echo '<xmp style="text-align:left; border:solid 1px red; font-family:monospace;">';
             ob_start();
             echo $message."\n";
             debug_print_backtrace();
-            echo nl2br(htmlspecialchars(ob_get_clean()));
-            echo '</div>';
+            echo ob_get_clean();
+            echo '</xmp>';
         }
 /*
         $l = self::$_level[self::EXCEPTION];
@@ -1488,32 +1739,50 @@ class BDebug extends BClass
 
     public static function alert($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::ALERT, $msg, $stackPop+1);
     }
 
     public static function critical($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::CRITICAL, $msg, $stackPop+1);
     }
 
     public static function error($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::ERROR, $msg, $stackPop+1);
     }
 
     public static function warning($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::WARNING, $msg, $stackPop+1);
     }
 
     public static function notice($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::NOTICE, $msg, $stackPop+1);
     }
 
     public static function info($msg, $stackPop=0)
     {
+        self::i()->collectError($msg);
         return self::trigger(self::INFO, $msg, $stackPop+1);
+    }
+
+    public function collectError($msg, $type=self::ERROR)
+    {
+        self::$_collectedErrors[$type][] = $msg;
+    }
+
+    public function getCollectedErrors($type=self::ERROR)
+    {
+        if (!empty(self::$_collectedErrors[$type])) {
+            return self::$_collectedErrors[$type];
+        }
     }
 
     public static function debug($msg, $stackPop=0)
@@ -1764,7 +2033,7 @@ class BLocale extends BClass
 
     public static function setCurrentLanguage($lang)
     {
-        $this->_currentLanguage = $lang;
+        self::$_currentLanguage = $lang;
     }
 
     public static function getCurrentLanguage()
@@ -1785,14 +2054,35 @@ class BLocale extends BClass
         $module = !empty($params['_module']) ? $params['_module'] : BModuleRegistry::currentModuleName();
         if (is_string($data)) {
             if (!BUtil::isPathAbsolute($data)) {
-                $data = BApp::m($module)->root_dir.'/'.$data;
+                $data = BApp::m($module)->root_dir.'/i18n/'.$data;
             }
+
             if (is_readable($data)) {
-                $fp = fopen($data, 'r');
-                while (($r = fgetcsv($fp, 2084))) {
-                    static::addTranslation($r, $module);
+                $extension = !empty($params['extension']) ? $params['extension'] : 'csv';
+                switch ($extension) {
+                    case 'csv':
+                        $fp = fopen($data, 'r');
+                        while (($r = fgetcsv($fp, 2084))) {
+                            static::addTranslation($r, $module);
+                        }
+                        fclose($fp);
+                        break;
+
+                    case 'json':
+                        $content = file_get_contents($data);
+                        $translations = BUtil::fromJson($content);
+                        foreach ($translations as $word => $tr) {
+                            static::addTranslation(array($word,$tr), $module);
+                        }
+                        break;
+
+                    case 'php':
+                        $translations = include $data;
+                        foreach ($translations as $word => $tr) {
+                            static::addTranslation(array($word,$tr), $module);
+                        }
+                        break;
                 }
-                fclose($fp);
             } else {
                 BDebug::warning('Could not load translation file: '.$data);
                 return;
@@ -1804,10 +2094,158 @@ class BLocale extends BClass
         }
     }
 
+    /**
+     * Collect all translation keys & values start from $rootDir and save into $targetFile
+     * @param string $rootDir - start directory to look for translation calls BLocale::_
+     * @param string $targetFile - output file which contain translation values
+     * @return boolean - TRUE on success
+     * @example BLocale::collectTranslations('/www/unirgy/fulleron/FCom/Disqus', '/www/unirgy/fulleron/FCom/Disqus/tr.csv');
+     */
+    static public function collectTranslations($rootDir, $targetFile)
+    {
+        //find files recursively
+        $files = self::getFilesFromDir($rootDir);
+        if (empty($files)) {
+            return true;
+        }
+
+        //find all BLocale::_ calls and extract first parameter - translation key
+        $keys = array();
+        foreach($files as $file) {
+            $source = file_get_contents($file);
+            $tokens = token_get_all($source);
+            $func = 0;
+            $class = 0;
+            $sep = 0;
+            foreach($tokens as $token) {
+                if (empty($token[1])){
+                    continue;
+                }
+                if ($token[1] =='BLocale') {
+                    $class = 1;
+                    continue;
+                }
+                if ($class && $token[1] == '::') {
+                    $class = 0;
+                    $sep = 1;
+                    continue;
+                }
+                if ($sep && $token[1] == '_') {
+                    $sep = 0;
+                    $func = 1;
+                    continue;
+                }
+                if($func) {
+                    $token[1] = trim($token[1], "'");
+                    $keys[$token[1]] = '';
+                    $func = 0;
+                    continue;
+                }
+            }
+        }
+
+        //import translation from $targetFile
+
+        self::$_tr = '';
+        self::addTranslationsFile($targetFile);
+        $translations = self::getTranslations();
+
+        //find undefined translations
+        foreach ($keys as $key => $v) {
+            if(isset($translations[$key])) {
+                unset($keys[$key]);
+            }
+        }
+        //add undefined translation to $targetFile
+        $newtranslations = array();
+        if ($translations) {
+            foreach($translations as $trkey => $tr){
+                list(,$newtranslations[$trkey]) = each($tr);
+            }
+        }
+        $newtranslations = array_merge($newtranslations, $keys);
+
+        $ext = strtolower(pathinfo($targetFile, PATHINFO_EXTENSION));
+        switch ($ext) {
+            case 'php':
+                self::saveToPHP($targetFile, $newtranslations);
+                break;
+            case 'csv':
+                self::saveToCSV($targetFile, $newtranslations);
+                break;
+            case 'json':
+                self::saveToJSON($targetFile, $newtranslations);
+                break;
+            default:
+                throw new Exception("Undefined format of translation targetFile. Possible formats are: json/csv/php");
+        }
+
+    }
+
+    static protected function saveToPHP($targetFile, $array)
+    {
+        $code = '';
+        foreach($array as $k => $v) {
+            if (!empty($code)) {
+                $code .= ','."\n";
+            }
+            $code .= "'$k' => '$v'";
+        }
+        $code = "<?php return array($code);";
+        file_put_contents($targetFile, $code);
+    }
+
+    static protected function saveToJSON($targetFile, $array)
+    {
+        $json = json_encode($array);
+        file_put_contents($targetFile, $json);
+    }
+
+    static protected function saveToCSV($targetFile, $array)
+    {
+        $handle = fopen($targetFile, "w");
+        foreach ($array as $k => $v) {
+            $k = trim($k, '"');
+            fputcsv($handle, array($k, $v));
+        }
+        fclose($handle);
+    }
+
+    static public function getFilesFromDir($dir)
+    {
+        $files = array();
+        if (false !== ($handle = opendir($dir))) {
+            while (false !== ($file = readdir($handle))) {
+                if ($file != "." && $file != "..") {
+                    if(is_dir($dir.'/'.$file)) {
+                        $dir2 = $dir.'/'.$file;
+                        $files = array_merge($files, self::getFilesFromDir($dir2));
+                    }
+                    else {
+                        $files[] = $dir.'/'.$file;
+                    }
+                }
+            }
+            closedir($handle);
+        }
+
+        return $files;
+    }
+
+    static public function addTranslationsFile($file)
+    {
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        if (empty($ext)) {
+            return;
+        }
+        $params['extension'] = $ext;
+        self::importTranslations($file, $params);
+    }
+
     protected static function addTranslation($r, $module=null)
     {
         if (empty($r[1])) {
-            BDebug::warning('No translation specified for '.$r[0]);
+            BDebug::debug('No translation specified for '.$r[0]);
             return;
         }
         // short and quick way
@@ -1856,6 +2294,7 @@ class BLocale extends BClass
                 $tr = current($arr); // and use it
             }
         }
+
         return BUtil::sprintfn($tr, $params);
     }
 
@@ -1989,5 +2428,96 @@ class BLocale extends BClass
     public function datetimeDbToLocal($value, $full=false)
     {
         return strftime($full ? '%c' : '%x', strtotime($value));
+    }
+
+    static public function getTranslations()
+    {
+        return self::$_tr;
+    }
+}
+
+
+class BFtpClient extends BClass
+{
+    protected $_ftpDirMode = 0775;
+    protected $_ftpFileMode = 0664;
+    protected $_ftpHost = '';
+    protected $_ftpPort = 21;
+    protected $_ftpUsername = '';
+    protected $_ftpPassword = '';
+
+    public function __construct($config)
+    {
+        if (!empty($config['hostname'])) {
+            $this->_ftpHost = $config['hostname'];
+        }
+        if (!empty($config['port'])) {
+            $this->_ftpPort = $config['port'];
+        }
+        if (!empty($config['username'])) {
+            $this->_ftpUsername = $config['username'];
+        }
+        if (!empty($config['password'])) {
+            $this->_ftpPassword = $config['password'];
+        }
+    }
+
+    public function ftpUpload($from, $to)
+    {
+        if (!extension_loaded('ftp')) {
+            new BException('FTP PHP extension is not installed');
+        }
+
+        if (!($conn = ftp_connect($this->_ftpHost, $this->_ftpPort))) {
+            throw new BException('Could not connect to FTP host');
+        }
+
+        if (!@ftp_login($conn, $this->_ftpUsername, $this->_ftpPassword)) {
+            ftp_close($conn);
+            throw new BException('Could not login to FTP host');
+        }
+
+        if (!ftp_chdir($conn, $to)) {
+            ftp_close($conn);
+            throw new BException('Could not navigate to '. $to);
+        }
+
+        $errors = $this->ftpUploadDir($conn, $from.'/');
+        ftp_close($conn);
+
+        return $errors;
+    }
+
+    public function ftpUploadDir($conn, $source, $ftpPath='')
+    {
+        $errors = array();
+        $dir = opendir($source);
+        while ($file = readdir($dir)) {
+            if ($file=='.' || $file=="..") {
+                continue;
+            }
+
+            if (!is_dir($source.$file)) {
+                if (@ftp_put($conn, $file, $source.$file, FTP_BINARY)) {
+                    // all is good
+                    #ftp_chmod($conn, $this->_ftpFileMode, $file);
+                } else {
+                    $errors[] = ftp_pwd($conn).'/'.$file;
+                }
+                continue;
+            }
+            if (@ftp_chdir($conn, $file)) {
+                // all is good
+            } elseif (@ftp_mkdir($conn, $file)) {
+                ftp_chmod($conn, $this->_ftpDirMode, $file);
+                ftp_chdir($conn, $file);
+            } else {
+                $errors[] = ftp_pwd($conn).'/'.$file.'/';
+                continue;
+            }
+            $errors += $this->ftpUploadDir($conn, $source.$file.'/', $ftpPath.$file.'/');
+            ftp_chdir($conn, '..');
+        }
+        return $errors;
     }
 }

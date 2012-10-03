@@ -63,6 +63,8 @@ class BClass
     {
         return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args, static::$_origClass);
     }
+
+
 }
 
 /**
@@ -247,26 +249,30 @@ class BApp extends BClass
             /** @var BRequest */
             $r = BRequest::i();
             $c = BConfig::i();
-            $scriptPath = pathinfo($r->scriptName());
+            $scriptPath = pathinfo($r->scriptName());			
             switch ($method) {
                 case 1:
                     $url = $c->get('web/base_href');
                     if (!$url) {
-                        $url = $scriptPath['dirname'];
+                        $url = $scriptPath['dirname'];						
                     }
                     break;
                 case 2:
                     $url = $scriptPath['dirname'];
                     break;
             }
+			
             if (!($r->modRewriteEnabled() && $c->get('web/hide_script_name'))) {
-                $url .= '/'.$scriptPath['basename'];
+				$url = rtrim($url, "\\"); //for windows installation 
+                $url = rtrim($url, '/').'/'.$scriptPath['basename'];
             }
             if ($full) {
                 $url = $r->scheme().'://'.$r->httpHost().$url;
             }
+			
             $baseUrl[$key] = rtrim($url, '/').'/';
         }
+		
         return $baseUrl[$key];
     }
 
@@ -291,7 +297,7 @@ class BApp extends BClass
 
     public static function href($url='', $full=true, $method=2)
     {
-        return BApp::baseUrl($full, $method) 
+        return BApp::baseUrl($full, $method)
             . BFrontController::processHref($url);
     }
 
@@ -495,25 +501,8 @@ class BConfig extends BClass
                 $contents = "<?php return ".var_export($config, 1).';';
 
                 // Additional check for allowed tokens
-                $tokens = token_get_all($contents);
-                $t1 = array();
-                $allowed = array(T_OPEN_TAG=>1, T_RETURN=>1, T_WHITESPACE=>1,
-                    T_ARRAY=>1, T_CONSTANT_ENCAPSED_STRING=>1, T_DOUBLE_ARROW=>1,
-                    T_DNUMBER=>1, T_LNUMBER=>1, T_STRING=>1,
-                    '('=>1, ','=>1, ')'=>1, ';'=>1);
-                $denied = array();
-#echo "<pre>"; print_r($tokens); echo "</pre>"; exit;
-                foreach ($tokens as $t) {
-                    #$t1[token_name($t[0])] = 1;
-                    #$t1[$t[0]] = 1;
-                    if (is_string($t) && !isset($t)) {
-                        $denied[] = $t;
-                    } elseif (is_array($t) && !isset($allowed[$t[0]])) {
-                        $denied[] = token_name($t[0]).': '.$t[1]
-                            .(!empty($t[2]) ? ' ('.$t[2].')':'');
-                    }
-                }
-                if ($denied) {
+
+                if ($this->invalidManifestPHP($contents)) {
                     throw new BException('Invalid tokens in configuration found');
                 }
 
@@ -534,6 +523,33 @@ class BConfig extends BClass
         if (!file_put_contents($filename, $contents, LOCK_EX)) {
             BDebug::error('Error writing configuration file: '.$filename);
         }
+    }
+
+    public function unsetConfig()
+    {
+        $this->_config = array();
+    }
+
+    public function invalidManifestPHP($contents)
+    {
+        $tokens = token_get_all($contents);
+        $allowed = array(T_OPEN_TAG=>1, T_RETURN=>1, T_WHITESPACE=>1, T_COMMENT=>1,
+                    T_ARRAY=>1, T_CONSTANT_ENCAPSED_STRING=>1, T_DOUBLE_ARROW=>1,
+                    T_DNUMBER=>1, T_LNUMBER=>1, T_STRING=>1,
+                    '('=>1, ','=>1, ')'=>1, ';'=>1);
+        $denied = array();
+        foreach ($tokens as $t) {
+            if (is_string($t) && !isset($t)) {
+                $denied[] = $t;
+            } elseif (is_array($t) && !isset($allowed[$t[0]])) {
+                $denied[] = token_name($t[0]).': '.$t[1]
+                    .(!empty($t[2]) ? ' ('.$t[2].')':'');
+            }
+        }
+        if (count($denied)) {
+            return $denied;
+        }
+        return false;
     }
 }
 
@@ -615,6 +631,10 @@ class BClassRegistry extends BClass
     * Override a class
     *
     * Usage: BClassRegistry::i()->overrideClass('BaseClass', 'MyClass');
+    *
+    * Overridden class should be called one of the following ways:
+    * - BClassRegistry::i()->instance('BaseClass')
+    * - BaseClass:i() -- if it extends BClass or has the shortcut defined
     *
     * Remembering the module that overrode the class for debugging
     *
@@ -787,6 +807,8 @@ class BClassRegistry extends BClass
         } else {
             $this->_properties[$class][$property][$op.'_'.$type][] = $entry;
         }
+        //have to be added to redefine augmentProperty Setter/Getter methods
+        $this->_decoratedClasses[$class] = true;
         return $this;
     }
 
@@ -794,7 +816,8 @@ class BClassRegistry extends BClass
     {
         //$this->_methods[$method][$static ? 1 : 0]['override'][$rel][$class]
         if (!empty($this->_methods[$method][$static][$type]['is'][$class])) {
-            return $class;
+            //return $class;
+            return $this->_methods[$method][$static][$type]['is'][$class];
         }
         $cacheKey = $class.'|'.$method.'|'.$static.'|'.$type;
         if (!empty($this->_methodOverrideCache[$cacheKey])) {
@@ -826,6 +849,40 @@ class BClassRegistry extends BClass
             return $v;
         }
         return null;
+    }
+
+    /**
+    * Check if the callback is callable, accounting for dynamic methods
+    *
+    * @param mixed $cb
+    * @return boolean
+    */
+    public function isCallable($cb)
+    {
+        if (is_string($cb)) { // plain string callback?
+            $cb = explode('::', $cb);
+            if (empty($cb[1])) { // not static?
+                $cb = BUtil::extCallback($cb); // account for special singleton syntax
+            }
+        } elseif (!is_array($cb)) { // unknown?
+            return is_callable($cb);
+        }
+        if (empty($cb[1])) { // regular function?
+            return function_exists($cb[0]);
+        }
+        if (method_exists($cb[0], $cb[1])) { // regular method?
+            return true;
+        }
+        if (is_object($cb[0])) { // instance
+            if (!$cb[0] instanceof BClass) { // regular class?
+                return false;
+            }
+            return (bool)$this->findMethodInfo(get_class($cb[0]), $cb[1]);
+        } elseif (is_string($cb[0])) { // static?
+            return (bool)$this->findMethodInfo($cb[0], $cb[1], 1);
+        } else { // unknown?
+            return false;
+        }
     }
 
     /**
@@ -865,7 +922,6 @@ class BClassRegistry extends BClass
                 $args[0] = $result;
             }
         }
-
         return $result;
     }
 
@@ -882,8 +938,6 @@ class BClassRegistry extends BClass
     */
     public function callStaticMethod($class, $method, array $args=array(), $origClass=null)
     {
-        //$class = $origClass ? $origClass : $class;
-
         if (($info = $this->findMethodInfo($class, $method, 1, 'override'))) {
             $callback = $info['callback'];
         } else {
@@ -917,22 +971,22 @@ class BClassRegistry extends BClass
     public function callSetter($origObject, $property, $value)
     {
         $class = get_class($origObject);
-
-        if (!empty($this->_properties[$class][$method]['set_before'])) {
-            foreach ($this->_properties[$class][$method]['set_before'] as $entry) {
+//print_r($this->_properties);exit;
+        if (!empty($this->_properties[$class][$property]['set_before'])) {
+            foreach ($this->_properties[$class][$property]['set_before'] as $entry) {
                 call_user_func($entry['callback'], $origObject, $property, $value);
             }
         }
 
-        if (!empty($this->_properties[$class][$method]['set_override'])) {
-            $callback = $this->_properties[$class][$method]['set_override']['callback'];
+        if (!empty($this->_properties[$class][$property]['set_override'])) {
+            $callback = $this->_properties[$class][$property]['set_override']['callback'];
             call_user_func($callback, $origObject, $property, $value);
         } else {
             $origObject->$property = $value;
         }
 
-        if (!empty($this->_properties[$class][$method]['set_after'])) {
-            foreach ($this->_properties[$class][$method]['set_after'] as $entry) {
+        if (!empty($this->_properties[$class][$property]['set_after'])) {
+            foreach ($this->_properties[$class][$property]['set_after'] as $entry) {
                 call_user_func($entry['callback'], $origObject, $property, $value);
             }
         }
@@ -951,15 +1005,15 @@ class BClassRegistry extends BClass
 
         // get_before does not make much sense, so is not implemented
 
-        if (!empty($this->_properties[$class][$method]['get_override'])) {
-            $callback = $this->_properties[$class][$method]['get_override']['callback'];
+        if (!empty($this->_properties[$class][$property]['get_override'])) {
+            $callback = $this->_properties[$class][$property]['get_override']['callback'];
             $result = call_user_func($callback, $origObject, $property);
         } else {
             $result = $origObject->$property;
         }
 
-        if (!empty($this->_properties[$class][$method]['get_after'])) {
-            foreach ($this->_properties[$class][$method]['get_after'] as $entry) {
+        if (!empty($this->_properties[$class][$property]['get_after'])) {
+            foreach ($this->_properties[$class][$property]['get_after'] as $entry) {
                 $result = call_user_func($entry['callback'], $origObject, $property, $result);
             }
         }
@@ -1014,6 +1068,11 @@ class BClassRegistry extends BClass
 
         return $instance;
     }
+
+    public function unsetInstance()
+    {
+        static::$_instance = null;
+    }
 }
 
 /**
@@ -1032,7 +1091,7 @@ class BClassDecorator
     /**
     * Decorator constructor, creates an instance of decorated class
     *
-    * @param object|string $class
+    * @param array(object|string $class)
     * @return BClassDecorator
     */
     public function __construct($args)
@@ -1040,6 +1099,11 @@ class BClassDecorator
 //echo '1: '; print_r($class);
         $class = array_shift($args);
         $this->_decoratedComponent = is_string($class) ? BClassRegistry::i()->instance($class, $args) : $class;
+    }
+
+    public function __destruct()
+    {
+        $this->_decoratedComponent = null;
     }
 
     /**
@@ -1155,6 +1219,15 @@ class BClassDecorator
         }
         return null;
     }
+
+    /**
+     * Return object of decorated class
+     * @return object
+     */
+    public function getDecoratedComponent()
+    {
+        return $this->_decoratedComponent;
+    }
 }
 
 class BClassAutoload extends BClass
@@ -1266,6 +1339,7 @@ class BPubSub extends BClass
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $observer['module_name'] = $moduleName;
         }
+        //TODO: create named observers
         $this->_events[$eventName]['observers'][] = $observer;
         BDebug::debug('SUBSCRIBE '.$eventName.': '.var_export($callback, 1), 1);
         return $this;
@@ -1298,6 +1372,29 @@ class BPubSub extends BClass
     }
 
     /**
+    * Disable all observers for an event or a specific observer
+    *
+    * @param string $eventName
+    * @param callback $callback
+    * @return BPubSub
+    */
+    public function off($eventName, $callback=null)
+    {
+        if (is_null($callback)) {
+            unset($this->_events[$eventName]);
+            return $this;
+        }
+        if (!empty($this->_events[$eventName]['observers'])) {
+            foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
+                if ($observer['callback']==$callback) {
+                    unset($this->_events[$eventName]['observers'][$i]);
+                }
+            }
+        }
+        return $this;
+    }
+
+    /**
     * Dispatch event observers
     *
     * dispatch|fire|notify|pub|publish ?
@@ -1316,7 +1413,22 @@ class BPubSub extends BClass
         if (empty($this->_events[$eventName])) {
             return $result;
         }
-        foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
+        $observers =& $this->_events[$eventName]['observers'];
+        // sort order observers
+        do {
+            $dirty = false;
+            foreach ($observers as $i=>$observer) {
+                if (!empty($observer['args']['position']) && empty($observer['ordered'])) {
+                    unset($observers[$i]);
+                    $observer['ordered'] = true;
+                    $observers = BUtil::arrayInsert($observers, $observer, $observer['position']);
+                    $dirty = true;
+                    break;
+                }
+            }
+        } while ($dirty);
+
+        foreach ($observers as $i=>$observer) {
             if (!empty($this->_events[$eventName]['args'])) {
                 $args = array_merge($this->_events[$eventName]['args'], $args);
             }
@@ -1348,7 +1460,7 @@ class BPubSub extends BClass
                         $cb = array($r[0]::i(), $r[1]);
                         $observer['callback'] = $cb;
                         // remember for next call, don't want to use &$observer
-                        $this->_events[$eventName]['observers'][$i]['callback'] = $cb;
+                        $observers[$i]['callback'] = $cb;
                         break;
                     }
                 }
@@ -1420,6 +1532,8 @@ class BSession extends BClass
     */
     protected $_dirty = false;
 
+    protected $_availableHandlers = array();
+
     /**
     * Shortcut to help with IDE autocompletion
     *
@@ -1428,6 +1542,17 @@ class BSession extends BClass
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
+    }
+
+    public function addHandler($name, $class)
+    {
+        $this->_availableHandlers[$name] = $class;
+    }
+
+    public function getHandlers()
+    {
+        $handlers = array_keys($this->_availableHandlers);
+        return array_combine($handlers, $handlers);
     }
 
     /**
@@ -1445,11 +1570,15 @@ class BSession extends BClass
         if (!empty($config['session_disable'])) {
             return $this;
         }
-        session_set_cookie_params(
-            !empty($config['timeout']) ? $config['timeout'] : 3600,
-            !empty($config['path']) ? $config['path'] : BRequest::i()->webRoot(),
-            !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost()
-        );
+
+        $ttl = !empty($config['timeout']) ? $config['timeout'] : 3600;
+        $path = !empty($config['path']) ? $config['path'] : BRequest::i()->webRoot();
+        $domain = !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost();
+        if (!empty($config['session_handler']) && !empty($this->_availableHandlers[$config['session_handler']])) {
+            $class = $this->_availableHandlers[$config['session_handler']];
+            $class::i()->register($ttl);
+        }
+        //session_set_cookie_params($ttl, $path, $domain);
         session_name(!empty($config['name']) ? $config['name'] : 'buckyball');
         if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
             session_id($id);
@@ -1457,7 +1586,11 @@ class BSession extends BClass
         if (headers_sent()) {
             BDebug::warning("Headers already sent, can't start session");
         } else {
+            session_set_cookie_params($ttl, $path, $domain);
             session_start();
+            // update session cookie expiration to reflect current visit
+            // @see http://www.php.net/manual/en/function.session-set-cookie-params.php#100657
+            setcookie(session_name(), session_id(), time()+$ttl, $path, $domain);
         }
         $this->_phpSessionOpen = true;
         $this->_sessionId = session_id();
@@ -1467,7 +1600,9 @@ class BSession extends BClass
             if (empty($_SESSION['_ip'])) {
                 $_SESSION['_ip'] = $ip;
             } elseif ($_SESSION['_ip']!==$ip) {
-                BResponse::i()->status(403, "Remote IP doesn't match session", "Remote IP doesn't match session");
+                session_destroy();
+                session_start();
+                //BResponse::i()->status(403, "Remote IP doesn't match session", "Remote IP doesn't match session");
             }
         }
 
@@ -1481,6 +1616,14 @@ class BSession extends BClass
             $this->data =& $_SESSION[$namespace];
         }
 
+        if (empty($this->data['_language'])) {
+            $lang = BRequest::language();
+            if (!empty($lang)) {
+                $this->data['_language'] = $lang;
+            }
+        }
+
+        $this->data['_locale'] = BConfig::i()->get('locale');
         if (!empty($this->data['_locale'])) {
             if (is_array($this->data['_locale'])) {
                 foreach ($this->data['_locale'] as $c=>$l) {
@@ -1489,6 +1632,8 @@ class BSession extends BClass
             } elseif (is_string($this->data['_locale'])) {
                 setlocale(LC_ALL, $this->data['_locale']);
             }
+        } else {
+            setLocale(LC_ALL, 'en_US.UTF-8');
         }
 
         if (!empty($this->data['_timezone'])) {
@@ -1544,6 +1689,12 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
     {
         if (is_null($key)) {
             return $this->data;
+        }
+        if (is_array($key)) {
+            foreach ($key as $k=>$v) {
+                $this->data($k, $v);   
+            }
+            return $this;
         }
         if (BNULL===$value) {
             return isset($this->data[$key]) ? $this->data[$key] : null;
@@ -1615,6 +1766,11 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         //$this->setDirty();
         return $this;
     }
+    
+    public function destroy()
+    {
+        session_destroy();
+    }
 
     /**
     * Get session ID
@@ -1672,3 +1828,77 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         //$this->close();
     }
 }
+
+class BSession_APC extends BClass
+{
+    protected $_prefix;
+    protected $_ttl = 0;
+
+    public function __construct()
+    {
+        if (function_exists('apc_store')) {
+            BSession::i()->addHandler('apc', __CLASS__);
+        }
+    }
+
+    public function register($ttl=null)
+    {
+        if ($ttl) {
+            $this->_ttl = $ttl;
+        }
+        session_set_save_handler(
+            array($this, 'open'), array($this, 'close'),
+            array($this, 'read'), array($this, 'write'),
+            array($this, 'destroy'), array($this, 'gc')
+        );
+    }
+
+    public function open($savePath, $sessionName)
+    {
+        $this->_prefix = 'BSession/'.$sessionName;
+        if (!apc_exists($this->_prefix)) {
+            // creating non-empty array @see http://us.php.net/manual/en/function.apc-store.php#107359
+            return apc_store($this->_prefix, array(''));
+        }
+        return true;
+    }
+
+    public function close()
+    {
+        return true;
+    }
+
+    public function read($id)
+    {
+        $key = $this->_prefix.'/'.$id;
+        return apc_exists($key) ? apc_fetch($key) : '';
+    }
+
+    public function write($id, $data)
+    {
+        $all = apc_fetch($this->_prefix);
+        $all[$id] = time();
+        return apc_store($this->_prefix.'/'.$id, $data, $this->_ttl) && apc_store($this->_prefix, $all);
+    }
+
+    public function destroy($id)
+    {
+        $all = apc_fetch($this->_prefix);
+        unset($all[$id]);
+        return apc_delete($this->_prefix.'/'.$id) && apc_store($this->_prefix, $all);
+    }
+
+    public function gc($maxlifetime)
+    {
+        if (!$this->_ttl || $maxlifetime<$this->_ttl) {
+            $all = apc_fetch($this->_prefix);
+            foreach ($all as $id=>$time) {
+                if ($time + $maxlifetime < time() && apc_exists($this->_prefix.'/'.$id)) {
+                    apc_delete($this->_prefix.'/'.$id);
+                }
+            }
+        }
+        return true;
+    }
+}
+BSession_APC::i();

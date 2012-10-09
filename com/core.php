@@ -1,4 +1,25 @@
 <?php
+/**
+* Copyright 2011 Unirgy LLC
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+* http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*
+* @package BuckyBall
+* @link http://github.com/unirgy/buckyball
+* @author Boris Gurvich <boris@unirgy.com>
+* @copyright (c) 2010-2012 Boris Gurvich
+* @license http://www.apache.org/licenses/LICENSE-2.0.html
+*/
 
 define('BNULL', '!@BNULL#$');
 
@@ -249,30 +270,30 @@ class BApp extends BClass
             /** @var BRequest */
             $r = BRequest::i();
             $c = BConfig::i();
-            $scriptPath = pathinfo($r->scriptName());			
+            $scriptPath = pathinfo($r->scriptName());
             switch ($method) {
                 case 1:
                     $url = $c->get('web/base_href');
                     if (!$url) {
-                        $url = $scriptPath['dirname'];						
+                        $url = $scriptPath['dirname'];
                     }
                     break;
                 case 2:
                     $url = $scriptPath['dirname'];
                     break;
             }
-			
+
             if (!($r->modRewriteEnabled() && $c->get('web/hide_script_name'))) {
-				$url = rtrim($url, "\\"); //for windows installation 
+				$url = rtrim($url, "\\"); //for windows installation
                 $url = rtrim($url, '/').'/'.$scriptPath['basename'];
             }
             if ($full) {
                 $url = $r->scheme().'://'.$r->httpHost().$url;
             }
-			
+
             $baseUrl[$key] = rtrim($url, '/').'/';
         }
-		
+
         return $baseUrl[$key];
     }
 
@@ -1692,7 +1713,7 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         }
         if (is_array($key)) {
             foreach ($key as $k=>$v) {
-                $this->data($k, $v);   
+                $this->data($k, $v);
             }
             return $this;
         }
@@ -1766,7 +1787,7 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         //$this->setDirty();
         return $this;
     }
-    
+
     public function destroy()
     {
         session_destroy();

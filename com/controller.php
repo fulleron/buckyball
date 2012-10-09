@@ -1,4 +1,25 @@
 <?php
+/**
+* Copyright 2011 Unirgy LLC
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+* http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*
+* @package BuckyBall
+* @link http://github.com/unirgy/buckyball
+* @author Boris Gurvich <boris@unirgy.com>
+* @copyright (c) 2010-2012 Boris Gurvich
+* @license http://www.apache.org/licenses/LICENSE-2.0.html
+*/
 
 /**
 * Facility to handle request input
@@ -76,7 +97,7 @@ class BRequest extends BClass
     {
         return !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : null;
     }
-    
+
     /**
     * Origin host name from request headers
     *
@@ -493,10 +514,10 @@ class BRequest extends BClass
         }
         return false; // not csrf
     }
-    
+
     /**
     * Verify that HTTP_HOST or HTTP_ORIGIN
-    * 
+    *
     * @param string $method (HOST|ORIGIN|OR|AND)
     * @param string $explicitHost
     * @return boolean
@@ -508,8 +529,10 @@ class BRequest extends BClass
             $host = static::httpHost();
         }
         $origin = static::httpOrigin();
-        $hostMatches = $host && $method!='ORIGIN' ? in_array((array)gethostbynamel($host), $ip) : false;
-        $originMatches = $origin && $method!='HOST' ? in_array((array)gethostbynamel($origin), $ip) : false;
+        $hostIPs = gethostbynamel($host);
+        $hostMatches = $host && $method!='ORIGIN' ? in_array($ip, (array)$hostIPs) : false;
+        $originIPs = gethostbynamel($origin);
+        $originMatches = $origin && $method!='HOST' ? in_array($ip, (array)$originIPs) : false;
         switch ($method) {
             case 'HOST': return $hostMatches;
             case 'ORIGIN': return $originMatches;
@@ -521,7 +544,7 @@ class BRequest extends BClass
 
     /**
     * Get current request URL
-    * 
+    *
     * @return string
     */
     public static function currentUrl()
@@ -1104,10 +1127,10 @@ class BResponse extends BClass
         header('Strict-Transport-Security: max-age=500; includeSubDomains');
         return $this;
     }
-    
+
     /**
     * Enable CORS (Cross-Origin Resource Sharing)
-    * 
+    *
     * @param array $options
     * @return BResponse
     */
@@ -1509,7 +1532,7 @@ class BRouteNode
                 } elseif ($k0==='.') { // dynamic action
                     $this->params[++$paramId] = substr($k, 1);
                     $this->action_idx = $paramId;
-                    $part .= '([^/]*)';
+                    $part .= '([a-zA-Z0-9_]*)';
                 } else {
                     //$part .= preg_quote($a1[$i]);
                 }
@@ -1683,7 +1706,9 @@ class BRouteObserver
         $node = $this->route_node;
         BRequest::i()->initParams((array)$node->params_values);
         if (is_string($this->callback) && $node->action_name) {
-            $this->callback .= '.'.$node->action_name;
+            // prevent envoking action_index__POST methods directly
+            $actionNameArr = explode('__', $node->action_name, 2);
+            $this->callback .= '.'.$actionNameArr[0];
         }
         if (is_callable($this->callback)) {
             return call_user_func($this->callback, $this->args);
@@ -1705,6 +1730,7 @@ class BRouteObserver
             $node->controller_name = $controllerName;
             $actionName = $this->callback[1];
         }
+#var_dump($controllerName, $actionName);
         /** @var BActionController */
         $controller = BClassRegistry::i()->instance($controllerName, array(), true);
         return $controller->dispatch($actionName, $this->args);
@@ -1957,6 +1983,35 @@ class BActionController extends BClass
     public function getController()
     {
         return self::origClass();
+    }
+
+    public function viewProxy($viewPrefix, $defaultView='index')
+    {
+        $viewPrefix = trim($viewPrefix, '/').'/';
+        $page = BRequest::i()->params('view');
+        if (!$page) {
+            $page = $defaultView;
+        }
+        if (!$page || !($view = $this->view($viewPrefix.$page))) {
+            $this->forward(true);
+            return false;
+        }
+        BLayout::i()->applyLayout('view-proxy')->applyLayout($viewPrefix.$page);
+        $view->render();
+        $metaData = $view->param('meta_data');
+        if ($metaData && ($head = $this->view('head'))) {
+            foreach ($metaData as $k=>$v) {
+                $k = strtolower($k);
+                switch ($k) {
+                case 'title':
+                    $head->addTitle($v); break;
+                case 'meta_title': case 'meta_description': case 'meta_keywords':
+                    $head->meta(str_replace('meta_','',$k), $v); break;
+                }
+            }
+        }
+        BLayout::i()->hookView('main', $viewPrefix.$page);
+        return $page;
     }
 
     /**

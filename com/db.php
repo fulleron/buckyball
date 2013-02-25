@@ -535,6 +535,45 @@ EOT
         $res = static::$_tables[$dbName][$tableName]['fks'];
         return is_null($fkName) ? $res : (isset($res[$fkName]) ? $res[$fkName] : null);
     }
+    
+    /**
+    * Create or update table
+    * 
+    * @deprecates ddlTable and ddlTableColumns
+    * @param string $fullTableName
+    * @param array $def
+    */
+    public static function ddlTableDef($fullTableName, $def)
+    {
+        $fields = !empty($def['COLUMNS']) ? $def['COLUMNS'] : null;
+        $primary = !empty($def['PRIMARY']) ? $def['PRIMARY'] : null;
+        $indexes = !empty($def['KEYS']) ? $def['KEYS'] : null;
+        $fks = !empty($def['CONSTRAINTS']) ? $def['CONSTRAINTS'] : null;
+        $options = !empty($def['OPTIONS']) ? $def['OPTIONS'] : null;
+        
+        if (!static::ddlTableExists($fullTableName)) {
+            if (!$fields) {
+                throw new BException('Missing fields definition for new table');
+            }
+            // temporary code duplication with ddlTable, until the other one is removed
+            $fieldsArr = array();
+            foreach ($fields as $f=>$def) {
+                $fieldsArr[] = $f.' '.$def;
+            }
+            $fields = null; // reset before update step
+            if ($primary) {
+                $fieldsArr[] = "PRIMARY KEY ".$primary;
+                $primary = null; // reset before update step
+            }
+            $engine = !empty($options['engine']) ? $options['engine'] : 'InnoDB';
+            $charset = !empty($options['charset']) ? $options['charset'] : 'utf8';
+            $collate = !empty($options['collate']) ? $options['collate'] : 'utf8_general_ci';
+            BORM::i()->raw_query("CREATE TABLE {$fullTableName} (".join(', ', $fieldsArr).")
+                ENGINE={$engine} DEFAULT CHARSET={$charset} COLLATE={$collate}", array())->execute();
+            static::ddlClearCache();
+        }
+        return static::ddlTableColumns($fullTableName, $fields, $indexes, $fks, $options);
+    }
 
     /**
     * Create or update table
@@ -644,10 +683,14 @@ EOT
             }
             if (!empty($dropArr)) {
                 BORM::i()->raw_query("ALTER TABLE {$fullTableName} ".join(", ", $dropArr), array())->execute();
+                static::ddlClearCache();
             }
         }
-        $result = BORM::i()->raw_query("ALTER TABLE {$fullTableName} ".join(", ", $alterArr), array())->execute();
-        static::ddlClearCache();
+        $result = null;
+        if ($alterArr) {
+            $result = BORM::i()->raw_query("ALTER TABLE {$fullTableName} ".join(", ", $alterArr), array())->execute();
+            static::ddlClearCache();
+        }
         return $result;
     }
 

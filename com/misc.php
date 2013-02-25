@@ -1111,7 +1111,7 @@ class BUtil extends BClass
         if (empty($params['default'])) {
             $params['default'] = 'identicon';
         }
-        return 'http://www.gravatar.com/avatar/'.md5(strtolower($email))
+        return BRequest::i()->scheme().'://www.gravatar.com/avatar/'.md5(strtolower($email))
             .($params ? '?'.http_build_query($params) : '');
     }
 
@@ -1170,19 +1170,19 @@ class BUtil extends BClass
             return $long ? 'less than 1 second' : '0s';
         }
         $a = array(
-            12 * 30 * 24 * 60 * 60  =>  'year',
-            30 * 24 * 60 * 60       =>  'month',
-            24 * 60 * 60            =>  'day',
-            60 * 60                 =>  'hour',
-            60                      =>  'minute',
-            1                       =>  'second'
+            12 * 30 * 24 * 60 * 60  =>  array('year', 'y'),
+            30 * 24 * 60 * 60       =>  array('month', 'mon'),
+            24 * 60 * 60            =>  array('day', 'd'),
+            60 * 60                 =>  array('hour', 'h'),
+            60                      =>  array('minute', 'm'),
+            1                       =>  array('second', 's'),
         );
 
-        foreach ($a as $secs => $str) {
+        foreach ($a as $secs => $sa) {
             $d = $etime / $secs;
             if ($d >= 1) {
                 $r = round($d);
-                return $r . ($long ? ' ' . $str . ($r > 1 ? 's' : '') : $str[0]);
+                return $r . ($long ? ' ' . $sa[0] . ($r > 1 ? 's' : '') : $sa[1]);
             }
         }
     }

@@ -1343,6 +1343,7 @@ class BPubSub extends BClass
     *
     * observe|watch|on|sub|subscribe ?
     *
+    * @todo case insensitive event names
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
     * @param array|object $args

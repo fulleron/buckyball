@@ -68,7 +68,7 @@ $s = $data['result']['state'];
 <tbody>
 <?php foreach ($data['result']['out'] as $rowId=>$row): ?>
     <tr class="<?php echo $rowId%2 ? 'odd' : 'even' ?>">
-<?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array(); ?>
+<?php foreach ($config['columns'] as $colId=>$column): $cell = !empty($row[$colId]) ? $row[$colId] : array() ?>
         <td <?php if (!empty($column['style'])): ?>style="<?php echo is_callable($column['style']) ? call_user_func($column['style'], $row, $colId) : $column['style'] ?>"<?php endif ?> <?php if (!empty($column['class'])): ?>class="<?php echo $column['class'] ?>"<?php endif ?>>
 <?php switch (!empty($column['type']) ? $column['type'] : ''): ?>
 <?php case 'link': ?>

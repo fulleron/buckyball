@@ -268,7 +268,7 @@ EOT;
         if (!ini_get('short_open_tag')) $this->markTestSkipped("PHP is buggy");
 
         $tpl = $this->newPHPTAL();
-        $tpl->setSource('<p>test<? print("<x>"); ?>test<?= "&amp;" ?>test</p>');
+        $tpl->setSource('<p>test<?php print("<x>") ?>test<?= "&amp;" ?>test</p>');
         $this->assertEquals('<p>test<x>test&amp;test</p>', $tpl->execute());
         ini_restore('short_open_tag');
     }
@@ -279,11 +279,11 @@ EOT;
         if (ini_get('short_open_tag')) $this->markTestSkipped("PHP is buggy");
 
         $tpl = $this->newPHPTAL();
-        $tpl->setSource('<p>test<? print("<x>"); ?>test<?= "&amp;" ?>test</p>');
+        $tpl->setSource('<p>test<?php print("<x>") ?>test<?= "&amp;" ?>test</p>');
         try
         {
             // unlike attributes, this isn't going to be escaped, because it gets parsed as a real processing instruction
-            $this->assertEquals('<p>test<? print("<x>"); ?>test<?= "&amp;" ?>test</p>', $tpl->execute());
+            $this->assertEquals('<p>test<?php print("<x>") ?>test<?= "&amp;" ?>test</p>', $tpl->execute());
         }
         catch(PHPTAL_ParserException $e) {/* xml ill-formedness error is ok too */}
         ini_restore('short_open_tag');

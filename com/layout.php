@@ -1065,6 +1065,10 @@ class BView extends BClass
                 $headers[$lh] = $k.': '.$v;
             } elseif ($k=='-f') $params[$k] = $k.' '.$v;
         }
+        
+        if (!empty($headers['from']) && strtolower($headers['from'])=='from: "" <>') {
+            unset($headers['from']);
+        }
 
         if ($files) {
             $this->addAttachment($files, $headers, $body);
@@ -1490,7 +1494,7 @@ class BViewHead extends BView
     * @param array $args
     * @return string
     */
-    public function render(array $args=array())
+    public function render(array $args=array(), $retrieveMetaData=true)
     {
         if (!$this->param('template')) {
             $html = $this->getTitle()."\n".$this->getMeta()."\n".$this->getAllElements();
@@ -1619,7 +1623,7 @@ class BViewList extends BView
     * @param array $args
     * @return string
     */
-    public function render(array $args=array())
+    public function render(array $args=array(), $retrieveMetaData=true)
     {
         $output = array();
         uasort($this->_children, array($this, 'sortChildren'));

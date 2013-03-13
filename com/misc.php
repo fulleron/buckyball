@@ -1118,10 +1118,10 @@ class BUtil extends BClass
     public static function extCallback($callback)
     {
         if (is_string($callback)) {
-            if (($c = explode('.', $callback))) {
-                list($class, $method) = $c;
-            } elseif (($c = explode('->', $callback))) {
-                list($class, $method) = $c;
+            if (strpos($callback, '.')!==false) {
+                list($class, $method) = explode('.', $callback);
+            } elseif (strpos($callback, '->')) {
+                list($class, $method) = explode('->', $callback);
             }
             if (!empty($class)) {
                 $callback = array($class::i(), $method);

@@ -347,7 +347,7 @@ class BDb
                                 $v = $v[0];
                                 $sql = str_replace('(?)', "(".str_pad('', sizeof($v)*2-1, '?,')."))", $sql);
                             }
-                            $where[] = $sql;
+                            $where[] = '('.$sql.')';
                             $params = array_merge($params, $v);
                             continue;
                         }

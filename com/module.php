@@ -29,6 +29,7 @@ class BModuleRegistry extends BClass
     /**
     * Local cache for BApp::i()->get('area');
     *
+    * @todo make sure handling is case insensitive
     * @var mixed
     */
     protected $_area;
@@ -445,6 +446,7 @@ class BModuleRegistry extends BClass
                         $reqVer = $req['version'];
                         if (!empty($reqVer['from']) && version_compare($reqMod->version, $reqVer['from'], '<')
                             || !empty($reqVer['to']) && version_compare($reqMod->version, $reqVer['to'], '>')
+                            || !empty($reqVer['exclude']) && in_array($reqVer->version, (array)$reqVer['exclude'])
                         ) {
                             $mod->errors[] = array('type'=>'version', 'mod'=>$req['name']);
                             continue;

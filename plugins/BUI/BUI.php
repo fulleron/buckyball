@@ -121,7 +121,7 @@ class BViewGrid extends BView
         $p = BRequest::i()->sanitize($grid['request'], array(
             'page' => array('int', !empty($config['page']) ? $config['page'] : 1),
             'pageSize' => array('int', !empty($config['pageSize']) ? $config['pageSize'] : $config['pageSizeOptions'][0]),
-            'sort' => array('alnum|lower', !empty($config['sort']) ? $config['sort'] : null),
+            'sort' => array('lower', !empty($config['sort']) ? $config['sort'] : null),
             'sortDir' => array('alnum|lower', !empty($config['sortDir']) ? $config['sortDir'] : 'asc'),
             'search' => array('', array()),
         ));
@@ -132,6 +132,7 @@ class BViewGrid extends BView
             }
         }
 
+        BDb::connect();
         // create collection factory
         #$orm = AModel::factory($config['model']);
         $table = $config['table'];

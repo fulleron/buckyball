@@ -51,7 +51,6 @@ So, yada yada.
 ## Wiki ##
 
 (http://unirgy.com/wiki/buckyball)
-(http://unirgy.com/wiki/fulleron/module)
 
 ## Concepts ##
 

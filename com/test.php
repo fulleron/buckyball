@@ -26,10 +26,12 @@ class BTest extends BClass
     protected $_runners = array();
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BTest
-    */
+     * Shortcut to help with IDE autocompletion
+     *
+     * @param bool  $new
+     * @param array $args
+     * @return BTest
+     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);

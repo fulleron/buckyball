@@ -342,6 +342,7 @@ if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre
         public function get($property) {
 if (!$this->orm) {
     debug_print_backtrace();
+    return null;
 }
             return $this->orm->get($property);
         }

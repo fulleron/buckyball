@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!-- initial phpunit configuration file, that you can modify for your project needs -->
+<phpunit cacheTokens="true"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         stopOnError="false"
+         stopOnFailure="false"
+         stopOnIncomplete="false"
+         stopOnSkipped="false"
+         strict="false"
+         verbose="false">
+    <testsuites>
+        <testsuite name="Fulleron Unit Tests">
+            <file>AllTests.php</file>
+        </testsuite>
+    </testsuites>
+    <filter>
+        <whitelist addUncoveredFilesFromWhitelist="true">
+            <directory suffix=".php">../</directory>
+            <exclude>
+                <directory>../tests</directory>
+                <directory>../plugins</directory>
+                <directory>../demo</directory>
+                <directory>../com/lib</directory>
+                <file>../buckyball.php</file>
+            </exclude>
+        </whitelist>
+    </filter>
+    <logging>
+         <!--Uncomment this line if you want to have coverage report generated every test run-->
+        <log type="coverage-html" target="../../../tests/log/phpunit/coverage" charset="UTF-8"
+              yui="true" highlight="false"
+              lowUpperBound="35" highLowerBound="70"/>
+        <!--<log type="coverage-clover" target="../../../tests/log/phpunit/coverage.xml"/>-->
+        <log type="junit" target="../../../tests/log/phpunit/junit.xml" logIncompleteSkipped="false"/>
+    </logging>
+</phpunit>
+

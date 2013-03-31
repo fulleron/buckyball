@@ -56,6 +56,13 @@ class BRequest extends BClass
     public function __construct()
     {
         $this->stripMagicQuotes();
+
+        if (!empty($_SERVER['ORIG_SCRIPT_NAME'])) {
+            $_SERVER['ORIG_SCRIPT_NAME'] = str_replace('/index.php/index.php', '/index.php', $_SERVER['ORIG_SCRIPT_NAME']);
+        }
+        if (!empty($_SERVER['ORIG_SCRIPT_FILENAME'])) {
+            $_SERVER['ORIG_SCRIPT_FILENAME'] = str_replace('/index.php/index.php', '/index.php', $_SERVER['ORIG_SCRIPT_FILENAME']);
+        }
     }
 
     /**
@@ -210,7 +217,8 @@ class BRequest extends BClass
     */
     public static function scriptName()
     {
-        return !empty($_SERVER['SCRIPT_NAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : null;
+        return !empty($_SERVER['SCRIPT_NAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) :
+            (!empty($_SERVER['ORIG_SCRIPT_NAME']) ? str_replace('\\', '/', $_SERVER['ORIG_SCRIPT_NAME']) : null);
     }
 
     /**
@@ -220,7 +228,8 @@ class BRequest extends BClass
     */
     public static function scriptFilename()
     {
-        return !empty($_SERVER['SCRIPT_FILENAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME']) : null;
+        return !empty($_SERVER['SCRIPT_FILENAME']) ? str_replace('\\', '/', $_SERVER['SCRIPT_FILENAME']) :
+            (!empty($_SERVER['ORIG_SCRIPT_FILENAME']) ? str_replace('\\', '/', $_SERVER['ORIG_SCRIPT_FILENAME']) : null);
     }
 
     /**
@@ -243,16 +252,17 @@ class BRequest extends BClass
     */
     public static function webRoot($parentDepth=null)
     {
-        if (empty($_SERVER['SCRIPT_NAME'])) {
+        $scriptName = static::scriptName();
+        if (empty($scriptName)) {
             return null;
         }
-        $root = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
+        $root = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
         if ($parentDepth) {
-            $arr = explode('/', $root);
+            $arr = explode('/', rtrim($root, '/'));
             $len = sizeof($arr)-$parentDepth;
             $root = $len>1 ? join('/', array_slice($arr, 0, $len)) : '/';
         }
-        return $root;
+        return $root ? $root : '/';
     }
 
     /**
@@ -286,10 +296,12 @@ class BRequest extends BClass
     */
     public static function path($offset, $length=null)
     {
-        if (empty($_SERVER['PATH_INFO'])) {
+        $pathInfo = !empty($_SERVER['PATH_INFO']) ? $_SERVER['PATH_INFO'] :
+            (!empty($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO'] : null);
+        if (empty($pathInfo)) {
             return null;
         }
-        $path = explode('/', ltrim($_SERVER['PATH_INFO'], '/'));
+        $path = explode('/', ltrim($pathInfo, '/'));
         if (is_null($length)) {
             return isset($path[$offset]) ? $path[$offset] : null;
         }
@@ -311,6 +323,16 @@ class BRequest extends BClass
                     (!empty($_SERVER['SERVER_URL']) ? $_SERVER['SERVER_URL'] : '/')
                 )
             );*/
+    }
+
+    /**
+     * PATH_TRANSLATED
+     *
+     */
+    public static function pathTranslated()
+    {
+        return !empty($_SERVER['PATH_TRANSLATED']) ? $_SERVER['PATH_TRANSLATED'] :
+            (!empty($_SERVER['ORIG_PATH_TRANSLATED']) ? $_SERVER['ORIG_PATH_TRANSLATED'] : '/');
     }
 
     /**
@@ -410,7 +432,6 @@ class BRequest extends BClass
         $domain = !is_null($domain) ? $domain : (!empty($config['domain']) ? $config['domain'] : static::httpHost());
 
         setcookie($name, $value, time()+$lifespan, $path, $domain);
-        return $this;
     }
 
     /**
@@ -550,8 +571,14 @@ class BRequest extends BClass
     public static function currentUrl()
     {
         $webroot = rtrim(static::webRoot(), '/');
-        return static::scheme().'://'.static::httpHost().$webroot
-            .static::rawPath().(($q = static::rawGet()) ? '?'.$q : '');
+        $url = static::scheme().'://'.static::httpHost();
+        if (!BConfig::i()->get('web/hide_script_name')) {
+            $url = rtrim($url, '/') . '/' . ltrim(str_replace('//', '/', static::scriptName()), '/');
+        } else {
+            $url = rtrim($url, '/') . '/' . ltrim(str_replace('//', '/', $webroot), '/');;
+        }
+        $url .= static::rawPath().(($q = static::rawGet()) ? '?'.$q : '');
+        return $url;
     }
 
     /**
@@ -1061,7 +1088,7 @@ class BResponse extends BClass
     public function output($type=null)
     {
         if (!is_null($type)) {
-            $this->contentType($type);
+            $this->setContentType($type);
         }
         //BSession::i()->close();
         header('Content-Type: '.$this->_contentType.'; charset='.$this->_charset);
@@ -1108,7 +1135,7 @@ class BResponse extends BClass
     {
         BSession::i()->close();
         $this->status($status, null, false);
-        header("Location: {$url}");
+        header("Location: {$url}", null, $status);
         $this->shutdown(__METHOD__);
     }
 

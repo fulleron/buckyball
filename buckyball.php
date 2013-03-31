@@ -13,12 +13,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 * See the License for the specific language governing permissions and
 * limitations under the License.
-*
-* @package BuckyBall
-* @link http://github.com/unirgy/buckyball
-* @author Boris Gurvich <boris@unirgy.com>
-* @copyright (c) 2010-2012 Boris Gurvich
-* @license http://www.apache.org/licenses/LICENSE-2.0.html
 */
 
 /**
@@ -34,14 +28,15 @@ define('BUCKYBALL_ROOT_DIR', __DIR__);
 * Load all components immediately
 */
 
-require_once $comDir.'core.php';
-require_once $comDir.'lib/idiorm.php';
-require_once $comDir.'lib/paris.php';
-require_once $comDir.'db.php';
-require_once $comDir.'module.php';
-require_once $comDir.'controller.php';
-require_once $comDir.'layout.php';
-require_once $comDir.'misc.php';
+require $comDir.'core.php';
+require $comDir.'lib/idiorm.php';
+require $comDir.'lib/paris.php';
+require $comDir.'db.php';
+require $comDir.'module.php';
+require $comDir.'controller.php';
+require $comDir.'layout.php';
+require $comDir.'misc.php';
+require $comDir.'import.php';
 
 /**
 * Minify all components into 1 compact file.

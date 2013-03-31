@@ -1066,15 +1066,17 @@ exit;
 
             static::_log_query($query, $values);
 #$mem = memory_get_usage();
+#echo $query;
             $statement = static::$_db->prepare($query);
             $success = $statement->execute($values);
+            //$success = true;
 #echo '('.(memory_get_usage()-$mem).') ';
 
             // If we've just inserted a new record, set the ID of this object
             if ($this->_is_new) {
                 $this->_is_new = false;
                 if (is_null($this->id())) {
-                    $this->_data[$this->_get_id_column_name()] = static::$_db->lastInsertId();
+                    $this->_data[$this->_get_id_column_name()] = self::$_db->lastInsertId();
                 }
             }
 

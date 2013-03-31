@@ -469,8 +469,8 @@ class BUtil extends BClass
     * @param string $where
     *   - start
     *   - end
-    *   - offset
-    *   - key.(before|after)
+    *   - offset==$key
+    *   - key.(before|after)==$key
     *   - obj.(before|after).$object_property==$key
     *   - arr.(before|after).$item_array_key==$key
     * @return array resulting array
@@ -482,11 +482,16 @@ class BUtil extends BClass
         $w2 = explode('.', $w1[0], 3);
 
         switch ($w2[0]) {
-        case 'start': $result = array_merge($items, $array); break;
+        case 'start':
+            $result = array_merge($items, $array);
+            break;
 
-        case 'end': $result = array_merge($array, $items); break;
+        case 'end':
+            $result = array_merge($array, $items);
+            break;
 
         case 'offset': // for associative only
+            $key = $w1[1];
             $i = 0;
             foreach ($array as $k=>$v) {
                 if ($key===$i++) {
@@ -522,8 +527,8 @@ class BUtil extends BClass
             $rel = $w2[1];
             $f = $w2[2];
             $key = $w1[1];
-            foreach ($array as $k=>$obj) {
-                if ($key===$obj->$f) {
+            foreach ($array as $k=>$v) {
+                if ($key===$v->$f) {
                     if ($rel==='after') {
                         $result[$k] = $v;
                     }
@@ -543,8 +548,8 @@ class BUtil extends BClass
             $rel = $w2[1];
             $f = $w2[2];
             $key = $w1[1];
-            foreach ($array as $k=>$a) {
-                if ($key===$a[$f]) {
+            foreach ($array as $k=>$v) {
+                if ($key===$v[$f]) {
                     if ($rel==='after') {
                         $result[$k] = $v;
                     }
@@ -1186,6 +1191,19 @@ class BUtil extends BClass
             }
         }
     }
+
+    /**
+     * Simplify string to allowed characters only
+     *
+     * @param string $str input string
+     * @param string $pattern RegEx pattern to specify not allowed characters
+     * @param string $filler character to replace not allowed characters with
+     * @return string
+     */
+    static public function simplifyString($str, $pattern='#[^a-z0-9-]+#', $filler='-')
+    {
+        return trim(preg_replace($pattern, $filler, strtolower($str)), $filler);
+    }
 }
 
 /**
@@ -1224,6 +1242,9 @@ class BData extends BClass implements ArrayAccess
 
     public function __construct($data)
     {
+        if(!is_array($data)){
+            $data = array(); // not sure for here, should we try to convert data to array or do empty array???
+        }
         $this->_data = $data;
     }
 
@@ -1469,7 +1490,7 @@ class BDebug extends BClass
     /**
     * Trigger levels for different actions
     *
-    * - memory: remember in immedicate script memory
+    * - memory: remember in immediate script memory
     * - file: write to debug log file
     * - email: send email notification to admin
     * - output: display error in output
@@ -1593,7 +1614,7 @@ class BDebug extends BClass
     static protected $_collectedErrors = array();
 
     /**
-    * Contructor, remember script start time for delta timestamps
+    * Constructor, remember script start time for delta timestamps
     *
     * @return BDebug
     */
@@ -1604,10 +1625,12 @@ class BDebug extends BClass
     }
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BDebug
-    */
+     * Shortcut to help with IDE autocompletion
+     *
+     * @param bool  $new
+     * @param array $args
+     * @return BDebug
+     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
@@ -1776,10 +1799,10 @@ class BDebug extends BClass
         $l = self::$_level[self::OUTPUT];
         if (false!==$l && (is_array($l) && in_array($level, $l) || $l>=$level)) {
             echo '<xmp style="text-align:left; border:solid 1px red; font-family:monospace;">';
-            ob_start();
+            //ob_start();
             echo $message."\n";
             debug_print_backtrace();
-            echo ob_get_clean();
+            //echo ob_get_clean();
             echo '</xmp>';
         }
 /*

@@ -33,12 +33,6 @@ class BTwig extends BClass
             
             $config = BConfig::i();
 
-            static::$_fcomVars = BData::i(true, array(
-                'request' => BRequest::i(),
-                'layout' => BLayout::i(),
-            ));
-            
-            
             $cacheDir = $config->get('fs/storage_dir').'/twig';
             BUtil::ensureDir($cacheDir);
             
@@ -66,7 +60,8 @@ class BTwig extends BClass
         $pId = BDebug::debug('BTwig render: '.$viewName);
 
         $source = $view->param('source');
-        $args = array_merge(static::$_fcomVars, $view->getAllArgs());
+        $args = $view->getAllArgs();
+        //TODO: add BRequest and BLayout vars?
         $args['view'] = $view;
         
         if (!$source) {

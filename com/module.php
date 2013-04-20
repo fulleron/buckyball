@@ -534,8 +534,8 @@ class BModuleRegistry extends BClass
     {
         $language = BSession::i()->data('_language');
         $this->checkDepends();
-        $this->sortDepends();
         $this->checkRequires();
+        $this->sortDepends();
 /*
 echo "<pre>";
 print_r(BConfig::i()->get());

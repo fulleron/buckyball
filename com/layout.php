@@ -241,6 +241,8 @@ class BLayout extends BClass
                 $this->addView($prefix . $m[2], array('template' => $file) + static::$_extRenderers[$m[3]]);
             }
         }
+        
+        BPubSub::i()->fire(__METHOD__, array('root_dir'=>$rootDir, 'prefix'=>$prefix, 'module'=>$curModule));
 
         return $this;
     }

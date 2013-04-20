@@ -890,6 +890,7 @@ class BUtil extends BClass
                 CURLOPT_CONNECTTIMEOUT => $timeout,
                 CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_MAXREDIRS => 10,
+                CURLOPT_HTTPHEADER, array('Expect:'), //Fixes the HTTP/1.1 417 Expectation Failed
             );
             if (false) { // TODO: figure out cookies handling
                 $cookieDir = BConfig::i()->get('fs/storage_dir').'/cache';
@@ -915,8 +916,8 @@ class BUtil extends BClass
             $ch = curl_init();
             curl_setopt_array($ch, $curlOpt);
             $content = curl_exec($ch);
-            //$response = curl_getinfo($ch);
-            $response = array();
+            $response = curl_getinfo($ch);
+            //$response = array();
             curl_close($ch);
 
         } else {
@@ -938,7 +939,7 @@ class BUtil extends BClass
                     ."Content-Length: ".strlen($request)."\r\n";
             }
             $content = file_get_contents($url, false, stream_context_create($opts));
-            $response = array();
+            $response = array(); //TODO: emulate curl data?
         }
 
         return array($content, $response);

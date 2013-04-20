@@ -664,6 +664,7 @@ EOT
                 } else {
                     if (strpos($def, 'RENAME')===0) {
                         $a = explode(' ', $def, 3); //TODO: smarter parser, allow spaces in column name??
+                        // Why not use a sprintf($def, $f) to fill in column name from $f?
                         $colName = $a[1];
                         $def = $a[2];
                     } else {
@@ -727,6 +728,38 @@ EOT
             static::ddlClearCache();
         }
         return $result;
+    }
+
+    /**
+     * A convenience method to add columns to table
+     * It should check if columns exist before passing to self::ddlTableColumns
+     * $columns array should be in same format as for ddlTableColumns:
+     *
+     * array(
+            'field_name' => 'column definition',
+            'field_two' => 'column definition',
+            'field_three' => 'column definition',
+     * )
+     *
+     * @param string $table
+     * @param array $columns
+     * @return array|null
+     */
+    public static function ddlAddColumns($table, $columns = array())
+    {
+       if (empty($columns)) {
+           BDebug::log(__METHOD__ . ": columns array is empty.");
+           return null;
+       }
+        $pass = array();
+        $tableFields = array_keys(static::ddlFieldInfo($table));
+        foreach ($columns as $field => $def) {
+            if( in_array($field, $tableFields)) {
+                continue;
+            }
+            $pass[$field] = $def;
+        }
+        return static::ddlTableColumns($table, $pass);
     }
 
     /**

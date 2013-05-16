@@ -15,6 +15,11 @@
             "bootstrap" => array("file" =>"BTwig.php", "callback" =>"BTwig::bootstrap"),
             "version" => "1.12.4",
         ),
+        "BYAML" => array(
+            "root_dir" => "BYAML",
+            "bootstrap" => array("file" =>"BYAML.php", "callback" =>"BYAML::bootstrap"),
+            "version" => "0.5",
+        ),
         "BUI" => array(
             "root_dir" => "BUI",
             "bootstrap" => array("file" =>"BUI.php", "callback" =>"BUI::bootstrap"),

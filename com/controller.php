@@ -256,7 +256,7 @@ class BRequest extends BClass
         if (empty($scriptName)) {
             return null;
         }
-        $root = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+        $root = rtrim(str_replace(array('//', '\\'), array('/', '/'), dirname($scriptName)), '/');
         if ($parentDepth) {
             $arr = explode('/', rtrim($root, '/'));
             $len = sizeof($arr)-$parentDepth;
@@ -530,7 +530,8 @@ class BRequest extends BClass
         }
         $p = parse_url($ref);
         $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
-        if ($p['host']!==static::httpHost() || strpos($p['path'], static::webRoot())!==0) {
+        $webRoot = static::webRoot();
+        if ($p['host']!==static::httpHost() || $webRoot && strpos($p['path'], $webRoot)!==0) {
             return true; // referrer host or doc root path do not match, high prob. csrf
         }
         return false; // not csrf
@@ -1327,17 +1328,18 @@ class BFrontController extends BClass
     }
 
     /**
-    * Declare route
-    *
-    * @param string $route
-    *   - "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
-    *   - "/prefix/*anything"
-    *   - "/prefix/.action" : $args=array('_methods'=>array('create'=>'POST', ...))
-    * @param mixed $callback PHP callback
-    * @param array $args Route arguments
-    * @param string $name optional name for the route for URL templating
-    * @return BFrontController for chain linking
-    */
+     * Declare route
+     *
+     * @param string $route
+     *   - "{GET|POST|DELETE|PUT|HEAD} /part1/part2/:param1"
+     *   - "/prefix/*anything"
+     *   - "/prefix/.action" : $args=array('_methods'=>array('create'=>'POST', ...))
+     * @param mixed  $callback PHP callback
+     * @param array  $args Route arguments
+     * @param string $name optional name for the route for URL templating
+     * @param bool   $multiple
+     * @return BFrontController for chain linking
+     */
     public function route($route, $callback=null, $args=null, $name=null, $multiple=true)
     {
         if (is_array($route)) {
@@ -1348,7 +1350,7 @@ class BFrontController extends BClass
                     $this->route($a, $callback, $args);
                 }
             }
-            return;
+            return $this;
         }
 
         if (empty($args['module_name'])) {
@@ -1364,6 +1366,109 @@ class BFrontController extends BClass
             $this->_urlTemplates[$name] = $route;
         }
         return $this;
+    }
+
+    /**
+     * Shortcut to $this->route() for GET http verb
+     * @param mixed  $route
+     * @param mixed  $callback
+     * @param array  $args
+     * @param string $name
+     * @param bool   $multiple
+     * @return BFrontController
+     */
+    public function get($route, $callback = null, $args = null, $name = null, $multiple = true)
+    {
+        return $this->route($route, 'get', $callback, $args, $name, $multiple);
+    }
+
+    /**
+     * Shortcut to $this->route() for POST http verb
+     * @param mixed  $route
+     * @param mixed  $callback
+     * @param array  $args
+     * @param string $name
+     * @param bool   $multiple
+     * @return BFrontController
+     */
+    public function post($route, $callback = null, $args = null, $name = null, $multiple = true)
+    {
+        return $this->_route($route, 'post', $callback, $args, $name, $multiple);
+    }
+
+    /**
+     * Shortcut to $this->route() for PUT http verb
+     * @param mixed $route
+     * @param null  $callback
+     * @param null  $args
+     * @param null  $name
+     * @param bool  $multiple
+     * @return $this|BFrontController
+     */
+    public function put($route, $callback = null, $args = null, $name = null, $multiple = true)
+    {
+        return $this->_route($route, 'put', $callback, $args, $name, $multiple);
+    }
+
+    /**
+     * Shortcut to $this->route() for GET|POST|DELETE|PUT|HEAD http verbs
+     * @param mixed $route
+     * @param null  $callback
+     * @param null  $args
+     * @param null  $name
+     * @param bool  $multiple
+     * @return $this|BFrontController
+     */
+    public function any($route, $callback = null, $args = null, $name = null, $multiple = true)
+    {
+        return $this->_route($route, 'any', $callback, $args, $name, $multiple);
+    }
+
+    /**
+     * Process shortcut methods
+     * @param mixed  $route
+     * @param string $verb
+     * @param null   $callback
+     * @param null   $args
+     * @param null   $name
+     * @param bool   $multiple
+     * @return $this|BFrontController
+     */
+    protected function _route($route, $verb, $callback = null, $args = null, $name = null, $multiple = true)
+    {
+        BDebug::debug('ROUTE ' . $route . ':' . $verb . ': ' . print_r($args, 1));
+        if (is_array($route)) {
+            foreach ($route as $a) {
+                if (is_null($callback)) {
+                    $this->_route($a[0], $verb, $a[1], isset($a[2]) ? $a[2] : null, isset($a[3]) ? $a[3] : null);
+                } else {
+                    $this->any($a, $verb, $callback, $args);
+                }
+            }
+            return $this;
+        }
+        switch (strtolower($verb)) {
+            case 'get':
+                if (stripos($route, 'get ') !== 0) {
+                    $route = sprintf("GET %s", $route);
+                }
+                break;
+            case 'post':
+                if (stripos($route, 'post ') !== 0) {
+                    $route = sprintf("POST %s", $route);
+                }
+                break;
+            case 'put':
+                if (stripos($route, 'put ') !== 0) {
+                    $route = sprintf("PUT %s", $route);
+                }
+                break;
+            default :
+                $route = sprintf("GET|POST|DELETE|PUT|HEAD %s", $route);
+                break;
+        }
+
+        return $this->route($route, $callback, $args, $name, $multiple);
     }
 
     public function findRoute($requestRoute=null)

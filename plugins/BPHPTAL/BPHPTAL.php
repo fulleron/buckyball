@@ -78,6 +78,7 @@ class BPHPTAL extends BClass
                 $tal->set($k, $v);
             }
         }
+        $tal->set('THIS', $view);
         if ($source) {
             $source = '<tal:block>'.$source.'</tal:block>';
             $sourceName = $view->param('source_name');

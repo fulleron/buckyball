@@ -528,16 +528,28 @@ class BLayout extends BClass
         }
         BDebug::debug('LAYOUT.APPLY ' . $layoutName);
         foreach ($this->_layouts[$layoutName] as $d) {
-            if (empty($d['type']) && !empty($d[0])) {
-                $d['type'] = $d[0];
+            if (empty($d['type'])) {
+                if (!empty($d[0])) {
+                    $d['type'] = $d[0];
+                } else {
+                    foreach ($d as $k=>$n) {
+                        if (!empty(self::$_metaDirectives[$k])) {
+                            $d['type'] = $k;
+                            $d['name'] = $n;
+                            break;
+                        }
+                    }
+                }
             }
-            if (empty(self::$_metaDirectives[$d['type']])) {
+            $d['type'] = trim($d['type']);
+            if (empty($d['type']) || empty(self::$_metaDirectives[$d['type']])) {
                 BDebug::error('Unknown directive: ' . $d['type']);
                 continue;
             }
             if (empty($d['name']) && !empty($d[1])) {
                 $d['name'] = $d[1];
             }
+            $d['name'] = trim($d['name']);
             $d['layout_name'] = $layoutName;
             $callback         = self::$_metaDirectives[$d['type']];
             call_user_func($callback, $d);
@@ -595,7 +607,7 @@ class BLayout extends BClass
             }
         }
         if (!empty($d['views'])) {
-            foreach ($d['views'] as $v) {
+            foreach ((array)$d['views'] as $v) {
                 $this->hookView($d['name'], $v, $args);
             }
         }
@@ -1745,8 +1757,8 @@ class BViewHead extends BView
     public function addElement($type, $name, $args = array())
     {
         if (!empty($args['alias'])) {
-            $args['file'] = $name;
-            $name         = $args['alias'];
+            $args['file'] = trim($name);
+            $name         = trim($args['alias']);
         }
         if (!isset($args['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
             $args['module_name'] = $moduleName;
@@ -1791,11 +1803,22 @@ class BViewHead extends BView
         $args = $this->_elements[$typeName];
 
         $file = !empty($args['file']) ? $args['file'] : $name;
-        if (preg_match('#\{(.*?)\}#', $file, $m)) { // real time retrieval of module and path
+        if ($file[0] === '@') { // @Mod_Name/file.ext
+            preg_match('#^@([^/]+)(.*)$#', $file, $m);
             $mod = BApp::m($m[1]);
             if (!$mod) {
                 BDebug::notice('Module not found: ' . $file);
-
+                return '';
+            }
+            $fsFile = BApp::m($m[1])->root_dir . $m[2];
+            $file   = BApp::m($m[1])->baseSrc() . $m[2];
+            if (file_exists($fsFile)) {
+                $file .= '?' . filemtime($fsFile);
+            }
+        } elseif (preg_match('#\{(.*?)\}#', $file, $m)) { // {Mod_Name}/file.ext (deprecated)
+            $mod = BApp::m($m[1]);
+            if (!$mod) {
+                BDebug::notice('Module not found: ' . $file);
                 return '';
             }
             $fsFile = str_replace('{' . $m[1] . '}', BApp::m($m[1])->root_dir, $file);

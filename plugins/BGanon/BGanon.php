@@ -31,10 +31,12 @@ class BGanon extends BClass
     }
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BGanon
-    */
+     * Shortcut to help with IDE autocompletion
+     *
+     * @param bool  $new
+     * @param array $args
+     * @return BGanon
+     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);

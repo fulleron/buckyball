@@ -1,0 +1,47 @@
+modules:
+    BGanon:
+        version: 0.5.0
+        root_dir: BGanon
+        bootstrap: { file: BGanon.php, callback: BGanon::bootstrap }
+
+    BPHPTAL:
+        version: 1.2.2-0
+        root_dir: BPHPTAL
+        bootstrap: { file: BPHPTAL.php, callback: BPHPTAL::bootstrap }
+
+    BTwig:
+        version: 1.12.4
+        root_dir: BTwig
+        bootstrap: { file: BTwig.php, callback: BTwig::bootstrap }
+
+    BReCaptcha:
+        version: 1.0
+        root_dir: BReCaptcha
+        bootstrap: { file: BReCaptcha.php, callback: BReCaptcha::bootstrap }
+
+    BHAML:
+        version: 3.2
+        root_dir: BHAML
+        bootstrap: { file: BHAML.php, callback: BHAML::bootstrap }
+
+    BUI:
+        version: 0.0.1
+        root_dir: BUI
+        bootstrap: { file: BUI.php, callback: BUI::bootstrap }
+
+    BFireLogger:
+        version: 1.0.0
+        root_dir: BFireLogger
+        bootstrap: { file: BFireLogger.php, callback: BFireLogger::bootstrap }
+
+    BMarkdownExtra:
+        version: 1.0.0
+        root_dir: BGanon
+        bootstrap: { file: markdown.php, callback: BMarkdown_Extra_Loader::bootstrap }
+
+    BHighcharts:
+        version: 1.0.0
+        root_dir: BHighcharts
+        areas:
+            FCom_Admin:
+                bootstrap: { file: Highchart.php, callback: BHighcharts_Loader::bootstrap }

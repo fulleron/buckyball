@@ -8,7 +8,7 @@ class BImport extends BClass
 
     public function getFieldData()
     {
-        BPubSub::i()->fire(__METHOD__, array('fields'=>&$this->fields));
+        BEvents::i()->fire(__METHOD__, array('fields'=>&$this->fields));
         return $this->fields;
     }
 
@@ -23,7 +23,7 @@ class BImport extends BClass
 
     public function getImportDir()
     {
-        return FCom_Core::i()->dir('storage/import/'.$this->dir);
+        return FCom_Core_Main::i()->dir('storage/import/'.$this->dir);
     }
 
     public function updateFieldsDueToInfo($info)
@@ -80,7 +80,7 @@ class BImport extends BClass
      */
     public function config($config=null, $update=false)
     {
-        $dir = FCom_Core::i()->dir('storage/run/'.$this->dir);
+        $dir = FCom_Core_Main::i()->dir('storage/run/'.$this->dir);
         $file = BSession::i()->sessionId().'.json';
         $filename = $dir.'/'.$file;
         if ($config) { // create config lock

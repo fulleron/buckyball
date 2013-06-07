@@ -448,8 +448,13 @@ class BRequest extends BClass
 
     public static function receiveFiles($source, $targetDir, $typesRegex=null)
     {
-        if (is_string($source) && !empty($_FILES[$source])) {
-            $source = $_FILES[$source];
+        if (is_string($source)) {
+            if (!empty($_FILES[$source])) {
+                $source = $_FILES[$source];
+            } else {
+                //TODO: missing enctype="multipart/form-data" ?
+                throw new BException('Missing enctype="multipart/form-data"?');
+            }
         }
         if (empty($source)) {
             return;
@@ -462,13 +467,13 @@ class BRequest extends BClass
                     $name = $source['name'][$key];
                     $type = $source['type'][$key];
                     if (!is_null($typesRegex) && !preg_match('#'.$typesRegex.'#i', $type)) {
-                        $result[$key] = array('error'=>'invalid_type', 'type'=>$type, 'name'=>$name);
+                        $result[$key] = array('error'=>'invalid_type', 'tp'=>1, 'type'=>$type, 'name'=>$name);
                         continue;
                     }
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
-                    $result[$key] = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
+                    $result[$key] = array('name'=>$name, 'tp'=>2, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 } else {
-                    $result[$key] = array('error'=>$error);
+                    $result[$key] = array('error'=>$error, 'tp'=>3);
                 }
             }
         } else {
@@ -478,13 +483,13 @@ class BRequest extends BClass
                 $name = $source['name'];
                 $type = $source['type'];
                 if (!is_null($typesRegex) && !preg_match('#'.$typesRegex.'#i', $type)) {
-                    $result = array('error'=>'invalid_type', 'type'=>$type, 'name'=>$name);
+                    $result = array('error'=>'invalid_type', 'tp'=>4, 'type'=>$type, 'pattern'=>$typesRegex, 'source'=>$source, 'name'=>$name);
                 } else {
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
                     $result = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 }
             } else {
-                $result = array('error'=>$error);
+                $result = array('error'=>$error, 'tp'=>5);
             }
         }
         return $result;
@@ -1100,7 +1105,7 @@ class BResponse extends BClass
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
-        BPubSub::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
+        BEvents::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
 
         if ($this->_contentPrefix) {
             echo $this->_contentPrefix;
@@ -1112,7 +1117,7 @@ class BResponse extends BClass
             echo $this->_contentSuffix;
         }
 
-        BPubSub::i()->fire('BResponse::output.after', array('content'=>$this->_content));
+        BEvents::i()->fire('BResponse::output.after', array('content'=>$this->_content));
 
         $this->shutdown(__METHOD__);
     }
@@ -1220,7 +1225,7 @@ class BResponse extends BClass
 
     public function shutdown($lastMethod=null)
     {
-        BPubSub::i()->fire('BResponse::shutdown', array('last_method'=>$lastMethod));
+        BEvents::i()->fire('BResponse::shutdown', array('last_method'=>$lastMethod));
         BSession::i()->close();
         exit;
     }
@@ -1229,7 +1234,7 @@ class BResponse extends BClass
 /**
 * Front controller class to register and dispatch routes
 */
-class BFrontController extends BClass
+class BRouting extends BClass
 {
     /**
     * Array of routes
@@ -1271,7 +1276,7 @@ class BFrontController extends BClass
     /**
     * Shortcut to help with IDE autocompletion
     *
-    * @return BFrontController
+    * @return BRouting
     */
     public static function i($new=false, array $args=array())
     {
@@ -1352,7 +1357,6 @@ class BFrontController extends BClass
             }
             return $this;
         }
-
         if (empty($args['module_name'])) {
             $args['module_name'] = BModuleRegistry::currentModuleName();
         }
@@ -1379,7 +1383,7 @@ class BFrontController extends BClass
      */
     public function get($route, $callback = null, $args = null, $name = null, $multiple = true)
     {
-        return $this->route($route, 'get', $callback, $args, $name, $multiple);
+        return $this->_route($route, 'get', $callback, $args, $name, $multiple);
     }
 
     /**
@@ -1447,25 +1451,23 @@ class BFrontController extends BClass
             }
             return $this;
         }
-        switch (strtolower($verb)) {
-            case 'get':
-                if (stripos($route, 'get ') !== 0) {
-                    $route = sprintf("GET %s", $route);
-                }
-                break;
-            case 'post':
-                if (stripos($route, 'post ') !== 0) {
-                    $route = sprintf("POST %s", $route);
-                }
-                break;
-            case 'put':
-                if (stripos($route, 'put ') !== 0) {
-                    $route = sprintf("PUT %s", $route);
-                }
-                break;
-            default :
-                $route = sprintf("GET|POST|DELETE|PUT|HEAD %s", $route);
-                break;
+        $verb = strtoupper($verb);
+        $isRegex = false;
+        if ($route[0]==='^') {
+            $isRegex = true;
+            $route = substr($route, 1);
+        }
+        if ($verb==='GET' || $verb==='POST' || $verb==='PUT') {
+            $route = $verb.' '.$route;
+        } else {
+            if ($isRegex) {
+                $route = '(GET|POST|DELETE|PUT|HEAD) '.$route;
+            } else {
+                $route = 'GET|POST|DELETE|PUT|HEAD '.$route;
+            }
+        }
+        if ($isRegex) {
+            $route = '^'.$route;
         }
 
         return $this->route($route, $callback, $args, $name, $multiple);
@@ -1507,13 +1509,15 @@ class BFrontController extends BClass
             $b1 = $b->num_parts;
             $res = $a1<$b1 ? 1 : ($a1>$b1 ? -1 : 0);
             if ($res != 0) {
+#echo ' ** ('.$a->route_name.'):('.$b->route_name.'): '.$res.' ** <br>';
                 return $res;
             }
-
-            $ap = (strpos($a->route_name, '*') ? 10 : 0)+(strpos($a->route_name, '.') ? 5 : 0)+(strpos($a->route_name, ':') ? 1 : 0);
-            $bp = (strpos($b->route_name, '*') ? 10 : 0)+(strpos($b->route_name, '.') ? 5 : 0)+(strpos($b->route_name, ':') ? 1 : 0);
+            $ap = (strpos($a->route_name, '/*') ? 10 : 0)+(strpos($a->route_name, '/.') ? 5 : 0)+(strpos($a->route_name, '/:') ? 1 : 0);
+            $bp = (strpos($b->route_name, '/*') ? 10 : 0)+(strpos($b->route_name, '/.') ? 5 : 0)+(strpos($b->route_name, '/:') ? 1 : 0);
+#echo $a->route_name.' ('.$ap.'), '.$b->route_name.'('.$bp.')<br>';
             return $ap === $bp ? 0 : ($ap < $bp ? -1 : 1 );
         });
+#echo "<pre>"; print_r($this->_routes); echo "</pre>";
         return $this;
     }
 
@@ -1563,21 +1567,22 @@ class BFrontController extends BClass
     */
     public function dispatch($requestRoute=null)
     {
-        BPubSub::i()->fire(__METHOD__.'.before');
+        BEvents::i()->fire(__METHOD__.'.before');
 
         $this->processRoutes();
 
         $attempts = 0;
-        $forward = true; // null: no forward, true: try next route, array: forward without new route
+        $forward = false; // null: no forward, false: try next route, array: forward without new route
 #echo "<pre>"; print_r($this->_routes); exit;
-        while (($attempts++<100) && $forward) {
+        while (($attempts++<100) && (false===$forward || is_array($forward))) {
             $route = $this->findRoute($requestRoute);
+#echo "<pre>"; print_r($route); echo "</pre>";
             if (!$route) {
                 $route = $this->findRoute('_ /noroute');
             }
             $this->_currentRoute = $route;
             $forward = $route->dispatch();
-#var_dump($route); exit;
+#var_dump($forward); exit;
             if (is_array($forward)) {
                 list($actionName, $forwardCtrlName, $params) = $forward;
                 $controllerName = $forwardCtrlName ? $forwardCtrlName : $route->controller_name;
@@ -1597,6 +1602,13 @@ class BFrontController extends BClass
         echo "<pre>"; print_r($this->_routes); echo "</pre>";
     }
 }
+
+/**
+* Alias for BRouting for older implementations
+*
+* @deprecated by BRouting
+*/
+class BFrontController extends BRouting {}
 
 /**
 * Controller Route Node
@@ -1625,6 +1637,7 @@ class BRouteNode
     public $num_parts; // specificity for sorting
     public $params;
     public $params_values;
+    public $multi_method;
 
     public function __construct($args=array())
     {
@@ -1638,6 +1651,10 @@ class BRouteNode
             return;
         }
         $a = explode(' ', $this->route_name);
+        if (sizeof($a)<2) {
+            throw new BException('Invalid route format: '.$this->route_name);
+        }
+        $this->multi_method = strpos($a[0], '|') !== false;
         if ($a[1]==='/') {
             $this->regex = '#^('.$a[0].') (/)$#';
         } else {
@@ -1767,17 +1784,17 @@ class BRouteNode
             $forward = $observer->dispatch();
             if (is_array($forward)) {
                 return $forward;
-            } elseif ($forward===true) {
+            } elseif ($forward===false) {
                 $observer->skip = true;
                 $observer = $this->validObserver();
             } else {
-                return false;
+                return null;
             }
         }
         if ($attempts>=100) {
             BDebug::error(BLocale::_('BRouteNode: Reached 100 route iterations: %s', print_r($observer,1)));
         }
-        return true;
+        return false;
     }
 
     public function __destruct()
@@ -1929,11 +1946,11 @@ class BActionController extends BClass
         $this->_forward = null;
 
         if (!$this->beforeDispatch($args)) {
-            return true;
-        } elseif ($this->_forward) {
+            return false;
+        }
+        if (!is_null($this->_forward)) {
             return $this->_forward;
         }
-
         $authenticated = $this->authenticate($args);
         if (!$authenticated && $actionName!=='unauthenticated') {
             $this->forward('unauthenticated');
@@ -1947,7 +1964,7 @@ class BActionController extends BClass
 
         $this->tryDispatch($actionName, $args);
 
-        if (!$this->_forward) {
+        if (is_null($this->_forward)) {
             $this->afterDispatch($args);
         }
         return $this->_forward;
@@ -1971,15 +1988,18 @@ class BActionController extends BClass
             return $this;
         }
         $actionMethod = $this->_actionMethodPrefix.$actionName;
-        if (($reqMethod = BRequest::i()->method())!=='GET') {
+        $reqMethod = BRequest::i()->method();
+        if ($reqMethod !== 'GET') {
             $tmpMethod = $actionMethod.'__'.$reqMethod;
             if (method_exists($this, $tmpMethod)) {
                 $actionMethod = $tmpMethod;
+            } elseif (BRouting::i()->currentRoute()->multi_method) { 
+                $this->forward(false); // If route has multiple methods, require method suffix
             }
         }
         //echo $actionMethod;exit;
         if (!method_exists($this, $actionMethod)) {
-            $this->forward(true);
+            $this->forward(false);
             return $this;
         }
         try {
@@ -2001,8 +2021,8 @@ class BActionController extends BClass
     */
     public function forward($actionName=null, $controllerName=null, array $params=array())
     {
-        if (true===$actionName) {
-            $this->_forward = true;
+        if (false===$actionName) {
+            $this->_forward = false;
         } else {
             $this->_forward = array($actionName, $controllerName, $params);
         }
@@ -2046,7 +2066,7 @@ class BActionController extends BClass
     */
     public function beforeDispatch()
     {
-        BPubSub::i()->fire(__METHOD__);
+        BEvents::i()->fire(__METHOD__);
         return true;
     }
 
@@ -2056,7 +2076,7 @@ class BActionController extends BClass
     */
     public function afterDispatch()
     {
-        BPubSub::i()->fire(__METHOD__);
+        BEvents::i()->fire(__METHOD__);
     }
 
     /**
@@ -2125,7 +2145,7 @@ class BActionController extends BClass
             $page = $defaultView;
         }
         if (!$page || !($view = $this->view($viewPrefix.$page))) {
-            $this->forward(true);
+            $this->forward(false);
             return false;
         }
         BLayout::i()->applyLayout('view-proxy')->applyLayout($viewPrefix.$page);

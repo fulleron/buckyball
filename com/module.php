@@ -60,7 +60,7 @@ class BModuleRegistry extends BClass
 
     public function __construct()
     {
-        //BPubSub::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
+        //BEvents::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
     }
 
     /**
@@ -107,47 +107,13 @@ class BModuleRegistry extends BClass
             $params = (array)$params;
         }
 
-        $params['name'] = $modName;
-        if (is_null($this->_area)) {
-            if ($area = BApp::i()->get('area')) {
-                $this->_area = $area;
-            } else {
-                $this->_area = null; // false;
-            }
-        }
-        if ($this->_area && !empty($params['areas'][$this->_area])) {
-            $params = BUtil::arrayMerge($params, $params['areas'][$this->_area]);
-        }
-
         if (!empty(static::$_modules[$modName])) {
-            $mod = static::$_modules[$modName];
-            if (empty($params['update'])) {
-                $rootDir = $mod->root_dir;
-                $file = $mod->bootstrap['file'];
-                throw new BException(BLocale::_('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
-            } else {
-                BDebug::debug('MODULE UPDATE: '.$modName);
-                foreach ($params as $k=>$v) {
-                    if (is_array($mod->$k)) {
-                        $mod->$k = array_merge_recursive($mod->$k, $v);
-                    } else {
-                        $mod->$k = $v;
-                        //TODO: make more flexible without sacrificing performance
-                        switch ($k) {
-                        case 'url_prefix':
-                            $mod->base_href = BApp::baseUrl().($v ? '/'.$v : '');
-                            break;
-                        }
-                    }
-                }
-                return $this;
-            }
-        }
-//        if (empty($params['bootstrap']['callback'])) {
-//            BDebug::warning('Missing bootstrap information, skipping module: %s', $modName);
-//        } else {
+            BDebug::debug('MODULE UPDATE: '.$this->name);
+            static::$_modules[$modName]->update($params);
+        } else {
+            $params['name'] = $modName;
             static::$_modules[$modName] = BModule::i(true, $params);
-//        }
+        }
         return $this;
     }
 
@@ -164,8 +130,8 @@ class BModuleRegistry extends BClass
     public function scan($source)
     {
         // if $source does not end with .json, assume it is a folder
-        if (substr($source, -5)!=='.json' && substr($source, -4)!=='.php') {
-            $source .= '/manifest.*';
+        if (!preg_match('/\.(json|yml|php)$/', $source)) {
+            $source .= '/manifest.{json,yml,php}';
         }
         $manifests = glob($source, GLOB_BRACE);
         BDebug::debug('MODULE.SCAN '.$source.': '.print_r($manifests, 1));
@@ -177,6 +143,9 @@ class BModuleRegistry extends BClass
             switch ($info['extension']) {
                 case 'php':
                     $manifest = include($file);
+                    break;
+                case 'yml':
+                    $manifest = BYAML::i()->load($file);
                     break;
                 case 'json':
                     $json = file_get_contents($file);
@@ -206,14 +175,14 @@ class BModuleRegistry extends BClass
     }
 
     /**
-    * Check module dependencies
+    * Check module requirements
     *
     * @return BModuleRegistry
     */
-    public function checkDepends()
+    public function checkRequires()
     {
         // validate required modules
-        $requestRunLevels = (array)BConfig::i()->get('request/module_run_level');
+        $requestRunLevels = (array)BConfig::i()->get('module_run_levels/request');
         foreach ($requestRunLevels as $modName=>$runLevel) {
             if (!empty(static::$_modules[$modName])) {
                 static::$_modules[$modName]->run_level = $runLevel;
@@ -221,62 +190,57 @@ class BModuleRegistry extends BClass
                 BDebug::warning('Module is required but not found: '.$modName);
             }
         }
-        // scan for dependencies
+        // scan for require
+
         foreach (static::$_modules as $modName=>$mod) {
-            // normalize dependencies format
-            foreach ($mod->depends as &$dep) {
-                if (is_string($dep)) {
-                    $dep = array('name'=>$dep);
-                }
-            }
-            unset($dep);
+
+            // normalize require format
+            $mod->require = $this->normalizeManifestRequireFormat($mod->require);
             // is currently iterated module required?
-            if ($mod->run_level===BModule::REQUIRED) {
+            if ($mod->run_level === BModule::REQUIRED) {
                 $mod->run_status = BModule::PENDING; // only 2 options: PENDING or ERROR
             }
-            $mod->errors = array();
-            // iterate over module dependencies
-            if (!empty($mod->depends)) {
-                foreach ($mod->depends as &$dep) {
-                    $depMod = !empty(static::$_modules[$dep['name']]) ? static::$_modules[$dep['name']] : false;
+            // iterate over require for modules
+            if (!empty($mod->require['module'])) {
+                foreach ($mod->require['module'] as &$req) {
+                    $reqMod = !empty(static::$_modules[$req['name']]) ? static::$_modules[$req['name']] : false;
                     // is the module missing
-                    if (!$depMod) {
-                        $mod->errors[] = array('type'=>'missing', 'mod'=>$dep['name']);
+                    if (!$reqMod) {
+                        $mod->errors[] = array('type'=>'missing', 'mod'=>$req['name']);
                         continue;
                     // is the module disabled
-                    } elseif ($depMod->run_level===BModule::DISABLED) {
-                        $mod->errors[] = array('type'=>'disabled', 'mod'=>$dep['name']);
+                    } elseif ($reqMod->run_level===BModule::DISABLED) {
+                        $mod->errors[] = array('type'=>'disabled', 'mod'=>$req['name']);
                         continue;
                     // is the module version not valid
-                    } elseif (!empty($dep['version'])) {
-                        $depVer = $dep['version'];
-                        if (!empty($depVer['from']) && version_compare($depMod->version, $depVer['from'], '<')
-                            || !empty($depVer['to']) && version_compare($depMod->version, $depVer['to'], '>')
-                            || !empty($depVer['exclude']) && in_array($depMod->version, (array)$depVer['exclude'])
+                    } elseif (!empty($req['version'])) {
+                        $reqVer = $req['version'];
+                        if (!empty($reqVer['from']) && version_compare($reqMod->version, $reqVer['from'], '<')
+                            || !empty($reqVer['to']) && version_compare($reqMod->version, $reqVer['to'], '>')
+                            || !empty($reqVer['exclude']) && in_array($reqVer->version, (array)$reqVer['exclude'])
                         ) {
-                            $mod->errors[] = array('type'=>'version', 'mod'=>$dep['name']);
+                            $mod->errors[] = array('type'=>'version', 'mod'=>$req['name']);
                             continue;
                         }
                     }
-                    // for ordering by dependency
-                    $mod->parents[] = $dep['name'];
-                    $depMod->children[] = $modName;
-                    if ($mod->run_status===BModule::PENDING) {
-                        $depMod->run_status = BModule::PENDING;
+                    if (!in_array($req['name'], $mod->parents)) {
+                        $mod->parents[] = $req['name'];
                     }
-                    // add dependency information to bootstrap config
-                    //if (!empty($reqModules)) {
-                    //    BConfig::i()->add(array('bootstrap'=>array('depends'=>array($dep['name']))));
-                    //}
-
+                    if (!in_array($modName, $reqMod->children)) {
+                        $reqMod->children[] = $modName;
+                    }
+                    if ($mod->run_status===BModule::PENDING) {
+                        $reqMod->run_status = BModule::PENDING;
+                    }
                 }
-                unset($dep);
+                unset($req);
             }
 
-            if (!$mod->errors && $mod->run_level===BModule::REQUESTED) {
+            if (!$mod->errors && $mod->run_level === BModule::REQUESTED) {
                 $mod->run_status = BModule::PENDING;
             }
         }
+
         foreach (static::$_modules as $modName=>$mod) {
             if (!is_object($mod)) {
                 var_dump($mod); exit;
@@ -289,7 +253,47 @@ class BModuleRegistry extends BClass
                 $this->propagateDepends($mod);
             }
         }
+        #var_dump(static::$_modules);exit;
         return $this;
+    }
+
+    public function normalizeManifestRequireFormat($require)
+    {
+        // normalize require format
+        foreach ($require as $reqType => &$req) {
+            if (is_string($req)) {
+                if (is_numeric($reqType)) {
+                    $require['module'] = array(array('name' => $req));
+                    unset($require[$reqType]);
+                } else {
+                    $require[$reqType] = array(array('name' => $req));
+                }
+            } else if (is_array($req)) {
+                foreach ($req as $reqMod => &$reqVer) {
+                    if (is_numeric($reqMod)) {
+                        $reqVer = array('name' => $reqVer);
+                    } else {
+                        $from = '';
+                        $to = '';
+
+                        $reqVerAr = explode(";", $reqVer);
+                        if (!empty($reqVerAr[0])) {
+                            $from = $reqVerAr[0];
+                        }
+                        if (!empty($reqVerAr[1])) {
+                            $to = $reqVerAr[1];
+                        }
+                        if (!empty($from)) {
+                            $reqVer = array('name' => $reqMod, 'version' => array('from' => $from, 'to' => $to));
+                        } else {
+                            $reqVer = array('name' => $reqMod);
+                        }
+                    }
+
+                }
+            }
+        }
+        return $require;
     }
 
     /**
@@ -391,173 +395,44 @@ class BModuleRegistry extends BClass
             unset($modules[$n->name]);
         }
         static::$_modules = $sorted;
-
         return $this;
     }
 
-    /**
-    * Check module requirements
-    *
-    * @return BModuleRegistry
-    */
-    public function checkRequires()
+    public function processRequires()
     {
-        if (!static::$_modules) {
-            // validate required modules
-            $requestRunLevels = (array)BConfig::i()->get('request/module_run_level');
-            foreach ($requestRunLevels as $modName=>$runLevel) {
-                if (!empty(static::$_modules[$modName])) {
-                    static::$_modules[$modName]->run_level = $runLevel;
-                } elseif ($runLevel===BModule::REQUIRED) {
-                    BDebug::warning('Module is required but not found: '.$modName);
-                }
-            }
-        }
-        // scan for require
-
-        foreach (static::$_modules as $modName=>$mod) {
-            if (!isset($mod->require)) {
-                continue;
-            }
-            // normalize require format
-            $mod->require = $this->normalizeManifestRequireFormat($mod->require);
-
-            // is currently iterated module required?
-            if ($mod->run_level===BModule::REQUIRED) {
-                $mod->run_status = BModule::PENDING; // only 2 options: PENDING or ERROR
-            }
-            if (!isset($mod->errors)) {
-                $mod->errors = array();
-            }
-            // iterate over require for modules
-            if (!empty($mod->require['module'])) {
-                foreach ($mod->require['module'] as &$req) {
-                    $reqMod = !empty(static::$_modules[$req['name']]) ? static::$_modules[$req['name']] : false;
-                    // is the module missing
-                    if (!$reqMod) {
-                        $mod->errors[] = array('type'=>'missing', 'mod'=>$req['name']);
-                        continue;
-                    // is the module disabled
-                    } elseif ($reqMod->run_level===BModule::DISABLED) {
-                        $mod->errors[] = array('type'=>'disabled', 'mod'=>$req['name']);
-                        continue;
-                    // is the module version not valid
-                    } elseif (!empty($req['version'])) {
-                        $reqVer = $req['version'];
-                        if (!empty($reqVer['from']) && version_compare($reqMod->version, $reqVer['from'], '<')
-                            || !empty($reqVer['to']) && version_compare($reqMod->version, $reqVer['to'], '>')
-                            || !empty($reqVer['exclude']) && in_array($reqVer->version, (array)$reqVer['exclude'])
-                        ) {
-                            $mod->errors[] = array('type'=>'version', 'mod'=>$req['name']);
-                            continue;
-                        }
-                    }
-                    if (!in_array($req['name'], $mod->parents)) {
-                        $mod->parents[] = $req['name'];
-                    }
-                    if (!in_array($modName, $reqMod->children)) {
-                        $reqMod->children[] = $modName;
-                    }
-                    if ($mod->run_status===BModule::PENDING) {
-                        $reqMod->run_status = BModule::PENDING;
-                    }
-                }
-                unset($req);
-            }
-
-            if (!$mod->errors && $mod->run_level===BModule::REQUESTED) {
-                $mod->run_status = BModule::PENDING;
-            }
-        }
-
-        foreach (static::$_modules as $modName=>$mod) {
-            if (!is_object($mod)) {
-                var_dump($mod); exit;
-            }
-            if ($mod->errors && !$mod->errors_propagated) {
-                // propagate dependency errors into subdependent modules
-                $this->propagateDependErrors($mod);
-            } elseif ($mod->run_status===BModule::PENDING) {
-                // propagate pending status into deep dependent modules
-                $this->propagateDepends($mod);
-            }
-        }
-        //print_r(static::$_modules);exit;
+        $this->checkRequires();
+        $this->sortDepends();
         return $this;
     }
 
-    public function normalizeManifestRequireFormat($require)
+    public function processDefaultConfig()
     {
-        // normalize require format
-            foreach ($require as $reqType => &$req) {
-                if (is_string($req)) {
-                    if (is_numeric($reqType)) {
-                        $require['module'] = array(array('name' => $req));
-                        unset($require[$reqType]);
-                    } else {
-                        $require[$reqType] = array(array('name' => $req));
-                    }
-                } else if (is_array($req)) {
-                    foreach($req as $reqMod => &$reqVer) {
-                        if (is_numeric($reqMod)) {
-                            $reqVer = array('name' => $reqVer);
-                        } else {
-                            $from = '';
-                            $to = '';
-
-                            $reqVerAr = explode(";", $reqVer);
-                            if (!empty($reqVerAr[0])) {
-                                $from = $reqVerAr[0];
-                            }
-                            if (!empty($reqVerAr[1])) {
-                                $to = $reqVerAr[1];
-                            }
-                            if (!empty($from)) {
-                                $reqVer = array('name' => $reqMod, 'version' => array('from' => $from, 'to' => $to));
-                            } else {
-                                $reqVer = array('name' => $reqMod);
-                            }
-                        }
-
-                    }
-                }
-            }
-            return $require;
+        //BUtil::arrayWalk(static::$_modules, 'processDefaultConfig');
+        foreach (static::$_modules as $mod) {
+            $mod->processDefaultConfig();
+        }
+        return $this;
     }
 
     /**
     * Run modules bootstrap callbacks
     *
+    * @todo enable loading in runtime
     * @return BModuleRegistry
     */
     public function bootstrap()
     {
-        $language = BSession::i()->data('_language');
-        $this->checkDepends();
-        $this->checkRequires();
-        $this->sortDepends();
-/*
-echo "<pre>";
-print_r(BConfig::i()->get());
-print_r(static::$_modules);
-echo "</pre>"; exit;
-*/
-
+        foreach (static::$_modules as $mod) {
+            $this->pushModule($mod->name);
+            $mod->beforeBootstrap();
+            $this->popModule();
+        }
         foreach (static::$_modules as $mod) {
             $this->pushModule($mod->name);
             $mod->bootstrap();
-            //load translations
-            if (!empty($language) && !empty($mod->translations[$language])) {
-                if (!is_array($mod->translations[$language])) {
-                    $mod->translations[$language] = array($mod->translations[$language]);
-                }
-                foreach($mod->translations[$language] as $file) {
-                    BLocale::addTranslationsFile($file);
-                }
-            }
             $this->popModule();
         }
-        BPubSub::i()->fire('bootstrap::after');
+        BEvents::i()->fire('BModuleRegistry::bootstrap.after');
         return $this;
     }
 
@@ -612,10 +487,10 @@ echo "</pre>"; exit;
 /*
     public function onBeforeDispatch()
     {
-        $front = BFrontController::i();
+        $routing = BRouting::i();
         foreach (static::$_modules as $module) {
             if ($module->run_status===BModule::LOADED && ($prefix = $module->url_prefix)) {
-                $front->redirect('GET /'.$prefix, $prefix.'/');
+                $routing->redirect('GET /'.$prefix, $prefix.'/');
             }
         }
     }
@@ -655,6 +530,7 @@ class BModule extends BClass
     public $name;
     public $run_level;
     public $run_status;
+    public $before_bootstrap;
     public $bootstrap;
     public $version;
     public $db_connection_name;
@@ -664,7 +540,7 @@ class BModule extends BClass
     public $base_src;
     public $base_href;
     public $manifest_file;
-    public $depends = array();
+    public $require = array();
     public $parents = array();
     public $children = array();
     public $children_copy = array();
@@ -674,6 +550,16 @@ class BModule extends BClass
     public $description;
     public $migrate;
     public $load_after;
+    public $auto_use;
+    public $views;
+    public $layout;
+    public $routing;
+    public $observe;
+    public $provides;
+    public $area;
+    public $override;
+    public $default_config;
+    public $autoload;
 
     const
         // run_level
@@ -732,7 +618,12 @@ class BModule extends BClass
     */
     public function __construct(array $args)
     {
+        #if (empty($args['area'])) {
+            $args['area'] = BApp::i()->get('area');
+        #}
         $this->set($args);
+
+        $args = $this->_processAreas($args);
 
         $m = $this->_getManifestData();
         if (!empty($this->bootstrap) && empty($this->bootstrap['file'])) {
@@ -756,14 +647,48 @@ class BModule extends BClass
         $this->run_level = static::$_defaultRunLevel; // disallow declaring run_level in manifest
         /*
         if (!isset($this->run_level)) {
-            $runLevel = BConfig::i()->get('request/module_run_level/'.$this->name);
+            $runLevel = BConfig::i()->get('module_run_levels/request/'.$this->name);
             $this->run_level = $runLevel ? $runLevel : BModule::ONDEMAND;
         }
         */
         if (!isset($this->run_status)) {
             $this->run_status = BModule::IDLE;
         }
+    }
 
+    protected function _processAreas()
+    {
+        if ($this->area && !empty($this->areas[$this->area])) {
+            $areaParams = $this->areas[$this->area];
+            $areaParams['update'] = true;
+            $this->update($areaParams);
+        }
+        return;
+    }
+
+    public function update(array $params)
+    {
+        //$params = $this->_processAreas($params);
+        if (empty($params['update'])) {
+            $rootDir = $this->root_dir;
+            $file = $this->bootstrap['file'];
+            throw new BException(BLocale::_('Module is already registered: %s (%s)', array($modName, $rootDir.'/'.$file)));
+        }
+        unset($params['update']);
+        foreach ($params as $k=>$v) {
+            if (is_array($this->$k)) {
+                $this->$k = array_merge_recursive((array)$this->$k, (array)$v);
+            } else {
+                $this->$k = $v;
+                //TODO: make more flexible without sacrificing performance
+                switch ($k) {
+                case 'url_prefix':
+                    $this->base_href = BApp::baseUrl().($v ? '/'.$v : '');
+                    break;
+                }
+            }
+        }
+        return $this;
     }
 
     protected function _getManifestData()
@@ -850,6 +775,121 @@ class BModule extends BClass
         }
     }
 
+    protected function _processAutoUse()
+    {
+        if (empty($this->auto_use)) {
+            return;
+        }
+        $auto = array_flip((array)$this->auto_use);
+        $area = BApp::i()->get('area');
+        $areaDir = str_replace('FCom_', '', $area);
+        if (isset($auto['all']) || isset($auto['bootstrap'])) { // TODO: check for is_callable() ?
+            if (method_exists($this->name.'_'.$areaDir, 'bootstrap')) {
+                $this->bootstrap = array('callback' => $this->name.'_'.$areaDir.'::bootstrap');
+            } elseif (method_exists($this->name.'_Main', 'bootstrap')) {
+                $this->bootstrap = array('callback' => $this->name.'_Main::bootstrap');
+            } elseif (method_exists($this->name, 'bootstrap')) {
+                $this->bootstrap = array('callback' => $this->name.'::bootstrap');
+            }
+        }
+        if (isset($auto['all']) || isset($auto['views'])) {
+            if (is_dir($this->root_dir.'/views')) {
+                BLayout::i()->addAllViews($this->root_dir.'/views');
+            }
+            if (is_dir($this->root_dir.'/'.$areaDir.'/views')) {
+                BLayout::i()->addAllViews($this->root_dir.'/'.$areaDir.'/views');
+            }
+        }
+        if (isset($auto['all']) || isset($auto['layout'])) {
+            if (file_exists($this->root_dir.'/layout.yml')) {
+                BLayout::i()->loadLayoutAfterTheme($this->root_dir.'/layout.yml');
+            }
+            if (file_exists($this->root_dir.'/'.$areaDir.'/layout.yml')) {
+                BLayout::i()->loadLayoutAfterTheme($this->root_dir.'/'.$areaDir.'/layout.yml');
+            }
+        }
+    }
+
+    protected function _processAutoload()
+    {
+        if (!empty($this->autoload)) {
+            foreach ((array)$this->autoload as $al) {
+                if (is_string($al)) {
+                    $al = array('root_dir'=>$al);
+                }
+                $this->autoload($al['root_dir'], !empty($al['callback']) ? $al['callback'] : null);
+            }
+        }
+    }
+
+    protected function _processProvides()
+    {
+        if (!empty($this->provides['themes'])) {
+            foreach ($this->provides['themes'] as $name=>$params) {
+                $params['module_name'] = $this->name;
+                BLayout::i()->addTheme($name, $params);
+            }
+        }
+    }
+
+    protected function _processRouting()
+    { 
+        if (empty($this->routing)) {
+            return;
+        }
+        $hlp = BRouting::i();
+        foreach ($this->routing as $r) {
+            $method = strtolower($r[0]);
+            $route = $r[1];
+            $callback = $r[2];
+            $args = !empty($r[3]) ? $r[3] : array();
+            $name = !empty($r[4]) ? $r[4] : null;
+            $multiple = !empty($r[5]) ? $r[5] : true;
+            $hlp->$method($route, $callback, $args, $name, $multiple);
+        }
+    }
+
+    protected function _processObserve()
+    { 
+        if (empty($this->observe)) {
+            return;
+        }
+        $hlp = BEvents::i();
+        foreach ($this->observe as $o) {
+            $event = $o[0];
+            $callback = $o[1];
+            $args = !empty($o[2]) ? $o[2] : array();
+            $hlp->on($event, $callback, $args);
+        }
+    }
+
+    protected function _processOverrides()
+    {
+        if (empty($this->override)) {
+            return;
+        }
+        if (!empty($this->override['class'])) {
+            $hlp = BClassRegistry::i();
+            foreach ($this->override['class'] as $o) {
+                $hlp->overrideClass($o[0], $o[1]);
+            }
+        }
+    }
+
+    protected function _processTranslations()
+    {
+        //load translations
+        $language = BSession::i()->data('_language');
+        if (!empty($language) && !empty($this->translations[$language])) {
+            if (!is_array($this->translations[$language])) {
+                $this->translations[$language] = array($this->translations[$language]);
+            }
+            foreach($this->translations[$language] as $file) {
+                BLocale::addTranslationsFile($file);
+            }
+        }
+    }
+
     /**
     * Register module specific autoload callback
     *
@@ -915,7 +955,7 @@ class BModule extends BClass
     {
         $this->run_level = $level;
         if ($updateConfig) {
-            BConfig::i()->set('request/module_run_level/'.$this->name, $level);
+            BConfig::i()->set('module_run_levels/request/'.$this->name, $level);
         }
         return $this;
     }
@@ -962,30 +1002,79 @@ class BModule extends BClass
         return $this;
     }
 
-    public function bootstrap($force=false)
+    public function processDefaultConfig()
     {
-        if (empty($this->bootstrap)) {
-            BDebug::debug('Module does not have bootstrap for this area: '.$this->name);
-            $this->run_status = static::IDLE;
-            return $this;
+        if (!empty($this->default_config)) {
+            BConfig::i()->add($this->default_config);
         }
-//echo "<hr>"; var_dump($this->bootstrap);
-        if ($this->run_status!==BModule::PENDING && !$force) {
+        $this->_processProvides();
+        return $this;
+    }
+
+    public function beforeBootstrap()
+    {
+        if ($this->run_status !== BModule::PENDING) {
             return $this;
         }
         $this->_prepareModuleEnvData();
-        if (!empty($this->bootstrap['file'])) {
-            $includeFile = BUtil::normalizePath($this->root_dir.'/'.$this->bootstrap['file']);
-            BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
+
+        if (empty($this->before_bootstrap)) {
+            return $this;
+        }
+
+        $bb = $this->before_bootstrap;
+        if (!is_array($bb)) {
+            $bb = array('callback' => $bb);
+        }
+        if (!empty($bb['file'])) {
+            $includeFile = BUtil::normalizePath($this->root_dir.'/'.$bb['file']);
+            BDebug::debug('MODULE.BEFORE.BOOTSTRAP '.$includeFile);
             require_once ($includeFile);
         }
-        if (!empty($this->bootstrap['callback'])) {
-            $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
-            call_user_func($this->bootstrap['callback']);
+        if (!empty($bb['callback'])) {
+            $start = BDebug::debug(BLocale::_('Start BEFORE bootstrap for %s', array($this->name)));
+            call_user_func($bb['callback']);
             #$mod->run_status = BModule::LOADED;
             BDebug::profile($start);
-            BDebug::debug(BLocale::_('End bootstrap for %s', array($this->name)));
+            BDebug::debug(BLocale::_('End BEFORE bootstrap for %s', array($this->name)));
         }
+
+        return $this;
+    }
+
+    public function bootstrap($force=false)
+    {
+        if ($this->run_status!==BModule::PENDING) {
+            if ($force) {
+                $this->_prepareModuleEnvData(); // prepare data missed in beforeBootstrap
+            } else {
+                return $this; // skip module bootstrap
+            }
+        }
+
+        $this->_processAutoload();
+        $this->_processTranslations();
+        $this->_processAutoUse();
+        $this->_processRouting();
+        $this->_processObserve();
+
+        BEvents::i()->fire('BModule::bootstrap.before', array('module'=>$this));
+
+        if (!empty($this->bootstrap)) {
+            if (!empty($this->bootstrap['file'])) {
+                $includeFile = BUtil::normalizePath($this->root_dir.'/'.$this->bootstrap['file']);
+                BDebug::debug('MODULE.BOOTSTRAP '.$includeFile);
+                require_once ($includeFile);
+            }
+            if (!empty($this->bootstrap['callback'])) {
+                $start = BDebug::debug(BLocale::_('Start bootstrap for %s', array($this->name)));
+                call_user_func($this->bootstrap['callback']);
+                #$mod->run_status = BModule::LOADED;
+                BDebug::profile($start);
+                BDebug::debug(BLocale::_('End bootstrap for %s', array($this->name)));
+            }
+        }
+
         $this->run_status = BModule::LOADED;
         return $this;
     }
@@ -1019,6 +1108,9 @@ class BMigrate extends BClass
     {
         $migration = array();
         foreach (BModuleRegistry::getAllModules() as $modName=>$mod) {
+            if (empty($mod->migrate) && class_exists($mod->name.'_Migrate')) {
+                $mod->migrate = $mod->name.'_Migrate';
+            }
             if ($mod->version && $mod->migrate) {
                 $connName = $mod->db_connection_name ? $mod->db_connection_name : 'DEFAULT';
                 $migration[$connName][$modName] = array(
@@ -1146,7 +1238,11 @@ class BMigrate extends BClass
                     } elseif (is_dir($module->root_dir.'/'.$script)) {
                         //TODO: process directory of migration scripts
                     } elseif (class_exists($script, true)) {
-                        $script::i()->run();
+                        if (method_exists($script, 'run')) {
+                            $script::i()->run();
+                        } else {
+                            static::_runClassMethods($script);
+                        }
                     }
                 /*
                     BDb::commit();
@@ -1160,6 +1256,36 @@ class BMigrate extends BClass
         unset($modules);
         $modReg->currentModule(null);
         static::$_migratingModule = null;
+    }
+
+    protected static function _runClassMethods($class)
+    {
+        $methods = get_class_methods($class);
+        $installs = array();
+        $upgrades = array();
+        foreach ($methods as $method) {
+            if (preg_match('/^install__([0-9_]+)$/', $method, $m)) {
+                $installs[] = array(
+                    'method' => $method, 
+                    'to' => str_replace('_', '.', $m[1])
+                );
+            } elseif (preg_match('/^upgrade__([0-9_]+)__([0-9_]+)$/', $method, $m)) {
+                $upgrades[] = array(
+                    'method' => $method, 
+                    'from' => str_replace('_', '.', $m[1]), 
+                    'to' => str_replace('_', '.', $m[2]),
+                );
+            }
+        }
+        usort($installs, function($a, $b) { return version_compare($a['to'], $b['to']); });
+        usort($upgrades, function($a, $b) { return version_compare($a['from'], $b['from']); });
+        end($installs); $install = current($installs);
+        $instance = $class::i();
+
+        static::install($install['to'], array($instance, $install['method']));
+        foreach ($upgrades as $upgrade) {
+            static::upgrade($upgrade['from'], $upgrade['to'], array($instance, $upgrade['method']));
+        }
     }
 
     /**
@@ -1238,6 +1364,14 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         }
         $schemaVersion = $mod['schema_version'];
 
+        // if module is not enable skip upgrade
+        if (!BModuleRegistry::i()->isLoaded($mod['module_name'])) {
+            return true;
+        }
+        // if code version is older than target scheme version, skip
+        if (version_compare($mod['code_version'], $toVersion, '<')) {
+            return true;
+        }
         // if schema is newer than requested FROM version, skip
         if (version_compare($schemaVersion, $fromVersion, '>')) {
             return true;

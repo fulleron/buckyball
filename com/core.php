@@ -225,7 +225,7 @@ class BApp extends BClass
         }
 
         // dispatch requested controller action
-        BFrontController::i()->dispatch();
+        BRouting::i()->dispatch();
 
         // If session variables were changed, update session
         BSession::i()->close();
@@ -360,6 +360,19 @@ class BApp extends BClass
     {
         return isset($this->_vars[$key]) ? $this->_vars[$key] : null;
     }
+
+    /**
+     * Helper to get class singletons and instances from templates like Twig
+     *
+     * @param string $class
+     * @param boolean $new
+     * @param array $args
+     * @return BClass
+     */
+    public function instance($class, $new=false, $args=array())
+    {
+        return $class::i($new, $args);
+    }
 }
 
 
@@ -454,11 +467,15 @@ class BConfig extends BClass
             $config = include($filename);
             break;
 
+        case 'yml':
+            $config = BYAML::i()->load($filename);
+            break;
+
         case 'json':
             $config = BUtil::fromJson(file_get_contents($filename));
             break;
         }
-        if (!$config) {
+        if (!is_array($config)) {
             BDebug::error(BLocale::_('Invalid configuration contents: %s', $filename));
         }
         $this->add($config, $toSave);
@@ -517,10 +534,13 @@ class BConfig extends BClass
         return $root;
     }
 
-    public function writeFile($filename, $config=null, $format='php')
+    public function writeFile($filename, $config=null, $format=null)
     {
         if (is_null($config)) {
             $config = $this->_configToSave;
+        }
+        if (is_null($format)) {
+            $format = pathinfo($filename, PATHINFO_EXTENSION);
         }
         switch ($format) {
             case 'php':
@@ -534,6 +554,10 @@ class BConfig extends BClass
 
                 // a small formatting enhancement
                 $contents = preg_replace('#=> \n\s+#', '=> ', $contents);
+                break;
+
+            case 'yml':
+                $contents = BYAML::i()->dump($config);
                 break;
 
             case 'json':
@@ -1282,7 +1306,7 @@ class BClassAutoload extends BClass
         if ($this->filename_cb) {
             $file = call_user_func($this->filename_cb, $class);
         } else {
-            $file = str_replace('_', '/', $class).'.php';
+            $file = str_replace(array('_', '\\'), array('/', '/'), $class).'.php';
         }
         if ($file) {
             if ($file[0]!=='/' && $file[1]!==':') {
@@ -1298,7 +1322,7 @@ class BClassAutoload extends BClass
 /**
 * Events and observers registry
 */
-class BPubSub extends BClass
+class BEvents extends BClass
 {
     /**
     * Stores events and observers
@@ -1372,32 +1396,6 @@ class BPubSub extends BClass
         $this->_events[$eventName]['observers'][] = $observer;
         BDebug::debug('SUBSCRIBE '.$eventName.': '.substr(var_export($callback, 1), 0, 100), 1);
         return $this;
-    }
-
-    /**
-    * Alias for on()
-    *
-    * @param string|array $eventName
-    * @param mixed $callback
-    * @param array $args
-    * @return BPubSub
-    */
-    public function watch($eventName, $callback=null, $args=array())
-    {
-        return $this->on($eventName, $callback, $args);
-    }
-
-    /**
-    * Alias for on()
-    *
-    * @param string|array $eventName
-    * @param mixed $callback
-    * @param array $args
-    * @return BPubSub
-    */
-    public function observe($eventName, $callback=null, $args=array())
-    {
-        return $this->on($eventName, $callback, $args);
     }
 
     /**
@@ -1486,6 +1484,9 @@ class BPubSub extends BClass
                 foreach (array('.', '->') as $sep) {
                     $r = explode($sep, $cb);
                     if (sizeof($r)==2) {
+if (!class_exists($r[0])) {
+    echo "<pre>"; debug_print_backtrace(); echo "</pre>";
+}
                         $cb = array($r[0]::i(), $r[1]);
                         $observer['callback'] = $cb;
                         // remember for next call, don't want to use &$observer
@@ -1510,23 +1511,18 @@ class BPubSub extends BClass
         return $result;
     }
 
-    /**
-    * Alias for fire()
-    *
-    * @param string|array $eventName
-    * @param array $args
-    * @return array Collection of results from observers
-    */
-    public function dispatch($eventName, $args=array())
-    {
-        return $this->fire($eventName, $args);
-    }
-
     public function debug()
     {
         echo "<pre>"; print_r($this->_events); echo "</pre>";
     }
 }
+
+/**
+ * Alias for backwards compatibility
+ * 
+ * @deprecated by BEvents
+ */
+class BPubSub extends BEvents {}
 
 /**
 * Facility to handle session state
@@ -1604,7 +1600,7 @@ class BSession extends BClass
         $ttl = !empty($config['timeout']) ? $config['timeout'] : 3600;
         $path = !empty($config['path']) ? $config['path'] : BConfig::i()->get('web/base_href');
         if (empty($path)) $path = BRequest::i()->webRoot();
-        
+
         $domain = !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost();
         if (!empty($config['session_handler']) && !empty($this->_availableHandlers[$config['session_handler']])) {
             $class = $this->_availableHandlers[$config['session_handler']];
@@ -1617,7 +1613,7 @@ class BSession extends BClass
             BUtil::ensureDir($dir);
             session_save_path($dir);
         }
-        
+
         if (!empty($id) || ($id = BRequest::i()->get('SID'))) {
             session_id($id);
         }
@@ -1871,6 +1867,7 @@ class BSession_APC extends BClass
 {
     protected $_prefix;
     protected $_ttl = 0;
+    protected $_lockTimeout = 10;
 
     public function __construct()
     {
@@ -1894,9 +1891,10 @@ class BSession_APC extends BClass
     public function open($savePath, $sessionName)
     {
         $this->_prefix = 'BSession/'.$sessionName;
-        if (!apc_exists($this->_prefix)) {
+        if (!apc_exists($this->_prefix.'/TS')) {
             // creating non-empty array @see http://us.php.net/manual/en/function.apc-store.php#107359
-            return apc_store($this->_prefix, array(''));
+            apc_store($this->_prefix.'/TS', array(''));
+            apc_store($this->_prefix.'/LOCK', array(''));
         }
         return true;
     }
@@ -1909,34 +1907,84 @@ class BSession_APC extends BClass
     public function read($id)
     {
         $key = $this->_prefix.'/'.$id;
-        return apc_exists($key) ? apc_fetch($key) : '';
+        if (!apc_exists($key)) {
+            return ''; // no session
+        }
+
+        // redundant check for ttl before read
+        if ($this->_ttl) {
+            $ts = apc_fetch($this->_prefix.'/TS');
+            if (empty($ts[$id])) {
+                return ''; // no session
+            } elseif (!empty($ts[$id]) && $ts[$id] + $this->_ttl < time()) {
+                unset($ts[$id]);
+                apc_delete($key); 
+                apc_store($this->_prefix.'/TS', $ts);
+                return ''; // session expired
+            }
+        }
+
+        if ($this->_lockTimeout) {
+            $locks = apc_fetch($this->_prefix.'/LOCK');
+            if (!empty($locks[$id])) {
+                while (!empty($locks[$id]) && $locks[$id] + $this->_lockTimeout >= time()) {
+                    usleep(10000); // sleep 10ms
+                    $locks = apc_fetch($this->_prefix.'/LOCK');
+                }
+            }
+            /*
+            // by default will overwrite session after lock expired to allow smooth site function
+            // alternative handling is to abort current process
+            if (!empty($locks[$id])) {
+                return false; // abort read of waiting for lock timed out
+            }
+            */
+            $locks[$id] = time(); // set session lock
+            apc_store($this->_prefix.'/LOCK', $locks);
+        }
+
+        return apc_fetch($key); // if no data returns empty string per doc
     }
 
     public function write($id, $data)
     {
-        $all = apc_fetch($this->_prefix);
-        $all[$id] = time();
-        return apc_store($this->_prefix.'/'.$id, $data, $this->_ttl) && apc_store($this->_prefix, $all);
+        $ts = apc_fetch($this->_prefix.'/TS');
+        $ts[$id] = time();
+        apc_store($this->_prefix.'/TS', $ts);
+
+        $locks = apc_fetch($this->_prefix.'/LOCK');
+        unset($locks[$id]);
+        apc_store($this->_prefix.'/LOCK', $locks);
+
+        return apc_store($this->_prefix.'/'.$id, $data, $this->_ttl);
     }
 
     public function destroy($id)
     {
-        $all = apc_fetch($this->_prefix);
-        unset($all[$id]);
-        return apc_delete($this->_prefix.'/'.$id) && apc_store($this->_prefix, $all);
+        $ts = apc_fetch($this->_prefix.'/TS');
+        unset($ts[$id]);
+        apc_store($this->_prefix.'/TS', $ts);
+
+        $locks = apc_fetch($this->_prefix.'/LOCK');
+        unset($locks[$id]);
+        apc_store($this->_prefix.'/LOCK', $locks);
+
+        return apc_delete($this->_prefix.'/'.$id);
     }
 
-    public function gc($maxlifetime)
+    public function gc($lifetime)
     {
-        if (!$this->_ttl || $maxlifetime<$this->_ttl) {
-            $all = apc_fetch($this->_prefix);
-            foreach ($all as $id=>$time) {
-                if ($time + $maxlifetime < time() && apc_exists($this->_prefix.'/'.$id)) {
-                    apc_delete($this->_prefix.'/'.$id);
-                }
+        if ($this->_ttl) {
+            $lifetime = min($lifetime, $this->_ttl);
+        }
+        $ts = apc_fetch($this->_prefix.'/TS');
+        foreach ($ts as $id=>$time) {
+            if ($time + $lifetime < time()) {
+                apc_delete($this->_prefix.'/'.$id);
+                unset($ts[$id]);
             }
         }
-        return true;
+        return apc_store($this->_prefix.'/TS', $ts);
     }
 }
 BSession_APC::i();

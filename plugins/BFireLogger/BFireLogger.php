@@ -6,7 +6,7 @@ class BFireLogger extends BClass
 
     public static function bootstrap()
     {
-        //BPubSub::i()->on('BResponse::output.before', 'FireLogger::handler');
+        //BEvents::i()->on('BResponse::output.before', 'FireLogger::handler');
         self::channel('buckyball')->log('Start');
     }
 

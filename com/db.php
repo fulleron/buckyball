@@ -1215,9 +1215,9 @@ exit;
         if ($class::origClass()) {
             $class = $class::origClass();
         }
-        BPubSub::i()->fire($class.'::find_one.orm', array('orm'=>$this, 'class'=>$class, 'id'=>$id));
+        BEvents::i()->fire($class.'::find_one.orm', array('orm'=>$this, 'class'=>$class, 'id'=>$id));
         $result = parent::find_one($id);
-        BPubSub::i()->fire($class.'::find_one.after', array('result'=>$result, 'class'=>$class, 'id'=>$id));
+        BEvents::i()->fire($class.'::find_one.after', array('result'=>$result, 'class'=>$class, 'id'=>$id));
         return $result;
     }
 
@@ -1232,9 +1232,9 @@ exit;
         if ($class::origClass()) {
             $class = $class::origClass();
         }
-        BPubSub::i()->fire($class.'::find_many.orm', array('orm'=>$this, 'class'=>$class));
+        BEvents::i()->fire($class.'::find_many.orm', array('orm'=>$this, 'class'=>$class));
         $result = parent::find_many();
-        BPubSub::i()->fire($class.'::find_many.after', array('result'=>$result, 'class'=>$class));
+        BEvents::i()->fire($class.'::find_many.after', array('result'=>$result, 'class'=>$class));
         return $result;
     }
 
@@ -1834,7 +1834,7 @@ class BModel extends Model
 
         $orm = static::factory();
         static::_loadORM($orm);
-        BPubSub::i()->fire($class.'::load.orm', array('orm'=>$orm, 'class'=>$class, 'called_class'=>get_called_class()));
+        BEvents::i()->fire($class.'::load.orm', array('orm'=>$orm, 'class'=>$class, 'called_class'=>get_called_class()));
         if (is_array($id)) {
             $orm->where_complex($id);
         } else {
@@ -1864,7 +1864,7 @@ class BModel extends Model
     */
     public function afterLoad()
     {
-        BPubSub::i()->fire($this->_origClass().'::afterLoad', array('model'=>$this));
+        BEvents::i()->fire($this->_origClass().'::afterLoad', array('model'=>$this));
         return $this;
     }
 
@@ -2093,8 +2093,8 @@ class BModel extends Model
                 if (!$this->beforeSave()) {
                      $this->beforeSave();
                 }
-                BPubSub::i()->fire($this->origClass().'::beforeSave', array('model'=>$this));
-                BPubSub::i()->fire('BModel::beforeSave', array('model'=>$this));
+                BEvents::i()->fire($this->origClass().'::beforeSave', array('model'=>$this));
+                BEvents::i()->fire('BModel::beforeSave', array('model'=>$this));
             } catch (BModelException $e) {
                 return $this;
             }
@@ -2106,8 +2106,8 @@ class BModel extends Model
 
         if ($beforeAfter) {
             $this->afterSave();
-            BPubSub::i()->fire($this->_origClass().'::afterSave', array('model'=>$this));
-            BPubSub::i()->fire('BModel::afterSave', array('model'=>$this));
+            BEvents::i()->fire($this->_origClass().'::afterSave', array('model'=>$this));
+            BEvents::i()->fire('BModel::afterSave', array('model'=>$this));
         }
 
         if (static::$_cacheAuto) {
@@ -2151,7 +2151,7 @@ class BModel extends Model
             if (!$this->beforeDelete()) {
                 return $this;
             }
-            BPubSub::i()->fire($this->_origClass().'::beforeDelete', array('model'=>$this));
+            BEvents::i()->fire($this->_origClass().'::beforeDelete', array('model'=>$this));
         } catch(BModelException $e) {
             return $this;
         }
@@ -2167,7 +2167,7 @@ class BModel extends Model
         parent::delete();
 
         $this->afterDelete();
-        BPubSub::i()->fire($this->_origClass().'::afterDelete', array('model'=>$this));
+        BEvents::i()->fire($this->_origClass().'::afterDelete', array('model'=>$this));
 
         return $this;
     }

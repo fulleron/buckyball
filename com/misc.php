@@ -571,11 +571,14 @@ class BUtil extends BClass
         return $result;
     }
 
-    static public function arrayMask($array, $fields)
+    static public function arrayMask(array $array, $fields)
     {
         if (is_string($fields)) {
             $fields = explode(',', $fields);
         }
+//if (!is_)
+        return array_intersect_key($array, array_flip($fields));
+        /*
         $result = array();
         foreach ($fields as $f) {
             if (array_key_exists($f, $array)) {
@@ -583,6 +586,7 @@ class BUtil extends BClass
             }
         }
         return $result;
+        */
     }
 
     /**
@@ -811,6 +815,9 @@ class BUtil extends BClass
     {
         if (strpos($storedHash, '$2a$')===0 || strpos($storedHash, '$2y$')===0) {
             return static::bcrypt($string, $storedHash);
+        }
+        if (!$storedHash) {
+            return false;
         }
         $sep = $storedHash[0];
         $arr = explode($sep, $storedHash);
@@ -1205,6 +1212,38 @@ class BUtil extends BClass
     {
         return trim(preg_replace($pattern, $filler, strtolower($str)), $filler);
     }
+
+    /**
+    * Remove directory recursively
+    *
+    * DANGEROUS, I'm afraid to enable it
+    *
+    * @param string $dir
+    */
+    /*
+    static public function rmdirRecursive_YesIHaveCheckedThreeTimes($dir, $first=true)
+    {
+        if ($first) {
+            $dir = realpath($dir);
+        }
+        if (!file_exists($dir)) {
+            return true;
+        }
+        if (!is_dir($dir) || is_link($dir)) {
+            return unlink($dir);
+        }
+        foreach (scandir($dir) as $item) {
+            if ($item == '.' || $item == '..') {
+                continue;
+            }
+            if (!static::rmdirRecursive($dir . "/" . $item, false)) {
+                chmod($dir . "/" . $item, 0777);
+                if (!static::rmdirRecursive($dir . "/" . $item, false)) return false;
+            }
+        }
+        return rmdir($dir);
+    }
+    */
 }
 
 /**
@@ -1285,6 +1324,17 @@ class BData extends BClass implements ArrayAccess
     public function offsetGet($offset)
     {
         return isset($this->_data[$offset]) ? $this->_data[$offset] : null;
+    }
+
+    public function get($name)
+    {
+        return isset($this->_data[$name]) ? $this->_data[$name] : null;
+    }
+
+    public function set($name, $value)
+    {
+        $this->_data[$name] = $value;
+        return $this;
     }
 }
 
@@ -1367,7 +1417,7 @@ class BModelUser extends BModel
         if ($this->timezone) {
             date_default_timezone_set($this->timezone);
         }
-        BPubSub::i()->fire(__METHOD__.'.after', array('user'=>$this));
+        BEvents::i()->fire(__METHOD__.'.after', array('user'=>$this));
         return $this;
     }
 
@@ -1385,7 +1435,7 @@ class BModelUser extends BModel
     {
         BSession::i()->data(static::$_sessionUserNamespace.'_id', false);
         static::$_sessionUser = null;
-        BPubSub::i()->fire(__METHOD__.'.after');
+        BEvents::i()->fire(__METHOD__.'.after');
     }
 
     public function recoverPassword($emailView='email/user-password-recover')
@@ -1622,7 +1672,7 @@ class BDebug extends BClass
     public function __construct()
     {
         self::$_startTime = microtime(true);
-        BPubSub::i()->on('BResponse::output.after', 'BDebug::afterOutput');
+        BEvents::i()->on('BResponse::output.after', 'BDebug::afterOutput');
     }
 
     /**
@@ -1913,7 +1963,7 @@ class BDebug extends BClass
         echo "DELTA: ".BDebug::i()->delta().', PEAK: '.memory_get_peak_usage(true).', EXIT: '.memory_get_usage(true);
         echo "<pre>";
         print_r(BORM::get_query_log());
-        //BPubSub::i()->debug();
+        //BEvents::i()->debug();
         echo "</pre>";
         //print_r(self::$_events);
 ?><table cellspacing="0"><tr><th>Message</th><th>Rel.Time</th><th>Profile</th><th>Memory</th><th>Level</th><th>Relevant Location</th><th>Module</th></tr><?php
@@ -2068,10 +2118,12 @@ class BLocale extends BClass
     protected static $_tr;
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BLocale
-    */
+     * Shortcut to help with IDE autocompletion
+     *
+     * @param bool  $new
+     * @param array $args
+     * @return BLocale
+     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
@@ -2110,6 +2162,8 @@ class BLocale extends BClass
     /**
     * Import translations to the tree
     *
+    * @todo make more flexible with file location
+    * @todo YAML
     * @param mixed $data array or file name string
     */
     public static function importTranslations($data, $params=array())
@@ -2582,6 +2636,253 @@ class BFtpClient extends BClass
             ftp_chdir($conn, '..');
         }
         return $errors;
+    }
+}
+
+/**
+* Throttle invalid login attempts and potentially notify user and admin
+*
+* Usage:
+* - BEFORE AUTH: BLoginThrottle::i()->init('FCom_Customer_Model_Customer', $username);
+* - ON FAILURE:  BLoginThrottle::i()->failure();
+* - ON SUCCESS:  BloginThrottle::i()->success();
+*/
+class BLoginThrottle extends BClass
+{
+    protected $_all;
+    protected $_area;
+    protected $_username;
+    protected $_rec;
+    protected $_config;
+    protected $_blockedIPs = array();
+    protected $_cachePrefix = 'BLoginThrottle/';
+
+    /**
+    * Shortcut to help with IDE autocompletion
+    *
+    * @return BLoginThrottle
+    */
+    public static function i($new=false, array $args=array())
+    {
+        return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
+    }
+
+    public function __construct()
+    {
+        $c = BConfig::i()->get('modules/BLoginThrottle');
+
+        if (empty($c['sleep_sec'])) $c['sleep_sec'] = 2; // lock record for 2 secs after failed login
+        if (empty($c['brute_attempts_max'])) $c['brute_attempts_max'] = 3; // after 3 fast attempts do something
+        if (empty($c['reset_time'])) $c['reset_time'] = 10; // after 10 secs reset record
+
+        $this->_config = $c;
+    }
+
+    public function config($config)
+    {
+        $this->_config = BUtil::arrayMerge($this->_config, $config);
+    }
+
+    public function init($area, $username)
+    {
+        $now = time();
+        $c = $this->_config;
+
+        $this->_area = $area;
+        $this->_username = $username;
+        $this->_rec = $this->_load();
+
+        if ($this->_rec) {
+            if ($this->_rec['status'] === 'FAILED') {
+                if (empty($this->_rec['brute_attempts_cnt'])) {
+                    $this->_rec['brute_attempts_cnt'] = 1;
+                } else {
+                    $this->_rec['brute_attempts_cnt']++;
+                }
+                $this->_save();
+                $this->_fire('init.brute');
+                if ($this->_rec['brute_attempts_cnt'] == $c['brute_attempts_max']) {
+                    $this->_fire('init.brute_max');
+                }
+                return false; // currently locked
+            }
+        }
+        return true; // init OK
+    }
+
+    public function success()
+    {
+        $this->_fire('success');
+        $this->_reset();
+        return true;
+    }
+
+    public function failure()
+    {
+        $username = $this->_username;
+        $now = time();
+        $c = $this->_config;
+
+        $this->_fire('fail.before');
+
+        if (empty($this->_rec['attempt_cnt'])) {
+            $this->_rec['attempt_cnt'] = 1;
+        } else {
+            $this->_rec['attempt_cnt']++;
+        }
+        $this->_rec['last_attempt'] = $now;
+        $this->_rec['status'] = 'FAILED';
+        $this->_save();
+        $this->_fire('fail.wait');
+
+        $this->_gc();
+        sleep($c['sleep_sec']);
+
+        $this->_rec['status'] = '';
+        $this->_save();
+        $this->_fire('fail.after');
+
+        return true; // normal response
+    }
+
+    protected function _fire($event)
+    {
+        BEvents::i()->fire('BLoginThrottle::'.$event, array(
+            'area'     => $this->_area,
+            'username' => $this->_username,
+            'rec'      => $this->_rec,
+            'config'   => $this->_config,
+        ));
+    }
+
+    protected function _load()
+    {
+        $key = $this->_area.'/'.$this->_username;
+        return BCache::i()->load($this->_cachePrefix.$key);
+    }
+
+    protected function _save()
+    {
+        $key = $this->_area.'/'.$this->_username;
+        return BCache::i()->save($this->_cachePrefix.$key, $this->_rec, $this->_config['reset_time']);
+    }
+
+    protected function _reset()
+    {
+        $key = $this->_area.'/'.$this->_username;
+        return BCache::i()->delete($key);
+    }
+
+    protected function _gc()
+    {
+
+        return true;
+    }
+}
+
+/**
+* Falls back to pecl extensions: yaml, syck
+* Uses libraries: spyc, symphony\yaml (not included)
+*/
+class BYAML extends BCLass
+{
+    static protected $_peclYaml = null;
+    static protected $_peclSyck = null;
+
+    static public function bootstrap()
+    {
+
+    }
+
+    static public function load($filename, $cache=true)
+    {
+        $filename1 = realpath($filename);
+        if (!$filename1) {
+            BDebug::debug('BCache load: file does not exist: '.$filename);
+            return false;
+        }
+        $filename = $filename1;
+
+        $filemtime = filemtime($filename);
+
+        if ($cache) {
+            $cacheData = BCache::i()->load('BYAML--'.$filename);
+            if (!empty($cacheData) && !empty($cacheData['v']) && $cacheData['v'] === $filemtime) {
+                return $cacheData['d'];
+            }
+        }
+
+        $yamlData = file_get_contents($filename);
+        $yamlData = str_replace("\t", '    ', $yamlData); //TODO: make configurable tab size
+        $arrayData = static::parse($yamlData);
+
+        if ($cache) {
+            BCache::i()->save('BYAML--'.$filename, array('v'=>$filemtime, 'd'=>$arrayData), false);
+        }
+
+        return $arrayData;
+    }
+
+    static public function init()
+    {
+        if (is_null(static::$_peclYaml)) {
+            static::$_peclYaml = function_exists('yaml_parse');
+
+            if (!static::$_peclYaml) {
+                static::$_peclSyck = function_exists('syck_load');
+            }
+
+            if (!static::$_peclYaml && !static::$_peclSyck) {
+                require_once(__DIR__.'/lib/spyc.php');
+                /*
+                require_once(__DIR__.'/Yaml/Exception/ExceptionInterface.php');
+                require_once(__DIR__.'/Yaml/Exception/RuntimeException.php');
+                require_once(__DIR__.'/Yaml/Exception/DumpException.php');
+                require_once(__DIR__.'/Yaml/Exception/ParseException.php');
+                require_once(__DIR__.'/Yaml/Yaml.php');
+                require_once(__DIR__.'/Yaml/Parser.php');
+                require_once(__DIR__.'/Yaml/Dumper.php');
+                require_once(__DIR__.'/Yaml/Escaper.php');
+                require_once(__DIR__.'/Yaml/Inline.php');
+                require_once(__DIR__.'/Yaml/Unescaper.php');
+                */
+            }
+        }
+        return true;
+    }
+
+    static public function parse($yamlData)
+    {
+        static::init();
+
+        if (static::$_peclYaml) {
+            return yaml_parse($yamlData);
+        } elseif (static::$_peclSyck) {
+            return syck_load($yamlData);
+        }
+
+        if (class_exists('Spyc', false)) {
+            return Spyc::YAMLLoadString($yamlData);
+        } else {
+            return Symfony\Component\Yaml\Yaml::parse($yamlData);
+        }
+    }
+
+    static public function dump($arrayData)
+    {
+        static::init();
+
+        if (static::$_peclYaml) {
+            return yaml_emit($arrayData);
+        } elseif (static::$_peclSyck) {
+            return syck_dump($arrayData);
+        }
+
+        if (class_exists('Spyc', false)) {
+            return Spyc::YAMLDump($arrayData);
+        } else {
+            return Symfony\Component\Yaml\Yaml::dump($arrayData);
+        }
     }
 }
 

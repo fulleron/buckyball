@@ -27,7 +27,7 @@ class BGanon extends BClass
 
     static public function bootstrap()
     {
-        BPubSub::i()->on('BLayout::render.after', 'BGanon.onLayoutRenderAfter');
+        BEvents::i()->on('BLayout::render.after', 'BGanon.onLayoutRenderAfter');
     }
 
     /**
@@ -47,8 +47,8 @@ class BGanon extends BClass
         $this->_html = $args['output'];# : '<!DOCTYPE html><html><head></head><body></body></html>';
         //$args['doc'] = $this->doc();
         $args['current_path'] = BRequest::i()->rawPath();
-        BPubSub::i()->fire('BGanon::render', $args);
-        BPubSub::i()->fire('BGanon::render.'.$args['current_path'], $args);
+        BEvents::i()->fire('BGanon::render', $args);
+        BEvents::i()->fire('BGanon::render.'.$args['current_path'], $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;
@@ -58,10 +58,10 @@ class BGanon extends BClass
     public function ready($callback, $args=array())
     {
         if (empty($args['on_path'])) {
-            BPubSub::i()->on('BGanon::render', $callback, $args);
+            BEvents::i()->on('BGanon::render', $callback, $args);
         } else {
             foreach ((array)$args['on_path'] as $path) {
-                BPubSub::i()->on('BGanon::render.'.$path, $callback, $args);
+                BEvents::i()->on('BGanon::render.'.$path, $callback, $args);
             }
         }
         return $this;

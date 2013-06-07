@@ -16,11 +16,13 @@ class BTwig extends BClass
     {
         BLayout::i()->addExtRenderer(static::$_defaultFileExt, 'BTwig::renderer');
 
-        BPubSub::i()->on('BLayout::addAllViews', 'BTwig::onLayoutAddAllViews');
+        BEvents::i()->on('BLayout::addAllViews', 'BTwig::onLayoutAddAllViews');
     }
 
     public static function onLayoutAddAllViews($args)
     {
+        $moduleName = is_string($args['module']) ? $args['module'] : 
+            (is_object($args['module']) ? $args['module']->name : null);
         static::addPath($args['root_dir'], $args['module']->name);
     }
 
@@ -33,7 +35,7 @@ class BTwig extends BClass
 
             $config = BConfig::i();
 
-            $cacheDir = $config->get('fs/storage_dir').'/twig';
+            $cacheDir = $config->get('fs/cache_dir').'/twig';
             BUtil::ensureDir($cacheDir);
 
             $options = array(
@@ -71,11 +73,16 @@ class BTwig extends BClass
         $source = $view->param('source');
         $args = $view->getAllArgs();
         //TODO: add BRequest and BLayout vars?
-        $args['view'] = $view;
+        $args['THIS'] = $view;
+        $args['APP'] = BApp::i();
+        $args['REQUEST'] = BRequest::i();
+        $args['LAYOUT'] = BLayout::i();
+        $args['CONFIG'] = BConfig::i();
+        $args['SESSION'] = BSession::i();
 
         if (!$source) {
 
-            $filename = $view->getTemplateFileName(static::$_defaultFileExt);
+            //$filename = $view->getTemplateFileName(static::$_defaultFileExt);
             $modName = $view->getParam('module_name');
             $template = static::$_fileTwig->loadTemplate('@'.$modName.'/'.$viewName.static::$_defaultFileExt);
             $output = $template->render($args);
@@ -85,6 +92,7 @@ class BTwig extends BClass
             $output = static::$_stringTwig->render($source, $args);
 
         }
+
         BDebug::profile($pId);
         return $output;
     }

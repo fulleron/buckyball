@@ -20,7 +20,7 @@ class BPHPTAL extends BClass
     {
         $config = BConfig::i();
 
-        static::$_phpCodeDest = $config->get('fs/storage_dir').'/phptal';
+        static::$_phpCodeDest = $config->get('fs/cache_dir').'/phptal';
         BUtil::ensureDir(static::$_phpCodeDest);
 
         static::$_forceReparse = $config->get('modules/BPHPTAL/force_reparse');
@@ -32,7 +32,7 @@ class BPHPTAL extends BClass
 
         BLayout::i()->addExtRenderer(static::$_defaultFileExt, 'BPHPTAL::renderer');
 
-        BPubSub::i()->on('BLayout::theme.load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
+        BEvents::i()->on('BLayout::theme.load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
     }
 
     public static function singleton($class)
@@ -60,7 +60,7 @@ class BPHPTAL extends BClass
 
         $tal->set('FCOM', static::$_fcomVars);
 
-        BPubSub::i()->fire(__METHOD__, array('tal'=>$tal, 'tpl'=>$tpl));
+        BEvents::i()->fire(__METHOD__, array('tal'=>$tal, 'tpl'=>$tpl));
         return $tal;
     }
 
@@ -145,13 +145,13 @@ class BPHPTAL_PreFilter extends PHPTAL_PreFilter
 {
     public function filter($source)
     {
-        BPubSub::i()->fire(__METHOD__, array('source'=>&$source));
+        BEvents::i()->fire(__METHOD__, array('source'=>&$source));
         return $source;
     }
 
     public function filterDOM(PHPTAL_Dom_Element $element)
     {
-        BPubSub::i()->fire(__METHOD__, array('element'=>$element));
+        BEvents::i()->fire(__METHOD__, array('element'=>$element));
     }
 }
 
@@ -159,7 +159,7 @@ class BPHPTAL_PostFilter implements PHPTAL_Filter
 {
     public function filter($html)
     {
-        BPubSub::i()->fire(__METHOD__, array('html'=>&$html));
+        BEvents::i()->fire(__METHOD__, array('html'=>&$html));
         return $html;
     }
 }

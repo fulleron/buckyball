@@ -99,7 +99,7 @@ class BViewGrid extends BView
                 }
             }
         }
-        BEvents::i()->fire('BViewGrid::gridPrepareConfig.after', array('config'=>&$c));
+        BEvents::i()->fire('BViewGrid::gridPrepareConfig:after', array('config'=>&$c));
         return $c;
     }
 
@@ -148,7 +148,7 @@ class BViewGrid extends BView
             $orm->where_complex($config['where']);
         }
 
-        BEvents::i()->fire('BViewGrid::gridData.initORM: '.$config['id'], array('orm'=>$orm, 'grid'=>$grid));
+        BEvents::i()->fire('BViewGrid::gridData:initORM: '.$config['id'], array('orm'=>$orm, 'grid'=>$grid));
 
         $mapColumns = array();
 
@@ -227,7 +227,7 @@ class BViewGrid extends BView
                 }
             }
         }
-        BEvents::i()->fire('BGridView::gridData.after: '.$config['id'], array('grid'=>&$grid));
+        BEvents::i()->fire('BGridView::gridData:after: '.$config['id'], array('grid'=>&$grid));
 
         $this->grid = $grid;
         return $grid;
@@ -247,7 +247,7 @@ class BViewGrid extends BView
         return $value;
     }
 
-    protected function _processGridJoins(&$config, &$mapColumns, $orm, $when='before_acount')
+    protected function _processGridJoins(&$config, &$mapColumns, $orm, $when='before_count')
     {
         if (empty($config['join'])) {
             return;

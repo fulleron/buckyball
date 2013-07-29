@@ -60,14 +60,16 @@ class BModuleRegistry extends BClass
 
     public function __construct()
     {
-        //BEvents::i()->on('BFrontController::dispatch.before', array($this, 'onBeforeDispatch'));
+        //BEvents::i()->on('BFrontController::dispatch:before', array($this, 'onBeforeDispatch'));
     }
 
     /**
-    * Shortcut to help with IDE autocompletion
-    *
-    * @return BModuleRegistry
-    */
+     * Shortcut to help with IDE autocompletion
+     *
+     * @param bool  $new
+     * @param array $args
+     * @return BModuleRegistry
+     */
     public static function i($new=false, array $args=array())
     {
         return BClassRegistry::i()->instance(__CLASS__, $args, !$new);
@@ -117,6 +119,43 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    protected function _getManifestCacheFilename()
+    {
+        $area = BApp::i()->get('area');
+        return BConfig::i()->get('fs/cache_dir').'/manifests'.($area ? '_'.$area : '').'.data';
+    }
+
+    public function saveManifestCache()
+    {
+        $t = BDebug::debug('SAVE MANIFESTS');
+        $cacheFile = $this->_getManifestCacheFilename();
+        # file_put_contents($cacheFile, serialize(static::$_modules)); return;
+
+        $data = array();
+        foreach (static::$_modules as $modName => $mod) {
+            $data[$modName] = (array)$mod;
+        }
+        file_put_contents($cacheFile, serialize($data));
+        BDebug::profile($t);
+        return true;
+    }
+
+    public function loadManifestCache()
+    {
+        $cacheFile = $this->_getManifestCacheFilename();
+        if (is_readable($cacheFile)) {
+            # static::$_modules = unserialize(file_get_contents($cacheFile)); return;
+
+            $data = unserialize(file_get_contents($cacheFile));
+            foreach ($data as $modName => $params) {
+                $this->addModule($modName, $params);
+            }
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     /**
     * Scan for module manifests in a folder
     *
@@ -126,6 +165,7 @@ class BModuleRegistry extends BClass
     * @see BApp::i()->load() for examples
     *
     * @param string $source
+    * @return BModuleRegistry
     */
     public function scan($source)
     {
@@ -193,9 +233,6 @@ class BModuleRegistry extends BClass
         // scan for require
 
         foreach (static::$_modules as $modName=>$mod) {
-
-            // normalize require format
-            $mod->require = $this->normalizeManifestRequireFormat($mod->require);
             // is currently iterated module required?
             if ($mod->run_level === BModule::REQUIRED) {
                 $mod->run_status = BModule::PENDING; // only 2 options: PENDING or ERROR
@@ -257,45 +294,6 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
-    public function normalizeManifestRequireFormat($require)
-    {
-        // normalize require format
-        foreach ($require as $reqType => &$req) {
-            if (is_string($req)) {
-                if (is_numeric($reqType)) {
-                    $require['module'] = array(array('name' => $req));
-                    unset($require[$reqType]);
-                } else {
-                    $require[$reqType] = array(array('name' => $req));
-                }
-            } else if (is_array($req)) {
-                foreach ($req as $reqMod => &$reqVer) {
-                    if (is_numeric($reqMod)) {
-                        $reqVer = array('name' => $reqVer);
-                    } else {
-                        $from = '';
-                        $to = '';
-
-                        $reqVerAr = explode(";", $reqVer);
-                        if (!empty($reqVerAr[0])) {
-                            $from = $reqVerAr[0];
-                        }
-                        if (!empty($reqVerAr[1])) {
-                            $to = $reqVerAr[1];
-                        }
-                        if (!empty($from)) {
-                            $reqVer = array('name' => $reqMod, 'version' => array('from' => $from, 'to' => $to));
-                        } else {
-                            $reqVer = array('name' => $reqMod);
-                        }
-                    }
-
-                }
-            }
-        }
-        return $require;
-    }
-
     /**
     * Propagate dependency errors into children modules recursively
     *
@@ -342,6 +340,37 @@ class BModuleRegistry extends BClass
     }
 
     /**
+     * Detect circula module dependencies references
+     */
+    public function detectCircularReferences($mod, $depPathArr = array())
+    {
+        $circ = array();
+        if ($mod->parents) {
+            foreach ($mod->parents as $p) {
+                if (isset($depPathArr[$p])) {
+                    $found = false;
+                    $circPath = array();
+                    foreach ($depPathArr as $k => $_) {
+                        if ($p === $k) {
+                            $found = true;
+                        }
+                        if ($found) {
+                            $circPath[] = $k;
+                        }
+                    }
+                    $circPath[] = $p;
+                    $circ[] = $circPath;
+                } else {
+                    $depPathArr1 = $depPathArr;
+                    $depPathArr1[$p] = 1;
+                    $circ += $this->detectCircularReferences(static::$_modules[$p], $depPathArr1);
+                }
+            }
+        }
+        return $circ;
+    }
+
+    /**
     * Perform topological sorting for module dependencies
     *
     * @return BModuleRegistry
@@ -349,6 +378,36 @@ class BModuleRegistry extends BClass
     public function sortDepends()
     {
         $modules = static::$_modules;
+
+        $circRefsArr = array();
+        foreach ($modules as $modName => $mod) {
+            $circRefs = $this->detectCircularReferences($mod);
+            if ($circRefs) {
+                foreach ($circRefs as $circ) {
+                    $circRefsArr[join(' -> ', $circ)] = 1;
+
+                    $s = sizeof($circ);
+                    $mod1name = $circ[$s-1];
+                    $mod2name = $circ[$s-2];
+                    $mod1 = $modules[$mod1name];
+                    $mod2 = $modules[$mod2name];
+                    foreach ($mod1->parents as $i => $p) {
+                        if ($p === $mod2name) {
+                            unset($mod1->parents[$i]);
+                        }
+                    }
+                    foreach ($mod2->children as $i => $c) {
+                        if ($c === $mod1name) {
+                            unset($mod2->children[$i]);
+                        }
+                    }
+                }
+            }
+        }
+        foreach ($circRefsArr as $circRef => $_) {
+            BDebug::warning('Circular reference detected: ' . $circRef);
+        }
+
         // take care of 'load_after' option
         foreach ($modules as $modName=>$mod) {
             $mod->children_copy = $mod->children;
@@ -376,7 +435,10 @@ class BModuleRegistry extends BClass
         $sorted = array();
         while ($modules) {
             // check for circular reference
-            if (!$rootModules) return false;
+            if (!$rootModules) {
+                BDebug::warning('Circular reference detected, aborting module sorting');
+                return false;
+            }
             // remove this node from root modules and add it to the output
             $n = array_pop($rootModules);
             $sorted[$n->name] = $n;
@@ -432,7 +494,7 @@ class BModuleRegistry extends BClass
             $mod->bootstrap();
             $this->popModule();
         }
-        BEvents::i()->fire('BModuleRegistry::bootstrap.after');
+        BEvents::i()->fire('BModuleRegistry::bootstrap:after');
         return $this;
     }
 
@@ -654,6 +716,45 @@ class BModule extends BClass
         if (!isset($this->run_status)) {
             $this->run_status = BModule::IDLE;
         }
+
+        $this->_normalizeManifestRequireFormat();
+    }
+
+
+    protected function _normalizeManifestRequireFormat()
+    {
+        // normalize require format
+        foreach ($this->require as $reqType => $req) {
+            if (is_string($req)) {
+                if (is_numeric($reqType)) {
+                    $this->require['module'] = array(array('name' => $req));
+                    unset($this->require[$reqType]);
+                } else {
+                    $this->require[$reqType] = array(array('name' => $req));
+                }
+            } else if (is_array($req)) {
+                foreach ($this->require[$reqType] as $reqMod => &$reqVer) {
+                    if (is_numeric($reqMod)) {
+                        $reqVer = array('name' => $reqVer);
+                    } elseif (is_string($reqVer) || is_float($reqVer)) {
+                        $from = '';
+                        $to = '';
+                        $reqVerAr = explode(";", (string)$reqVer);
+                        if (!empty($reqVerAr[0])) {
+                            $from = $reqVerAr[0];
+                        }
+                        if (!empty($reqVerAr[1])) {
+                            $to = $reqVerAr[1];
+                        }
+                        if (!empty($from)) {
+                            $reqVer = array('name' => $reqMod, 'version' => array('from' => $from, 'to' => $to));
+                        } else {
+                            $reqVer = array('name' => $reqMod);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     protected function _processAreas()
@@ -745,8 +846,8 @@ class BModule extends BClass
         }
 #echo "<pre>"; var_dump(static::$_env, $_SERVER); echo "</pre>"; exit;
         foreach (static::$_manifestCache as &$m) {
-			//    $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
-			$m['base_src'] = rtrim(static::$_env['base_src'], '/').str_replace(static::$_env['root_dir'], '', $m['root_dir']);
+            //    $m['base_src'] = static::$_env['base_src'].str_replace(static::$_env['root_dir'], '', $m['root_dir']);
+            $m['base_src'] = rtrim(static::$_env['base_src'], '/').str_replace(static::$_env['root_dir'], '', $m['root_dir']);
         }
         unset($m);
     }
@@ -833,7 +934,7 @@ class BModule extends BClass
     }
 
     protected function _processRouting()
-    { 
+    {
         if (empty($this->routing)) {
             return;
         }
@@ -842,15 +943,28 @@ class BModule extends BClass
             $method = strtolower($r[0]);
             $route = $r[1];
             $callback = $r[2];
-            $args = !empty($r[3]) ? $r[3] : array();
-            $name = !empty($r[4]) ? $r[4] : null;
-            $multiple = !empty($r[5]) ? $r[5] : true;
+            $args = isset($r[3]) ? $r[3] : array();
+            $name = isset($r[4]) ? $r[4] : null;
+            $multiple = isset($r[5]) ? $r[5] : true;
             $hlp->$method($route, $callback, $args, $name, $multiple);
         }
     }
 
+    protected function _processViews()
+    {
+        if (empty($this->views)) {
+            return;
+        }
+        $hlp = BLayout::i();
+        foreach ($this->views as $v) {
+            $viewName = strtolower($v[0]);
+            $params = $v[1];
+            $hlp->addView($viewName, $params);
+        }
+    }
+
     protected function _processObserve()
-    { 
+    {
         if (empty($this->observe)) {
             return;
         }
@@ -865,9 +979,6 @@ class BModule extends BClass
 
     protected function _processOverrides()
     {
-        if (empty($this->override)) {
-            return;
-        }
         if (!empty($this->override['class'])) {
             $hlp = BClassRegistry::i();
             foreach ($this->override['class'] as $o) {
@@ -921,17 +1032,29 @@ class BModule extends BClass
         $src = $this->base_src;
         if ($full) {
             $r = BRequest::i();
-            $src = $r->scheme().'://'.$r->httpHost().$src;
+            $scheme = $r->scheme();
+            if ($scheme=='http') {
+                $scheme = ''; // don't force http
+            } else {
+                $scheme .= ':';
+            }
+            $src = $scheme.'//'.$r->httpHost().$src;
         }
         return $src;
     }
 
     public function baseHref($full=true)
     {
-        $href = $this->base_src;
+        $href = $this->base_href;
         if ($full) {
             $r = BRequest::i();
-            $href = $r->scheme().'://'.$r->httpHost().$href;
+            $scheme = $r->scheme();
+            if ($scheme=='http') {
+                $scheme = ''; // don't force http
+            } else {
+                $scheme .= ':';
+            }
+            $href = $scheme.'://'.$r->httpHost().$href;
         }
         return $href;
     }
@@ -1017,6 +1140,7 @@ class BModule extends BClass
             return $this;
         }
         $this->_prepareModuleEnvData();
+        $this->_processOverrides();
 
         if (empty($this->before_bootstrap)) {
             return $this;
@@ -1054,11 +1178,12 @@ class BModule extends BClass
 
         $this->_processAutoload();
         $this->_processTranslations();
+        $this->_processViews(); // before auto_use to initialize custom view classes
         $this->_processAutoUse();
         $this->_processRouting();
         $this->_processObserve();
 
-        BEvents::i()->fire('BModule::bootstrap.before', array('module'=>$this));
+        BEvents::i()->fire('BModule::bootstrap:before', array('module'=>$this));
 
         if (!empty($this->bootstrap)) {
             if (!empty($this->bootstrap['file'])) {
@@ -1191,7 +1316,7 @@ class BMigrate extends BClass
                 }
             }
             BDb::connect($connectionName); // switch connection
-            BDbModule::init(); // Ensure modules table in current connection
+            BDbModule::i()->init(); // Ensure modules table in current connection
             // collect module db schema versions
             $dbModules = BDbModule::i()->orm()->find_many();
             foreach ($dbModules as $m) {
@@ -1205,6 +1330,9 @@ class BMigrate extends BClass
             foreach ($modules as $modName=>$mod) {
                 if (empty($mod['code_version'])) {
                     continue; // skip migration of registered module that is not current active
+                }
+                if (!empty($mod['schema_version']) && $mod['schema_version'] === $mod['code_version']) {
+                    continue; // no migration necessary
                 }
                 if (empty($mod['script'])) {
                     BDebug::warning('No migration script found: '.$modName);
@@ -1266,13 +1394,13 @@ class BMigrate extends BClass
         foreach ($methods as $method) {
             if (preg_match('/^install__([0-9_]+)$/', $method, $m)) {
                 $installs[] = array(
-                    'method' => $method, 
+                    'method' => $method,
                     'to' => str_replace('_', '.', $m[1])
                 );
             } elseif (preg_match('/^upgrade__([0-9_]+)__([0-9_]+)$/', $method, $m)) {
                 $upgrades[] = array(
-                    'method' => $method, 
-                    'from' => str_replace('_', '.', $m[1]), 
+                    'method' => $method,
+                    'from' => str_replace('_', '.', $m[1]),
                     'to' => str_replace('_', '.', $m[2]),
                 );
             }
@@ -1397,9 +1525,10 @@ BDebug::debug(__METHOD__.': '.var_export($mod, 1));
             $mod['schema_version'] = $toVersion;
             $module->set(array(
                 'schema_version' => $toVersion,
+                'last_status' => 'UPGRADED',
             ))->save();
         } catch (Exception $e) {
-            $module->set(array('last_status'=>'UPGRADED'))->save();
+            $module->set(array('last_status'=>'ERROR'))->save();
             throw $e;
         }
         return true;

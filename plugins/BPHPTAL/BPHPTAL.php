@@ -30,9 +30,13 @@ class BPHPTAL extends BClass
             'layout' => BLayout::i(),
         ));
 
-        BLayout::i()->addExtRenderer(static::$_defaultFileExt, 'BPHPTAL::renderer');
+        BLayout::i()->addRenderer('BPHPTAL', array(
+            'description' => 'PHPTAL',
+            'callback' => 'BPHPTAL::renderer',
+            'file_ext' => array('.zpt', '.zpt.html'),
+        ));
 
-        BEvents::i()->on('BLayout::theme.load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
+        BEvents::i()->on('BLayout::theme:load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
     }
 
     public static function singleton($class)
@@ -68,7 +72,7 @@ class BPHPTAL extends BClass
     {
         $source = $view->param('source');
         if (!$source) {
-            $template = $view->getTemplateFileName(static::$_defaultFileExt);
+            $template = $view->getTemplateFileName();
             $tal = static::factory($template);
         } else {
             $tal = static::factory();

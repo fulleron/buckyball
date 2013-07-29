@@ -276,9 +276,9 @@ class BRequest extends BClass
     public static function baseUrl($forceSecure=null, $includeQuery=false)
     {
         if (is_null($forceSecure)) {
-            $scheme = static::https() ? 'https:' : 'http:';
+            $scheme = static::https() ? 'https:' : '';
         } else {
-            $scheme = $forceSecure ? 'https:' : 'http:';
+            $scheme = $forceSecure ? 'https:' : '';
         }
         $url = $scheme.'//'.static::serverName().static::webRoot();
         if ($includeQuery && ($query = static::rawGet())) {
@@ -470,6 +470,7 @@ class BRequest extends BClass
                         $result[$key] = array('error'=>'invalid_type', 'tp'=>1, 'type'=>$type, 'name'=>$name);
                         continue;
                     }
+                    BUtil::ensureDir($targetDir);
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
                     $result[$key] = array('name'=>$name, 'tp'=>2, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 } else {
@@ -485,6 +486,7 @@ class BRequest extends BClass
                 if (!is_null($typesRegex) && !preg_match('#'.$typesRegex.'#i', $type)) {
                     $result = array('error'=>'invalid_type', 'tp'=>4, 'type'=>$type, 'pattern'=>$typesRegex, 'source'=>$source, 'name'=>$name);
                 } else {
+                    BUtil::ensureDir($targetDir);
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
                     $result = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 }
@@ -515,13 +517,15 @@ class BRequest extends BClass
     {
         $c = BConfig::i();
 
-        $m = $c->get('web/csrf_methods');
-        $methods = $m ? (is_string($m) ? explode(',', $m) : $m) : array('POST','PUT','DELETE');
-        $whitelist = $c->get('web/csrf_whitelist');
 
-        if (is_array($methods) && !in_array(static::method(), $methods)) {
+        $m = $c->get('web/csrf_http_methods');
+        $httpMethods = $m ? (is_string($m) ? explode(',', $m) : $m) : array('POST','PUT','DELETE');
+
+        if (is_array($httpMethods) && !in_array(static::method(), $httpMethods)) {
             return false; // not one of checked methods, pass
         }
+
+        $whitelist = $c->get('web/csrf_path_whitelist');
         if ($whitelist) {
             $path = static::rawPath();
             foreach ((array)$whitelist as $pattern) {
@@ -530,16 +534,34 @@ class BRequest extends BClass
                 }
             }
         }
-        if (!($ref = static::referrer())) {
-            return true; // no referrer sent, high prob. csrf
+
+        $m = $c->get('web/csrf_check_method');
+        $method = $m ? $m : 'referrer';
+
+        switch ($method) {
+            case 'referrer':
+                if (!($ref = static::referrer())) {
+                    return true; // no referrer sent, high prob. csrf
+                }
+                $p = parse_url($ref);
+                $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
+                $webRoot = static::webRoot();
+                if ($p['host']!==static::httpHost() || $webRoot && strpos($p['path'], $webRoot)!==0) {
+                    return true; // referrer host or doc root path do not match, high prob. csrf
+                }
+                return false; // not csrf
+
+            case 'token':
+                if (!empty($_SERVER['HTTP_X_CSRF_TOKEN'])) {
+                    $receivedToken = $_SERVER['HTTP_X_CSRF_TOKEN'];
+                } elseif (!empty($_POST['X-CSRF-TOKEN'])) {
+                    $receivedToken = $_POST['X-CSRF-TOKEN'];
+                }
+                return empty($receivedToken) || $receivedToken !== BSession::i()->csrfToken();
+
+            default:
+                throw new BException('Invalid CSRF check method: '.$method);
         }
-        $p = parse_url($ref);
-        $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
-        $webRoot = static::webRoot();
-        if ($p['host']!==static::httpHost() || $webRoot && strpos($p['path'], $webRoot)!==0) {
-            return true; // referrer host or doc root path do not match, high prob. csrf
-        }
-        return false; // not csrf
     }
 
     /**
@@ -988,11 +1010,18 @@ class BResponse extends BClass
     /**
     * Send json data as a response (for json API implementation)
     *
+    * Supports JSON-P
+    *
     * @param mixed $data
     */
     public function json($data)
     {
-        $this->setContentType('application/json')->set(BUtil::toJson($data))->render();
+        $response = BUtil::toJson($data);
+        $callback = BRequest::i()->get('callback');
+        if ($callback) {
+            $response = $callback.'('.$response.')';
+        }
+        $this->setContentType('application/json')->set($response)->render();
     }
 
     public function fileContentType($fileName)
@@ -1105,7 +1134,7 @@ class BResponse extends BClass
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
-        BEvents::i()->fire('BResponse::output.before', array('content'=>&$this->_content));
+        BEvents::i()->fire('BResponse::output:before', array('content'=>&$this->_content));
 
         if ($this->_contentPrefix) {
             echo $this->_contentPrefix;
@@ -1117,7 +1146,7 @@ class BResponse extends BClass
             echo $this->_contentSuffix;
         }
 
-        BEvents::i()->fire('BResponse::output.after', array('content'=>$this->_content));
+        BEvents::i()->fire('BResponse::output:after', array('content'=>$this->_content));
 
         $this->shutdown(__METHOD__);
     }
@@ -1352,7 +1381,7 @@ class BRouting extends BClass
                 if (is_null($callback)) {
                     $this->route($a[0], $a[1], isset($a[2])?$a[2]:null, isset($a[3])?$a[3]:null);
                 } else {
-                    $this->route($a, $callback, $args);
+                    $this->route($a, $callback, $args, $name, $multiple);
                 }
             }
             return $this;
@@ -1360,10 +1389,11 @@ class BRouting extends BClass
         if (empty($args['module_name'])) {
             $args['module_name'] = BModuleRegistry::currentModuleName();
         }
-        BDebug::debug('ROUTE '.$route.': '.print_r($args,1));
+        BDebug::debug('ROUTE '.$route);
         if (empty($this->_routes[$route])) {
             $this->_routes[$route] = new BRouteNode(array('route_name'=>$route));
         }
+
         $this->_routes[$route]->observe($callback, $args, $multiple);
 
         if (!is_null($name)) {
@@ -1440,7 +1470,6 @@ class BRouting extends BClass
      */
     protected function _route($route, $verb, $callback = null, $args = null, $name = null, $multiple = true)
     {
-        BDebug::debug('ROUTE ' . $route . ':' . $verb . ': ' . print_r($args, 1));
         if (is_array($route)) {
             foreach ($route as $a) {
                 if (is_null($callback)) {
@@ -1747,7 +1776,7 @@ class BRouteNode
             'args' => $args,
             'route_node' => $this,
         ));
-        if ($multiple || empty($this->_observers)) {
+        if ($multiple) {
             $this->_observers[] = $observer;
         } else {
             //$this->_observers = BUtil::arrayMerge($this->_observers[0], $observer);
@@ -1993,7 +2022,7 @@ class BActionController extends BClass
             $tmpMethod = $actionMethod.'__'.$reqMethod;
             if (method_exists($this, $tmpMethod)) {
                 $actionMethod = $tmpMethod;
-            } elseif (BRouting::i()->currentRoute()->multi_method) { 
+            } elseif (BRouting::i()->currentRoute()->multi_method) {
                 $this->forward(false); // If route has multiple methods, require method suffix
             }
         }
@@ -2137,14 +2166,15 @@ class BActionController extends BClass
         return self::origClass();
     }
 
-    public function viewProxy($viewPrefix, $defaultView='index')
+    public function viewProxy($viewPrefix, $defaultView='index', $hookName = 'main')
     {
         $viewPrefix = trim($viewPrefix, '/').'/';
         $page = BRequest::i()->params('view');
         if (!$page) {
             $page = $defaultView;
         }
-        if (!$page || !($view = $this->view($viewPrefix.$page))) {
+        $view = $this->view($viewPrefix.$page);
+        if ($view instanceof BViewEmpty) {
             $this->forward(false);
             return false;
         }
@@ -2162,7 +2192,10 @@ class BActionController extends BClass
                 }
             }
         }
-        BLayout::i()->hookView('main', $viewPrefix.$page);
+        if (($root = BLayout::i()->view('root'))) {
+            $root->addBodyClass('page-'.$page);
+        }
+        BLayout::i()->hookView($hookName, $viewPrefix . $page);
         return $page;
     }
 

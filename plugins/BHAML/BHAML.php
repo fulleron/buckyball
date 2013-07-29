@@ -13,15 +13,17 @@
  */
 class BHAML extends BClass
 {
-    protected static $_defaultFileExt = '.haml';
-
     protected static $_haml;
 
     protected static $_cacheDir;
 
     static public function bootstrap()
     {
-        BLayout::i()->addExtRenderer(static::$_defaultFileExt, 'BHAML::renderer');
+        BLayout::i()->addRenderer('BHAML', array(
+            'description' => 'HAML',
+            'callback' => 'BHAML::renderer',
+            'file_ext' => array('.haml'),
+        ));
     }
 
     /**
@@ -46,17 +48,32 @@ class BHAML extends BClass
         $viewName = $view->param('view_name');
         $pId = BDebug::debug('BHAML render: '.$viewName);
         $haml = static::haml();
-        $sourceFile = $view->getTemplateFileName(static::$_defaultFileExt);
-        //return $view->renderEval('?'.'>'.$haml->haml2PHP($sourceFile));
 
-        $md5 = md5($sourceFile);
-        $cacheDir = static::$_cacheDir.'/'.substr($md5, 0, 2);
-        $cacheFilename = $cacheDir.'/'.$md5.'.php';
-        if (!file_exists($cacheFilename) || filemtime($sourceFile) > filemtime($cacheFilename)) {
-            BUtil::ensureDir($cacheDir);
-            file_put_contents($cacheFilename, $haml->compileString(file_get_contents($sourceFile), $sourceFile));
+        $source = $view->getParam('source');
+        if ($source) {
+            $sourceFile = $view->getParam('source_name');
+            $md5 = md5($source);
+            $mtime = $view->getParam('source_mtime');
+        } else {
+            $sourceFile = $view->getTemplateFileName();
+            $md5 = md5($sourceFile);
+            $mtime = filemtime($sourceFile);
         }
-        $output = $view->renderFile($cacheFilename);
+
+        $cacheDir = static::$_cacheDir.'/'.substr($md5, 0, 2);
+        $cacheFilename = $cacheDir.'/.'.$md5.'.php.cache'; // to help preventing direct php run
+        if (!file_exists($cacheFilename) || $mtime > filemtime($cacheFilename)) {
+            BUtil::ensureDir($cacheDir);
+            if (!$source) {
+                $source = file_get_contents($sourceFile);
+            }
+            file_put_contents($cacheFilename, $haml->compileString($source, $sourceFile));
+        }
+        if ($view->getParam('source_untrusted')) {
+            $output = file_get_contents($cacheFilename);
+        } else {
+            $output = $view->renderFile($cacheFilename);
+        }
         BDebug::profile($pId);
         return $output;
     }

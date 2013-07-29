@@ -46,7 +46,7 @@ class BCache extends BClass
     {
         if (is_null($type)) { // type not specified
             if (empty($this->_defaultBackend)) { // no default backend yet
-                $minRank = 10;
+                $minRank = 1000;
                 $fastest = null;
                 foreach ($this->_backends as $t => $backend) { // find fastest backend from available
                     $info = $backend->info();
@@ -127,7 +127,7 @@ class BCache_Backend_File extends BClass implements BCache_Backend_Interface
 
     public function info()
     {
-        return array('available' => true, 'rank' => 4);
+        return array('available' => true, 'rank' => 70);
     }
 
     public function init($config = array())
@@ -266,7 +266,7 @@ class BCache_Backend_Apc extends BClass implements BCache_Backend_Interface
 
     public function info()
     {
-        return array('available' => function_exists('apc_fetch'), 'rank' => 1);
+        return array('available' => function_exists('apc_fetch'), 'rank' => 10);
     }
 
     public function init($config = array())
@@ -353,7 +353,7 @@ class BCache_Backend_Memcache extends BClass implements BCache_Backend_Interface
 
     public function info()
     {
-        return array('available' => class_exists('Memcache', false), 'rank' => 1);
+        return array('available' => class_exists('Memcache', false), 'rank' => 10);
     }
 
     public function init($config = array())
@@ -410,50 +410,100 @@ class BCache_Backend_Db extends BClass implements BCache_Backend_Interface
 {
     public function info()
     {
-        return array('available' => false, 'rank' => 6); //TODO: figure out how to declare
+#echo "<pre>"; debug_print_backtrace(); exit;
+        $avail = (boolean)BConfig::i()->get('db/dbname');
+        return array('available' => $avail, 'rank' => 90);
     }
 
     public function init($config = array())
     {
-
+        $this->migrate();
     }
 
     public function load($key)
     {
-
+        $cache = BCache_Backend_Db_Model_Cache::i()->load($key, 'cache_key');
+        if (!$cache) {
+            return null;
+        }
+        if ($cache->get('expires_at')<time()) {
+            $cache->delete();
+            return null;
+        }
+        return unserialize($cache->get('cache_value'));
     }
 
     public function save($key, $data, $ttl = null)
     {
-
+        $hlp = BCache_Backend_Db_Model_Cache::i();
+        $cache = $hlp->load($key, 'cache_key');
+        if (!$cache) {
+            $cache = $hlp->create(array('cache_key' => $key));
+        }
+        $cache->set(array(
+            'expires_at' => is_null($ttl) ? null : time()+$ttl,
+            'cache_value' => serialize($data),
+        ))->save();
+        return true;
     }
 
     public function delete($key)
     {
-
+        BCache_Backend_Db_Model_Cache::i()->delete_many(array('cache_key' => $key));
+        return true;
     }
 
     public function loadMany($pattern)
     {
-
+        return false; //TODO: not implemented
     }
 
     public function deleteMany($pattern)
     {
-
+        return false; //TODO: not implemented
     }
 
     public function gc()
     {
-
+        BCache_Backend_Db_Model_Cache::i()->delete_many('expires_at<'.time());
+        return true;
     }
+
+    public function migrate()
+    {
+        $t = BCache_Backend_Db_Model_Cache::table();
+        if (!BDb::ddlTableExists($t)) {
+            BDb::ddlTableDef($t, array(
+                'COLUMNS' => array(
+                    'id' => 'int unsigned not null auto_increment',
+                    'cache_key' => 'varchar(255) not null',
+                    'cache_value' => 'mediumtext not null',
+                    'expires_at' => 'int unsigned null',
+                ),
+                'PRIMARY' => '(id)',
+                'KEYS' => array(
+                    'UNQ_cache_key' => '(cache_key)',
+                    'IDX_expires_at' => '(expires_at)',
+                ),
+                'OPTIONS' => array(
+                    'engine' => 'MyISAM',
+                ),
+            ));
+        }
+    }
+}
+
+class BCache_Backend_Db_Model_Cache extends BModel
+{
+    static protected $_table = 'buckyball_cache';
+    static protected $_origClass = __CLASS__;
 }
 
 class BCache_Backend_Shmop extends BClass implements BCache_Backend_Interface
 {
     public function info()
     {
-        return array('available' => false/*function_exists('shmop_open')*/, 'rank' => 1);
+        return array('available' => false/*function_exists('shmop_open')*/, 'rank' => 10);
     }
 
     public function init($config = array())

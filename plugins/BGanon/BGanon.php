@@ -27,7 +27,7 @@ class BGanon extends BClass
 
     static public function bootstrap()
     {
-        BEvents::i()->on('BLayout::render.after', 'BGanon.onLayoutRenderAfter');
+        BEvents::i()->on('BLayout::render:after', 'BGanon.onLayoutRenderAfter');
     }
 
     /**
@@ -48,7 +48,7 @@ class BGanon extends BClass
         //$args['doc'] = $this->doc();
         $args['current_path'] = BRequest::i()->rawPath();
         BEvents::i()->fire('BGanon::render', $args);
-        BEvents::i()->fire('BGanon::render.'.$args['current_path'], $args);
+        BEvents::i()->fire('BGanon::render:'.$args['current_path'], $args);
 
         if ($this->_doc) {
             $args['output'] = (string)$this->_doc;
@@ -61,7 +61,7 @@ class BGanon extends BClass
             BEvents::i()->on('BGanon::render', $callback, $args);
         } else {
             foreach ((array)$args['on_path'] as $path) {
-                BEvents::i()->on('BGanon::render.'.$path, $callback, $args);
+                BEvents::i()->on('BGanon::render:'.$path, $callback, $args);
             }
         }
         return $this;

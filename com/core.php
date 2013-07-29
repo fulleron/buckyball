@@ -324,7 +324,7 @@ class BApp extends BClass
     public static function href($url='', $full=true, $method=2)
     {
         return BApp::baseUrl($full, $method)
-            . BFrontController::processHref($url);
+            . BRouting::processHref($url);
     }
 
     /**
@@ -337,6 +337,9 @@ class BApp extends BClass
     */
     public static function src($modName, $url='', $method='baseSrc')
     {
+        if ($modName[0]==='@' && !$url) {
+            list($modName, $url) = explode('/', substr($modName, 1), 2);
+        }
         $m = BApp::m($modName);
         if (!$m) {
             BDebug::error('Invalid module: '.$modName);
@@ -518,6 +521,7 @@ class BConfig extends BClass
     * Ex: BConfig::i()->get('some/deep/config')
     *
     * @param string $path
+    * @param boolean $toSave if true, get the configuration from config tree to save
     */
     public function get($path=null, $toSave=false)
     {
@@ -701,6 +705,7 @@ class BClassRegistry extends BClass
             'class_name' => $newClass,
             'module_name' => BModuleRegistry::currentModuleName(),
         );
+        BDebug::debug('OVERRIDE CLASS: '.$class.' -> '.$newClass);
         if ($replaceSingleton && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
             $this->_singletons[$class] = $this->instance($newClass);
         }
@@ -1338,7 +1343,7 @@ class BEvents extends BClass
      *
      * @param bool  $new
      * @param array $args
-     * @return BPubSub
+     * @return BEvents
      */
     public static function i($new=false, array $args=array())
     {
@@ -1352,7 +1357,7 @@ class BEvents extends BClass
     *
     * @param string|array $eventName accepts multiple events in form of non-associative array
     * @param array|object $args
-    * @return BPubSub
+    * @return BEvents
     */
     public function event($eventName, $args=array())
     {
@@ -1362,6 +1367,7 @@ class BEvents extends BClass
             }
             return $this;
         }
+        $eventName = strtolower($eventName);
         $this->_events[$eventName] = array(
             'observers' => array(),
             'args' => $args,
@@ -1374,27 +1380,57 @@ class BEvents extends BClass
     *
     * observe|watch|on|sub|subscribe ?
     *
-    * @todo case insensitive event names
     * @param string|array $eventName accepts multiple observers in form of non-associative array
     * @param mixed $callback
     * @param array|object $args
-    * @return BPubSub
+    * @return BEvents
     */
-    public function on($eventName, $callback=null, $args=array())
+    public function on($eventName, $callback = null, $args = array(), $alias = null)
     {
         if (is_array($eventName)) {
             foreach ($eventName as $obs) {
-                $this->observe($obs[0], $obs[1], !empty($obs[2]) ? $obs[2] : array());
+                $this->on($obs[0], $obs[1], !empty($obs[2]) ? $obs[2] : array());
             }
             return $this;
         }
-        $observer = array('callback'=>$callback, 'args'=>$args);
+        if (is_null($alias) && is_string($callback)) {
+            $alias = $callback;
+        }
+        $observer = array('callback' => $callback, 'args' => $args, 'alias' => $alias);
         if (($moduleName = BModuleRegistry::currentModuleName())) {
             $observer['module_name'] = $moduleName;
         }
         //TODO: create named observers
+        $eventName = strtolower($eventName);
         $this->_events[$eventName]['observers'][] = $observer;
-        BDebug::debug('SUBSCRIBE '.$eventName.': '.substr(var_export($callback, 1), 0, 100), 1);
+        BDebug::debug('SUBSCRIBE '.$eventName, 1);
+        return $this;
+    }
+
+    /**
+     * Run callback on event only once, and remove automatically
+     *
+     * @param string|array $eventName accepts multiple observers in form of non-associative array
+     * @param mixed $callback
+     * @param array|object $args
+     * @return BEvents
+     */
+    public function once($eventName, $callback=null, $args=array(), $alias = null)
+    {
+        if (is_array($eventName)) {
+            foreach ($eventName as $obs) {
+                $this->once($obs[0], $obs[1], !empty($obs[2]) ? $obs[2] : array());
+            }
+            return $this;
+        }
+        $this->on($eventName, $callback, $args, $alias);
+        $lastId = sizeof($this->_events[$eventName]['observers']);
+        $this->on($eventName, function() use ($eventName, $lastId) {
+            BEvents::i()
+                ->off($eventName, $lastId-1) // remove the observer
+                ->off($eventName, $lastId) // remove the remover
+            ;
+        });
         return $this;
     }
 
@@ -1403,17 +1439,22 @@ class BEvents extends BClass
     *
     * @param string $eventName
     * @param callback $callback
-    * @return BPubSub
+    * @return BEvents
     */
-    public function off($eventName, $callback=null)
+    public function off($eventName, $alias = null)
     {
-        if (is_null($callback)) {
+        $eventName = strtolower($eventName);
+        if (true === $alias) { //TODO: null too?
             unset($this->_events[$eventName]);
+            return $this;
+        }
+        if (is_numeric($alias)) {
+            unset($this->_events[$eventName]['observers'][$alias]);
             return $this;
         }
         if (!empty($this->_events[$eventName]['observers'])) {
             foreach ($this->_events[$eventName]['observers'] as $i=>$observer) {
-                if ($observer['callback']==$callback) {
+                if (!empty($observer['alias']) && $observer['alias'] === $alias) {
                     unset($this->_events[$eventName]['observers'][$i]);
                 }
             }
@@ -1426,16 +1467,14 @@ class BEvents extends BClass
     *
     * dispatch|fire|notify|pub|publish ?
     *
-    * instead of call-time pass-by-reference use object for $args
-    * for compatibility with PHP 5.4.0
-    *
     * @param string $eventName
     * @param array|object $args
     * @return array Collection of results from observers
     */
     public function fire($eventName, $args=array())
     {
-        BDebug::debug('FIRE '.$eventName.(empty($this->_events[$eventName])?' (NO SUBSCRIBERS)':''), 1);
+        $eventName = strtolower($eventName);
+        $profileStart = BDebug::debug('FIRE '.$eventName.(empty($this->_events[$eventName])?' (NO SUBSCRIBERS)':''), 1);
         $result = array();
         if (empty($this->_events[$eventName])) {
             return $result;
@@ -1508,7 +1547,19 @@ if (!class_exists($r[0])) {
                 BModuleRegistry::i()->popModule();
             }
         }
+        BDebug::profile($profileStart);
         return $result;
+    }
+
+    public function fireRegex($eventRegex, $args)
+    {
+        $results = array();
+        foreach ($this->_events as $eventName => $event) {
+            if (preg_match($eventRegex, $eventName)) {
+                $results += (array)$this->fire($eventName, $args);
+            }
+        }
+        return $results;
     }
 
     public function debug()
@@ -1519,7 +1570,7 @@ if (!class_exists($r[0])) {
 
 /**
  * Alias for backwards compatibility
- * 
+ *
  * @deprecated by BEvents
  */
 class BPubSub extends BEvents {}
@@ -1857,6 +1908,15 @@ BDebug::debug(__METHOD__.': '.spl_object_hash($this));
         return $msgs;
     }
 
+    public function csrfToken()
+    {
+        $data =& static::dataToUpdate();
+        if (empty($data['_csrf_token'])) {
+            $data['_csrf_token'] = BUtil::randomString(32);
+        }
+        return $data['_csrf_token'];
+    }
+
     public function __destruct()
     {
         //$this->close();
@@ -1918,7 +1978,7 @@ class BSession_APC extends BClass
                 return ''; // no session
             } elseif (!empty($ts[$id]) && $ts[$id] + $this->_ttl < time()) {
                 unset($ts[$id]);
-                apc_delete($key); 
+                apc_delete($key);
                 apc_store($this->_prefix.'/TS', $ts);
                 return ''; // session expired
             }

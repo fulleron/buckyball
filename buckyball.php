@@ -47,7 +47,7 @@ require $comDir.'import.php';
 
 if (getopt('c')) {
     $minified = array();
-    foreach (array('core','lib/idiorm','lib/paris','db','module','controller','layout','misc') as $f) {
+    foreach (array('core','lib/idiorm','lib/paris','db','module','controller','layout','misc','cache') as $f) {
         list(, $minified[]) = explode(' ', php_strip_whitespace($comDir.$f.'.php'), 2);
     }
     file_put_contents('buckyball.min.php', '<?php '.join(' ', $minified));

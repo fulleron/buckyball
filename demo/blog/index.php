@@ -13,7 +13,7 @@ BConfig::i()->add(array(
         'dbname'=>'fulleron', 'username'=>'web', 'password'=>'',
         'logging'=>true, 'implicit_migration'=>true
     ),
-    'request' => array('module_run_level'=>array('Blog'=>'REQUIRED')),
+    'module_run_level'=>array('request'=>array('Blog'=>'REQUIRED')),
 ));
 
 BModuleRegistry::i()->addModule('Blog', array(

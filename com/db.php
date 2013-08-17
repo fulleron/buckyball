@@ -736,9 +736,9 @@ EOT
      * $columns array should be in same format as for ddlTableColumns:
      *
      * array(
-            'field_name' => 'column definition',
-            'field_two' => 'column definition',
-            'field_three' => 'column definition',
+     *      'field_name' => 'column definition',
+     *      'field_two' => 'column definition',
+     *      'field_three' => 'column definition',
      * )
      *
      * @param string $table
@@ -1218,7 +1218,7 @@ exit;
         }
         BEvents::i()->fire($class.'::find_one:orm', array('orm'=>$this, 'class'=>$class, 'id'=>$id));
         $result = parent::find_one($id);
-        BEvents::i()->fire($class.'::find_one:after', array('result'=>$result, 'class'=>$class, 'id'=>$id));
+        BEvents::i()->fire($class.'::find_one:after', array('result'=>&$result, 'class'=>$class, 'id'=>$id));
         return $result;
     }
 
@@ -1235,7 +1235,7 @@ exit;
         }
         BEvents::i()->fire($class.'::find_many:orm', array('orm'=>$this, 'class'=>$class));
         $result = parent::find_many();
-        BEvents::i()->fire($class.'::find_many:after', array('result'=>$result, 'class'=>$class));
+        BEvents::i()->fire($class.'::find_many:after', array('result'=>&$result, 'class'=>$class));
         return $result;
     }
 
@@ -2422,6 +2422,174 @@ class BModel extends Model
     public static function __callStatic($name, $args)
     {
         return BClassRegistry::i()->callStaticMethod(get_called_class(), $name, $args, static::$_origClass);
+    }
+}
+
+/**
+ * Collection of models
+ *
+ * Should be (almost) drop in replacement for current straight arrays implementation
+ */
+class BCollection extends BData
+{
+    protected $_orm;
+
+    public function setOrm($orm)
+    {
+        $this->_orm = $orm;
+        return $this;
+    }
+
+    public function load($assoc = false)
+    {
+        $method = $assoc ? 'find_many_assoc' : 'find_many';
+        $this->_data = $this->_orm->$method();
+        return $this;
+    }
+
+    public function modelsAsArray()
+    {
+        return BDb::many_as_array($this->_data);
+    }
+}
+
+/**
+* Basic user authentication and authorization class
+*/
+class BModelUser extends BModel
+{
+    protected static $_sessionUser;
+    protected static $_sessionUserNamespace = 'user';
+
+    public static function sessionUserId()
+    {
+        $userId = BSession::i()->data(static::$_sessionUserNamespace.'_id');
+        return $userId ? $userId : false;
+    }
+
+    public static function sessionUser($reset=false)
+    {
+        if (!static::isLoggedIn()) {
+            return false;
+        }
+        $session = BSession::i();
+        if ($reset || !static::$_sessionUser) {
+            static::$_sessionUser = static::load(static::sessionUserId());
+        }
+        return static::$_sessionUser;
+    }
+
+    public static function isLoggedIn()
+    {
+        return static::sessionUserId() ? true : false;
+    }
+
+    public function setPassword($password)
+    {
+        $this->password_hash = BUtil::fullSaltedHash($password);
+        return $this;
+    }
+
+    public function validatePassword($password)
+    {
+        return BUtil::validateSaltedHash($password, $this->password_hash);
+    }
+
+    public function onBeforeSave()
+    {
+        if (!parent::onBeforeSave()) return false;
+        if (!$this->create_at) $this->create_at = BDb::now();
+        $this->update_at = BDb::now();
+        if ($this->password) {
+            $this->password_hash = BUtil::fullSaltedHash($this->password);
+        }
+        return true;
+    }
+
+    static public function authenticate($username, $password)
+    {
+        /** @var FCom_Admin_Model_User */
+        $user = static::orm()->where(array('OR'=>array('username'=>$username, 'email'=>$username)))->find_one();
+        if (!$user || !$user->validatePassword($password)) {
+            return false;
+        }
+        return $user;
+    }
+
+    public function login()
+    {
+        $this->set('last_login', BDb::now())->save();
+
+        BSession::i()->data(array(
+            static::$_sessionUserNamespace.'_id' => $this->id,
+            static::$_sessionUserNamespace => serialize($this->as_array()),
+        ));
+        static::$_sessionUser = $this;
+
+        if ($this->locale) {
+            setlocale(LC_ALL, $this->locale);
+        }
+        if ($this->timezone) {
+            date_default_timezone_set($this->timezone);
+        }
+        BEvents::i()->fire(__METHOD__.':after', array('user'=>$this));
+        return $this;
+    }
+
+    public function authorize($role, $args=null)
+    {
+        if (is_null($args)) {
+            // check authorization
+            return true;
+        }
+        // set authorization
+        return $this;
+    }
+
+    public static function logout()
+    {
+        BSession::i()->data(static::$_sessionUserNamespace.'_id', false);
+        static::$_sessionUser = null;
+        BEvents::i()->fire(__METHOD__.':after', array('user' => $this));
+    }
+
+    public function recoverPassword($emailView='email/user-password-recover')
+    {
+        $this->set(array('password_nonce'=>BUtil::randomString(20)))->save();
+        if (($view = BLayout::i()->view($emailView))) {
+            $view->set('user', $this)->email();
+        }
+        return $this;
+    }
+
+    public function resetPassword($password, $emailView='email/user-password-reset')
+    {
+        $this->set(array('password_nonce'=>null))->setPassword($password)->save()->login();
+        if (($view = BLayout::i()->view($emailView))) {
+            $view->set('user', $this)->email();
+        }
+        return $this;
+    }
+
+    public static function signup($r)
+    {
+        $r = (array)$r;
+        if (empty($r['email'])
+            || empty($r['password']) || empty($r['password_confirm'])
+            || $r['password']!=$r['password_confirm']
+        ) {
+            throw new Exception('Incomplete or invalid form data.');
+        }
+
+        $r = BUtil::arrayMask($r, 'email,password');
+        $user = static::create($r)->save();
+        if (($view = BLayout::i()->view('email/user-new-user'))) {
+            $view->set('user', $user)->email();
+        }
+        if (($view = BLayout::i()->view('email/admin-new-user'))) {
+            $view->set('user', $user)->email();
+        }
+        return $user;
     }
 }
 

@@ -19,7 +19,7 @@ class Blog
 {
     static public function bootstrap()
     {
-        BFrontController::i()
+        BRouting::i()
         // public access
             ->route('GET /', 'Blog_Controller_Public.index')
             ->route('GET /posts/:post_id', 'Blog_Controller_Public.post')
@@ -38,7 +38,7 @@ class Blog
             ->view('head', array('view_class'=>'BViewHead'))
         ;
 
-        BPubSub::i()->on('BLayout::render.before', 'Blog::onRenderBefore');
+        BEvents::i()->on('BLayout::render:before', 'Blog::onRenderBefore');
     }
 
     public static function user()
@@ -215,7 +215,7 @@ class Blog_Controller_Admin extends BActionController
                 throw new Exception("Invalid post data");
             }
             $post = BlogPost::i()->create(array('posted_at' => BDb::now()))
-                ->set(BUtil::maskFields($request, 'title,preview,body'))
+                ->set(BUtil::arrayMask($request, 'title,preview,body'))
                 ->save();
             Blog::redirect('/posts/'.$post->id, 'success',  "New post has been created!");
         } catch (Exception $e) {
@@ -239,7 +239,7 @@ class Blog_Controller_Admin extends BActionController
                 $post->delete();
                 Blog::redirect('/', 'success',  "The post has been deleted!");
             } else {
-                $post->set(BUtil::maskFields($request, 'title,preview,body'))->save();
+                $post->set(BUtil::arrayMask($request, 'title,preview,body'))->save();
                 Blog::redirect('/posts/'.$post->id, 'success',  "The post has been updated!");
             }
         } catch (Exception $e) {

@@ -36,7 +36,7 @@ class BPHPTAL extends BClass
             'file_ext' => array('.zpt', '.zpt.html'),
         ));
 
-        BEvents::i()->on('BLayout::theme:load.before', 'BPHPTAL::onLayoutThemeLoadBefore');
+        BEvents::i()->on('BLayout::loadTheme:before', 'BPHPTAL::onLayoutLoadThemeBefore');
     }
 
     public static function singleton($class)
@@ -91,7 +91,7 @@ class BPHPTAL extends BClass
         return $tal->execute();
     }
 
-    public static function onLayoutThemeLoadBefore($args)
+    public static function onLayoutLoadThemeBefore($args)
     {
         $root = BLayout::i()->view('root');
         if ($root) {

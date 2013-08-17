@@ -459,8 +459,12 @@ class BConfig extends BClass
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
 #echo "<pre>"; print_r($this); echo "</pre>";
-        if (!BUtil::isPathAbsolute($filename) && ($dir = $this->get('fs/config_dir'))) {
-            $filename = $dir.'/'.$filename;
+        if (!BUtil::isPathAbsolute($filename)) {
+            $configDir = $this->get('fs/config_dir');
+            if (!$configDir) {
+                $configDir = BConfig::i()->get('fs/config_dir');
+            }
+            $filename = $configDir.'/'.$filename;
         }
         if (!is_readable($filename)) {
             BDebug::error(BLocale::_('Invalid configuration file name: %s', $filename));
@@ -486,12 +490,14 @@ class BConfig extends BClass
     }
 
     /**
-    * Set configuration data in $path location
-    *
-    * @param string $path slash separated path to the config node
-    * @param mixed $value scalar or array value
-    * @param boolean $merge merge new value to old?
-    */
+     * Set configuration data in $path location
+     *
+     * @param string  $path slash separated path to the config node
+     * @param mixed   $value scalar or array value
+     * @param boolean $merge merge new value to old?
+     * @param bool    $toSave
+     * @return $this
+     */
     public function set($path, $value, $merge=false, $toSave=false)
     {
         if (is_string($toSave) && $toSave==='_configToSave') { // limit?
@@ -570,7 +576,11 @@ class BConfig extends BClass
         }
 
         if (!BUtil::isPathAbsolute($filename)) {
-            $filename = BConfig::i()->get('fs/config_dir').'/'.$filename;
+            $configDir = $this->get('fs/config_dir');
+            if (!$configDir) {
+                $configDir = BConfig::i()->get('fs/config_dir');
+            }
+            $filename = $configDir . '/' . $filename;
         }
         BUtil::ensureDir(dirname($filename));
         // Write contents
@@ -703,7 +713,7 @@ class BClassRegistry extends BClass
     {
         $this->_classes[$class] = array(
             'class_name' => $newClass,
-            'module_name' => BModuleRegistry::currentModuleName(),
+            'module_name' => BModuleRegistry::i()->currentModuleName(),
         );
         BDebug::debug('OVERRIDE CLASS: '.$class.' -> '.$newClass);
         if ($replaceSingleton && !empty($this->_singletons[$class]) && get_class($this->_singletons[$class])!==$newClass) {
@@ -733,7 +743,7 @@ class BClassRegistry extends BClass
             $rel = 'is';
         }
         $this->_methods[$method][$static ? 1 : 0]['override'][$rel][$class] = array(
-            'module_name' => BModuleRegistry::currentModuleName(),
+            'module_name' => BModuleRegistry::i()->currentModuleName(),
             'callback' => $callback,
         );
         return $this;
@@ -813,7 +823,7 @@ class BClassRegistry extends BClass
     public function augmentMethod($class, $method, $callback, $static=false)
     {
         $this->_methods[$method][$static ? 1 : 0]['augment']['is'][$class][] = array(
-            'module_name' => BModuleRegistry::currentModuleName(),
+            'module_name' => BModuleRegistry::i()->currentModuleName(),
             'callback' => $callback,
         );
         $this->_decoratedClasses[$class] = true;
@@ -854,7 +864,7 @@ class BClassRegistry extends BClass
             BDebug::error(BLocale::_('Invalid property augmentation type: %s', $type));
         }
         $entry = array(
-            'module_name' => BModuleRegistry::currentModuleName(),
+            'module_name' => BModuleRegistry::i()->currentModuleName(),
             'callback' => $callback,
         );
         if ($type==='override') {
@@ -1397,7 +1407,7 @@ class BEvents extends BClass
             $alias = $callback;
         }
         $observer = array('callback' => $callback, 'args' => $args, 'alias' => $alias);
-        if (($moduleName = BModuleRegistry::currentModuleName())) {
+        if (($moduleName = BModuleRegistry::i()->currentModuleName())) {
             $observer['module_name'] = $moduleName;
         }
         //TODO: create named observers
@@ -1633,11 +1643,12 @@ class BSession extends BClass
     }
 
     /**
-    * Open session
-    *
-    * @param string|null $id Optional session ID
-    * @param bool $close Close and unlock PHP session immediately
-    */
+     * Open session
+     *
+     * @param string|null $id Optional session ID
+     * @param bool        $autoClose
+     * @return $this
+     */
     public function open($id=null, $autoClose=false)
     {
         if (!is_null($this->data)) {
@@ -1652,7 +1663,7 @@ class BSession extends BClass
         $path = !empty($config['path']) ? $config['path'] : BConfig::i()->get('web/base_href');
         if (empty($path)) $path = BRequest::i()->webRoot();
 
-        $domain = !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost();
+        $domain = !empty($config['domain']) ? $config['domain'] : BRequest::i()->httpHost(false);
         if (!empty($config['session_handler']) && !empty($this->_availableHandlers[$config['session_handler']])) {
             $class = $this->_availableHandlers[$config['session_handler']];
             $class::i()->register($ttl);

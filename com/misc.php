@@ -631,6 +631,20 @@ class BUtil extends BClass
         return $options;
     }
 
+    static public function arrayMakeAssoc($source, $keyField)
+    {
+        $isObject = is_object(current($source));
+        $assocArray = array();
+        foreach ($source as $k => $item) {
+            if ($isObject) {
+                $assocArray[$item->$keyField] = $item;
+            } else {
+                $assocArray[$item[$keyField]] = $item;
+            }
+        }
+        return $assocArray;
+    }
+
     /**
     * Create IV for mcrypt operations
     *
@@ -856,35 +870,40 @@ class BUtil extends BClass
         return base64_encode(pack('H*', hash('sha512', $str)));
     }
 
+    static protected $_lastRemoteHttpInfo;
     /**
     * Send simple POST request to external server and retrieve response
     *
+    * @param string $method
     * @param string $url
     * @param array $data
     * @return string
     */
-    public static function remoteHttp($method, $url, $data=array())
+    public static function remoteHttp($method, $url, $data = array())
     {
-        $request = is_array($data) ? http_build_query($data) : $data;
         $timeout = 5;
         $userAgent = 'Mozilla/5.0';
         if ($method==='GET' && $data) {
             $url .= (strpos($url, '?')===false ? '?' : '&').$request;
         }
 
-        if (function_exists('curl_init')) {
+        // curl disabled because file upload doesn't work for some reason. TODO: figure out why
+        if (false && function_exists('curl_init')) {
             $curlOpt = array(
                 CURLOPT_USERAGENT => $userAgent,
                 CURLOPT_URL => $url,
                 CURLOPT_ENCODING => '',
+                CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_AUTOREFERER => true,
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_CAINFO => dirname(__DIR__).'/ssl/ca-bundle.crt',
+                CURLOPT_SSL_VERIFYHOST => 2,
                 CURLOPT_CONNECTTIMEOUT => $timeout,
                 CURLOPT_TIMEOUT => $timeout,
                 CURLOPT_MAXREDIRS => 10,
                 CURLOPT_HTTPHEADER, array('Expect:'), //Fixes the HTTP/1.1 417 Expectation Failed
+                CURLOPT_HEADER => true,
             );
             if (false) { // TODO: figure out cookies handling
                 $cookieDir = BConfig::i()->get('fs/storage_dir').'/cache';
@@ -892,26 +911,26 @@ class BUtil extends BClass
                 $cookie = tempnam($cookieDir, 'CURLCOOKIE');
                 $curlOpt += array(
                     CURLOPT_COOKIEJAR => $cookie,
-                    CURLOPT_FOLLOWLOCATION => true,
                 );
             }
 
             if ($method==='POST') {
                 $curlOpt += array(
-                    CURLOPT_POSTFIELDS => $request,
+                    CURLOPT_POSTFIELDS => $data,
                     CURLOPT_POST => 1,
                 );
             } elseif ($method==='PUT') {
                 $curlOpt += array(
-                    CURLOPT_POSTFIELDS => $request,
+                    CURLOPT_POSTFIELDS => $data,
                     CURLOPT_PUT => 1,
                 );
             }
             $ch = curl_init();
             curl_setopt_array($ch, $curlOpt);
-            $content = curl_exec($ch);
-            $response = curl_getinfo($ch);
-            //$response = array();
+            $rawResponse = curl_exec($ch);
+            list($response, $headers) = explode("\r\n\r\n", $rawResponse, 2);
+            static::$_lastRemoteHttpInfo = curl_getinfo($ch);
+            $respHeaders = explode("\r\n", $headers);
             curl_close($ch);
 
         } else {
@@ -921,45 +940,69 @@ class BUtil extends BClass
                 'header' => "User-Agent: {$userAgent}\r\n",
             ));
             if ($method==='POST' || $method==='PUT') {
-                $opts['http']['content'] = $request;
-                $contentType = 'application/x-www-form-urlencoded';
-                foreach ($request as $k=>$v) {
+                $multipart = false;
+                foreach ($data as $k=>$v) {
                     if (is_string($v) && $v[0]==='@') {
-                        $contentType = 'multipart/form-data';
+                        $multipart = true;
                         break;
                     }
                 }
-                $opts['http']['header'] .= "Content-Type: {$contentType}\r\n"
-                    ."Content-Length: ".strlen($request)."\r\n";
+                if (!$multipart) {
+                    $contentType = 'application/x-www-form-urlencoded';
+                    $opts['http']['content'] = $request;
+                } else {
+                    $boundary = '--------------------------'.microtime(true);
+                    $contentType = 'multipart/form-data; boundary='.$boundary;
+                    $opts['http']['content'] = '';
+                    //TODO: implement recursive forms
+                    foreach ($data as $k =>$v) {
+                        if (is_string($v) && $v[0]==='@') {
+                            $filename = substr($v, 1);
+                            $fileContents = file_get_contents($filename);
+                            $opts['http']['content'] .= "--{$boundary}\r\n".
+                                "Content-Disposition: form-data; name=\"{$k}\"; filename=\"".basename($filename)."\"\r\n".
+                                "Content-Type: application/zip\r\n".
+                                "\r\n".
+                                "{$fileContents}\r\n";
+                        } else {
+                            $opts['http']['content'] .= "--{$boundary}\r\n".
+                                "Content-Disposition: form-data; name=\"{$k}\"\r\n".
+                                "\r\n".
+                                "{$v}\r\n";
+                        }
+                    }
+                    $opts['http']['content'] .= "--{$boundary}--\r\n";
+                }
+                $opts['http']['header'] .= "Content-Type: {$contentType}\r\n";
+                    //."Content-Length: ".strlen($request)."\r\n";
+                if (preg_match('#^(ssl|ftps|https):#', $url)) {
+                    $opts['ssl'] = array(
+                        'verify_peer' => true,
+                        'cafile' => dirname(__DIR__).'/ssl/ca-bundle.crt',
+                        'verify_depth' => 5,
+                    );
+                }
             }
-            $content = file_get_contents($url, false, stream_context_create($opts));
-            $response = array(); //TODO: emulate curl data?
+            $response = file_get_contents($url, false, stream_context_create($opts));
+
+            static::$_lastRemoteHttpInfo = array(); //TODO: emulate curl data?
+            $respHeaders = $http_response_header;
+        }
+        foreach ($respHeaders as $i => $line) {
+            if ($i) {
+                $arr = explode(':', $line, 2);
+            } else {
+                $arr = array(0, $line);
+            }
+            static::$_lastRemoteHttpInfo['headers'][strtolower($arr[0])] = trim($arr[1]);
         }
 
-        return array($content, $response);
-    }
-
-    /**
-    * put your comment there...
-    *
-    * @deprecated legacy use
-    * @param mixed $url
-    * @param mixed $data
-    * @return string
-    */
-    public static function post($url, $data)
-    {
-        list($content) = static::remoteHttp('POST', $url, $data);
-        parse_str($content, $response);
         return $response;
     }
 
-    public static function httpClient($method, $url, $data)
+    public static function lastRemoteHttpInfo()
     {
-        $method = strtoupper($method);
-        list($content) = static::remoteHttp($method, $url, $data);
-        parse_str($content, $response);
-        return $response;
+        return static::$_lastRemoteHttpInfo;
     }
 
     public static function normalizePath($path)
@@ -1086,6 +1129,12 @@ class BUtil extends BClass
             .'" class="'.$class.' '.($state['s']==$field ? $state['sd'] : '').'"';
     }
 
+    /**
+     * @param string $tag
+     * @param array  $attrs
+     * @param null   $content
+     * @return string
+     */
     public static function tagHtml($tag, $attrs = array(), $content = null)
     {
         $attrsHtmlArr = array();
@@ -1365,6 +1414,58 @@ class BUtil extends BClass
             unset($nodes[$n['key']]);
         }
         return $sorted;
+    }
+
+    /**
+     * Wrapper for ZipArchive::open+extractTo
+     *
+     * @param string $filename
+     * @param string $targetDir
+     * @return boolean Result
+     */
+    static public function zipExtract($filename, $targetDir)
+    {
+        if (!class_exists('ZipArchive')) {
+            throw new BException("Class ZipArchive doesn't exist");
+        }
+        $zip = new ZipArchive;
+        $res = $zip->open($filename);
+        if (!$res) {
+            throw new BException("Can't open zip archive for reading: " . $filename);
+        }
+        BUtil::ensureDir($targetDir);
+        $res = $zip->extractTo($targetDir);
+        $zip->close();
+        if (!$res) {
+            throw new BException("Can't extract zip archive: " . $filename . " to " . $targetDir);
+        }
+        return true;
+    }
+
+    static public function zipCreateFromDir($filename, $sourceDir)
+    {
+        if (!class_exists('ZipArchive')) {
+            throw new BException("Class ZipArchive doesn't exist");
+        }
+        $files = BUtil::globRecursive($sourceDir.'/*');
+        if (!$files) {
+            throw new BException('Invalid or empty source dir');
+        }
+        $zip = new ZipArchive;
+        $res = $zip->open($filename, ZipArchive::CREATE);
+        if (!$res) {
+            throw new BException("Can't open zip archive for writing: " . $filename);
+        }
+        foreach ($files as $file) {
+            $packedFile = str_replace($sourceDir.'/', '', $file);
+            if (is_dir($file)) {
+                $zip->addEmptyDir($packedFile);
+            } else {
+                $zip->addFile($file, $packedFile);
+            }
+        }
+        $zip->close();
+        return true;
     }
 }
 
@@ -1647,146 +1748,6 @@ class BData extends BClass implements ArrayAccess
     {
         $this->_data[$name] = $value;
         return $this;
-    }
-}
-
-/**
-* Basic user authentication and authorization class
-*/
-class BModelUser extends BModel
-{
-    protected static $_sessionUser;
-    protected static $_sessionUserNamespace = 'user';
-
-    public static function sessionUserId()
-    {
-        $userId = BSession::i()->data(static::$_sessionUserNamespace.'_id');
-        return $userId ? $userId : false;
-    }
-
-    public static function sessionUser($reset=false)
-    {
-        if (!static::isLoggedIn()) {
-            return false;
-        }
-        $session = BSession::i();
-        if ($reset || !static::$_sessionUser) {
-            static::$_sessionUser = static::load(static::sessionUserId());
-        }
-        return static::$_sessionUser;
-    }
-
-    public static function isLoggedIn()
-    {
-        return static::sessionUserId() ? true : false;
-    }
-
-    public function setPassword($password)
-    {
-        $this->password_hash = BUtil::fullSaltedHash($password);
-        return $this;
-    }
-
-    public function validatePassword($password)
-    {
-        return BUtil::validateSaltedHash($password, $this->password_hash);
-    }
-
-    public function onBeforeSave()
-    {
-        if (!parent::onBeforeSave()) return false;
-        if (!$this->create_dt) $this->create_dt = BDb::now();
-        $this->update_dt = BDb::now();
-        if ($this->password) {
-            $this->password_hash = BUtil::fullSaltedHash($this->password);
-        }
-        return true;
-    }
-
-    static public function authenticate($username, $password)
-    {
-        /** @var FCom_Admin_Model_User */
-        $user = static::orm()->where(array('OR'=>array('username'=>$username, 'email'=>$username)))->find_one();
-        if (!$user || !$user->validatePassword($password)) {
-            return false;
-        }
-        return $user;
-    }
-
-    public function login()
-    {
-        $this->set('last_login', BDb::now())->save();
-
-        BSession::i()->data(array(
-            static::$_sessionUserNamespace.'_id' => $this->id,
-            static::$_sessionUserNamespace => serialize($this->as_array()),
-        ));
-        static::$_sessionUser = $this;
-
-        if ($this->locale) {
-            setlocale(LC_ALL, $this->locale);
-        }
-        if ($this->timezone) {
-            date_default_timezone_set($this->timezone);
-        }
-        BEvents::i()->fire(__METHOD__.'.after', array('user'=>$this));
-        return $this;
-    }
-
-    public function authorize($role, $args=null)
-    {
-        if (is_null($args)) {
-            // check authorization
-            return true;
-        }
-        // set authorization
-        return $this;
-    }
-
-    public static function logout()
-    {
-        BSession::i()->data(static::$_sessionUserNamespace.'_id', false);
-        static::$_sessionUser = null;
-        BEvents::i()->fire(__METHOD__.'.after');
-    }
-
-    public function recoverPassword($emailView='email/user-password-recover')
-    {
-        $this->set(array('password_nonce'=>BUtil::randomString(20)))->save();
-        if (($view = BLayout::i()->view($emailView))) {
-            $view->set('user', $this)->email();
-        }
-        return $this;
-    }
-
-    public function resetPassword($password, $emailView='email/user-password-reset')
-    {
-        $this->set(array('password_nonce'=>null))->setPassword($password)->save()->login();
-        if (($view = BLayout::i()->view($emailView))) {
-            $view->set('user', $this)->email();
-        }
-        return $this;
-    }
-
-    public static function signup($r)
-    {
-        $r = (array)$r;
-        if (empty($r['email'])
-            || empty($r['password']) || empty($r['password_confirm'])
-            || $r['password']!=$r['password_confirm']
-        ) {
-            throw new Exception('Incomplete or invalid form data.');
-        }
-
-        $r = BUtil::arrayMask($r, 'email,password');
-        $user = static::create($r)->save();
-        if (($view = BLayout::i()->view('email/user-new-user'))) {
-            $view->set('user', $user)->email();
-        }
-        if (($view = BLayout::i()->view('email/admin-new-user'))) {
-            $view->set('user', $user)->email();
-        }
-        return $user;
     }
 }
 
@@ -2135,7 +2096,7 @@ class BDebug extends BClass
 
         $message = "{$e['level']}: {$e['msg']}".(isset($e['file'])?" ({$e['file']}:{$e['line']})":'');
 
-        if (($moduleName = BModuleRegistry::currentModuleName())) {
+        if (($moduleName = BModuleRegistry::i()->currentModuleName())) {
             $e['module'] = $moduleName;
         }
 
@@ -2500,7 +2461,7 @@ class BLocale extends BClass
     */
     public static function importTranslations($data, $params=array())
     {
-        $module = !empty($params['_module']) ? $params['_module'] : BModuleRegistry::currentModuleName();
+        $module = !empty($params['_module']) ? $params['_module'] : BModuleRegistry::i()->currentModuleName();
         if (is_string($data)) {
             if (!BUtil::isPathAbsolute($data)) {
                 $data = BApp::m($module)->root_dir.'/i18n/'.$data;
@@ -2926,7 +2887,7 @@ class BFtpClient extends BClass
         }
     }
 
-    public function ftpUpload($from, $to)
+    public function upload($from, $to)
     {
         if (!extension_loaded('ftp')) {
             new BException('FTP PHP extension is not installed');
@@ -2946,13 +2907,13 @@ class BFtpClient extends BClass
             throw new BException('Could not navigate to '. $to);
         }
 
-        $errors = $this->ftpUploadDir($conn, $from.'/');
+        $errors = $this->uploadDir($conn, $from.'/');
         ftp_close($conn);
 
         return $errors;
     }
 
-    public function ftpUploadDir($conn, $source, $ftpPath='')
+    public function uploadDir($conn, $source, $ftpPath='')
     {
         $errors = array();
         $dir = opendir($source);
@@ -2979,7 +2940,7 @@ class BFtpClient extends BClass
                 $errors[] = ftp_pwd($conn).'/'.$file.'/';
                 continue;
             }
-            $errors += $this->ftpUploadDir($conn, $source.$file.'/', $ftpPath.$file.'/');
+            $errors += $this->uploadDir($conn, $source.$file.'/', $ftpPath.$file.'/');
             ftp_chdir($conn, '..');
         }
         return $errors;
@@ -3047,9 +3008,9 @@ class BLoginThrottle extends BClass
                     $this->_rec['brute_attempts_cnt']++;
                 }
                 $this->_save();
-                $this->_fire('init.brute');
+                $this->_fire('init:brute');
                 if ($this->_rec['brute_attempts_cnt'] == $c['brute_attempts_max']) {
-                    $this->_fire('init.brute_max');
+                    $this->_fire('init:brute_max');
                 }
                 return false; // currently locked
             }
@@ -3070,7 +3031,7 @@ class BLoginThrottle extends BClass
         $now = time();
         $c = $this->_config;
 
-        $this->_fire('fail.before');
+        $this->_fire('fail:before');
 
         if (empty($this->_rec['attempt_cnt'])) {
             $this->_rec['attempt_cnt'] = 1;
@@ -3080,14 +3041,14 @@ class BLoginThrottle extends BClass
         $this->_rec['last_attempt'] = $now;
         $this->_rec['status'] = 'FAILED';
         $this->_save();
-        $this->_fire('fail.wait');
+        $this->_fire('fail:wait');
 
         $this->_gc();
         sleep($c['sleep_sec']);
 
         $this->_rec['status'] = '';
         $this->_save();
-        $this->_fire('fail.after');
+        $this->_fire('fail:after');
 
         return true; // normal response
     }
@@ -3249,33 +3210,19 @@ class Bcrypt extends BClass
 
     public function hash($input)
     {
-        if (function_exists('password_hash')) {
-            return password_hash($input);
-        }
         $hash = crypt($input, $this->getSalt());
-        if (strlen($hash) > 13) {
-            return $hash;
-        }
-
-        return false;
+        return strlen($hash) > 13 ? $hash : false;
     }
 
     public function verify($input, $existingHash)
     {
-        if (function_exists('password_verify')) {
-            return password_verify($input, $existingHash);
-        }
-        $hash = crypt($input, $existingHash);
-
-        return $hash === $existingHash;
+        return crypt($input, $existingHash) === $existingHash;
     }
 
     private function getSalt()
     {
-        $mode = version_compare(phpversion(), '5.3.7', '>=') ? '2y' : '2a';
-        $bytes = $this->getRandomBytes(16);
-        $salt = '$' . $mode . '$12$';
-        $salt .= $this->encodeBytes($bytes);
+        $salt = '$' . (version_compare(phpversion(), '5.3.7', '>=') ? '2y' : '2a') . '$12$';
+        $salt .= $this->encodeBytes($this->getRandomBytes(16));
         return $salt;
     }
 
@@ -3348,10 +3295,10 @@ class Bcrypt extends BClass
     }
 }
 
-/**
- * @see http://www.php.net/manual/en/function.htmlentities.php#106535
- */
 if( !function_exists( 'xmlentities' ) ) {
+    /**
+     * @see http://www.php.net/manual/en/function.htmlentities.php#106535
+     */
     function xmlentities( $string ) {
         $not_in_list = "A-Z0-9a-z\s_-";
         return preg_replace_callback( "/[^{$not_in_list}]/" , 'get_xml_entity_at_index_0' , $string );
@@ -3369,5 +3316,138 @@ if( !function_exists( 'xmlentities' ) ) {
     }
     function numeric_entity_4_char( $char ) {
         return "&#".str_pad(ord($char), 3, '0', STR_PAD_LEFT).";";
+    }
+}
+
+if (!function_exists('password_hash')) {
+    /**
+     * If FISMA/FIPS/NIST compliance required, can wrap the result into SHA-512 as well
+     *
+     * @see http://stackoverflow.com/questions/4795385/how-do-you-use-bcrypt-for-hashing-passwords-in-php
+     */
+    function password_hash($password)
+    {
+        return Bcrypt::i()->hash($password);
+    }
+
+    function password_verify($password, $hash)
+    {
+        return Bcrypt::i()->verify($password, $hash);
+    }
+}
+
+if (!function_exists('hash_hmac')) {
+    /**
+     * HMAC hash, works if hash extension is not installed
+     *
+     * Supports SHA1 and MD5 algos
+     *
+     * @see http://www.php.net/manual/en/function.hash-hmac.php#93440
+     *
+     * @param string  $data       Data to be hashed.
+     * @param string  $key        Hash key.
+     * @param boolean $raw_output Return raw or hex
+     *
+     * @access public
+     * @static
+     *
+     * @return string Hash
+     */
+    function hash_hmac($algo, $data, $key, $raw_output = false)
+    {
+        $algo = strtolower($algo);
+        $pack = 'H'.strlen($algo('test'));
+        $size = 64;
+        $opad = str_repeat(chr(0x5C), $size);
+        $ipad = str_repeat(chr(0x36), $size);
+
+        if (strlen($key) > $size) {
+            $key = str_pad(pack($pack, $algo($key)), $size, chr(0x00));
+        } else {
+            $key = str_pad($key, $size, chr(0x00));
+        }
+
+        for ($i = 0; $i < strlen($key) - 1; $i++) {
+            $opad[$i] = $opad[$i] ^ $key[$i];
+            $ipad[$i] = $ipad[$i] ^ $key[$i];
+        }
+
+        $output = $algo($opad.pack($pack, $algo($ipad.$data)));
+
+        return ($raw_output) ? pack($pack, $output) : $output;
+    }
+}
+
+if (!function_exists('hash_pbkdf2')) {
+    /**
+     * PBKDF2 key derivation function as defined by RSA's PKCS #5: https://www.ietf.org/rfc/rfc2898.txt
+     *
+     * Test vectors can be found here: https://www.ietf.org/rfc/rfc6070.txt
+     *
+     * This implementation of PBKDF2 was originally created by defuse.ca
+     * With improvements by variations-of-shadow.com
+     *
+     * @see http://www.php.net/manual/en/function.hash-hmac.php#109260
+     *
+     * @param string $algorithm - The hash algorithm to use. Recommended: SHA256
+     * @param string $password - The password.
+     * @param string $salt - A salt that is unique to the password.
+     * @param integer $count - Iteration count. Higher is better, but slower. Recommended: At least 1024.
+     * @param integer $key_length - The length of the derived key in bytes.
+     * @param boolean $raw_output - If true, the key is returned in raw binary format. Hex encoded otherwise.
+     * @return A $key_length-byte key derived from the password and salt.
+     */
+    function hash_pbkdf2($algorithm, $password, $salt, $count, $key_length, $raw_output = false)
+    {
+        $algorithm = strtolower($algorithm);
+        if(!in_array($algorithm, hash_algos(), true))
+            die('PBKDF2 ERROR: Invalid hash algorithm.');
+        if($count <= 0 || $key_length <= 0)
+            die('PBKDF2 ERROR: Invalid parameters.');
+
+        $hash_length = strlen(hash($algorithm, "", true));
+        $block_count = ceil($key_length / $hash_length);
+
+        $output = "";
+        for($i = 1; $i <= $block_count; $i++) {
+            // $i encoded as 4 bytes, big endian.
+            $last = $salt . pack("N", $i);
+            // first iteration
+            $last = $xorsum = hash_hmac($algorithm, $last, $password, true);
+            // perform the other $count - 1 iterations
+            for ($j = 1; $j < $count; $j++) {
+                $xorsum ^= ($last = hash_hmac($algorithm, $last, $password, true));
+            }
+            $output .= $xorsum;
+        }
+
+        if($raw_output)
+            return substr($output, 0, $key_length);
+        else
+            return bin2hex(substr($output, 0, $key_length));
+    }
+}
+
+if (!function_exists('oath_hotp')) {
+    /**
+     * Yet another OATH HOTP function. Has a 64 bit counter.
+     *
+     * @see http://www.php.net/manual/en/function.hash-hmac.php#108978
+     *
+     * @param string $secret Shared secret
+     * @param string $crt Counter
+     * @param integer $len OTP length
+     * @return string
+     */
+    function oath_hotp($secret, $counter, $len = 8)
+    {
+        $binctr = pack ('NNC*', $counter>>32, $counter & 0xFFFFFFFF);
+        $hash = hash_hmac ("sha1", $binctr, $secret);
+        // This is where hashing stops and truncation begins
+        $ofs = 2*hexdec (substr ($hash, 39, 1));
+        $int = hexdec (substr ($hash, $ofs, 8)) & 0x7FFFFFFF;
+        $pin = substr ($int, -$len);
+        $pin = str_pad ($pin, $len, "0", STR_PAD_LEFT);
+        return $pin;
     }
 }

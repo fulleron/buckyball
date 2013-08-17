@@ -100,9 +100,26 @@ class BRequest extends BClass
     *
     * @return string
     */
-    public static function httpHost()
+    public static function httpHost($includePort = true)
     {
-        return !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : null;
+        if (empty($_SERVER['HTTP_HOST'])) {
+            return null;
+        }
+        if ($includePort) {
+            return $_SERVER['HTTP_HOST'];
+        }
+        $a = explode(':', $_SERVER['HTTP_HOST']);
+        return $a[0];
+    }
+
+    /**
+    * Port from request headers
+    *
+    * @return string
+    */
+    public static function httpPort()
+    {
+        return !empty($_SERVER['HTTP_PORT']) ? $_SERVER['HTTP_PORT'] : null;
     }
 
     /**
@@ -429,7 +446,7 @@ class BRequest extends BClass
         $config = BConfig::i()->get('cookie');
         $lifespan = !is_null($lifespan) ? $lifespan : $config['timeout'];
         $path = !is_null($path) ? $path : (!empty($config['path']) ? $config['path'] : static::webRoot());
-        $domain = !is_null($domain) ? $domain : (!empty($config['domain']) ? $config['domain'] : static::httpHost());
+        $domain = !is_null($domain) ? $domain : (!empty($config['domain']) ? $config['domain'] : static::httpHost(false));
 
         setcookie($name, $value, time()+$lifespan, $path, $domain);
     }
@@ -484,14 +501,14 @@ class BRequest extends BClass
                 $name = $source['name'];
                 $type = $source['type'];
                 if (!is_null($typesRegex) && !preg_match('#'.$typesRegex.'#i', $type)) {
-                    $result = array('error'=>'invalid_type', 'tp'=>4, 'type'=>$type, 'pattern'=>$typesRegex, 'source'=>$source, 'name'=>$name);
+                    $result[] = array('error'=>'invalid_type', 'tp'=>4, 'type'=>$type, 'pattern'=>$typesRegex, 'source'=>$source, 'name'=>$name);
                 } else {
                     BUtil::ensureDir($targetDir);
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
-                    $result = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
+                    $result[] = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 }
             } else {
-                $result = array('error'=>$error, 'tp'=>5);
+                $result[] = array('error'=>$error, 'tp'=>5);
             }
         }
         return $result;
@@ -546,7 +563,7 @@ class BRequest extends BClass
                 $p = parse_url($ref);
                 $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
                 $webRoot = static::webRoot();
-                if ($p['host']!==static::httpHost() || $webRoot && strpos($p['path'], $webRoot)!==0) {
+                if ($p['host']!==static::httpHost(false) || $webRoot && strpos($p['path'], $webRoot)!==0) {
                     return true; // referrer host or doc root path do not match, high prob. csrf
                 }
                 return false; // not csrf
@@ -575,7 +592,7 @@ class BRequest extends BClass
     {
         $ip = static::ip();
         if (!$host) {
-            $host = static::httpHost();
+            $host = static::httpHost(false);
         }
         $origin = static::httpOrigin();
         $hostIPs = gethostbynamel($host);
@@ -599,7 +616,9 @@ class BRequest extends BClass
     public static function currentUrl()
     {
         $webroot = rtrim(static::webRoot(), '/');
-        $url = static::scheme().'://'.static::httpHost();
+        $scheme = static::scheme();
+        $port = static::httpPort();
+        $url = $scheme.'://'.static::httpHost();
         if (!BConfig::i()->get('web/hide_script_name')) {
             $url = rtrim($url, '/') . '/' . ltrim(str_replace('//', '/', static::scriptName()), '/');
         } else {
@@ -969,9 +988,9 @@ class BResponse extends BClass
         return $this;
     }
 
-    public function setContentPrefix($type)
+    public function setContentPrefix($string)
     {
-        $this->_contentPrefix = $type;
+        $this->_contentPrefix = $string;
         return $this;
     }
 
@@ -996,9 +1015,9 @@ class BResponse extends BClass
         return $this;
     }
 
-    public function setContentSuffix($type)
+    public function setContentSuffix($string)
     {
-        $this->_contentSuffix = $type;
+        $this->_contentSuffix = $string;
         return $this;
     }
 
@@ -1134,7 +1153,7 @@ class BResponse extends BClass
         } elseif (is_null($this->_content)) {
             $this->_content = BLayout::i()->render();
         }
-        BEvents::i()->fire('BResponse::output:before', array('content'=>&$this->_content));
+        BEvents::i()->fire(__METHOD__.':before', array('content'=>&$this->_content));
 
         if ($this->_contentPrefix) {
             echo $this->_contentPrefix;
@@ -1146,7 +1165,7 @@ class BResponse extends BClass
             echo $this->_contentSuffix;
         }
 
-        BEvents::i()->fire('BResponse::output:after', array('content'=>$this->_content));
+        BEvents::i()->fire(__METHOD__.':after', array('content'=>$this->_content));
 
         $this->shutdown(__METHOD__);
     }
@@ -1170,6 +1189,9 @@ class BResponse extends BClass
     {
         BSession::i()->close();
         $this->status($status, null, false);
+        if (!BUtil::isUrlFull($url)) {
+            $url = BApp::href($url);
+        }
         header("Location: {$url}", null, $status);
         $this->shutdown(__METHOD__);
     }
@@ -1254,7 +1276,7 @@ class BResponse extends BClass
 
     public function shutdown($lastMethod=null)
     {
-        BEvents::i()->fire('BResponse::shutdown', array('last_method'=>$lastMethod));
+        BEvents::i()->fire(__METHOD__, array('last_method'=>$lastMethod));
         BSession::i()->close();
         exit;
     }
@@ -1387,7 +1409,7 @@ class BRouting extends BClass
             return $this;
         }
         if (empty($args['module_name'])) {
-            $args['module_name'] = BModuleRegistry::currentModuleName();
+            $args['module_name'] = BModuleRegistry::i()->currentModuleName();
         }
         BDebug::debug('ROUTE '.$route);
         if (empty($this->_routes[$route])) {
@@ -1596,7 +1618,7 @@ class BRouting extends BClass
     */
     public function dispatch($requestRoute=null)
     {
-        BEvents::i()->fire(__METHOD__.'.before');
+        BEvents::i()->fire(__METHOD__.':before');
 
         $this->processRoutes();
 
@@ -2007,7 +2029,7 @@ class BActionController extends BClass
     */
     public function tryDispatch($actionName, $args)
     {
-        if (is_callable($actionName)) {
+        if (!is_string($actionName) && is_callable($actionName)) {
             try {
                 call_user_func($actionName);
             } catch (Exception $e) {
@@ -2166,7 +2188,7 @@ class BActionController extends BClass
         return self::origClass();
     }
 
-    public function viewProxy($viewPrefix, $defaultView='index', $hookName = 'main')
+    public function viewProxy($viewPrefix, $defaultView='index', $hookName = 'main', $baseLayout = null)
     {
         $viewPrefix = trim($viewPrefix, '/').'/';
         $page = BRequest::i()->params('view');
@@ -2178,24 +2200,42 @@ class BActionController extends BClass
             $this->forward(false);
             return false;
         }
+
+        if ($baseLayout) {
+            $this->layout($baseLayout);
+        }
         BLayout::i()->applyLayout('view-proxy')->applyLayout($viewPrefix.$page);
+
         $view->render();
         $metaData = $view->param('meta_data');
-        if ($metaData && ($head = $this->view('head'))) {
-            foreach ($metaData as $k=>$v) {
-                $k = strtolower($k);
-                switch ($k) {
-                case 'title':
-                    $head->addTitle($v); break;
-                case 'meta_title': case 'meta_description': case 'meta_keywords':
-                    $head->meta(str_replace('meta_','',$k), $v); break;
+        if ($metaData) {
+            if (!empty($metaData['layout.yml'])) {
+                BLayout::i()->addLayout('viewproxy-metadata', BYAML::i()->parse(trim($metaData['layout.yml'])))
+                    ->applyLayout('viewproxy-metadata');
+            }
+            if (($head = $this->view('head'))) {
+                foreach ($metaData as $k=>$v) {
+                    $k = strtolower($k);
+                    switch ($k) {
+                    case 'title':
+                        $head->addTitle($v); break;
+                    case 'meta_title': case 'meta_description': case 'meta_keywords':
+                        $head->meta(str_replace('meta_','',$k), $v); break;
+                    }
                 }
             }
         }
+
         if (($root = BLayout::i()->view('root'))) {
             $root->addBodyClass('page-'.$page);
         }
+
         BLayout::i()->hookView($hookName, $viewPrefix . $page);
+
+        if (!empty($metaData['http_status'])) {
+            BResponse::i()->status($metaData['http_status']);
+        }
+
         return $page;
     }
 
@@ -2209,7 +2249,7 @@ class BActionController extends BClass
     public function _($string, $params=array(), $module=null)
     {
         if (empty($module)) {
-            $module = BModuleRegistry::currentModuleName();
+            $module = BModuleRegistry::i()->currentModuleName();
         }
         return BLocale::_($string, $params, $module);
     }

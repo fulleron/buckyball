@@ -355,7 +355,7 @@ class BLayout extends BClass
         if (is_string($params)) {
             $params = array('view_class' => $params);
         }
-        if (empty($params['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
+        if (empty($params['module_name']) && ($moduleName = BModuleRegistry::i()->currentModuleName())) {
             $params['module_name'] = $moduleName;
         }
         $viewAlias = !empty($params['view_alias']) ? $params['view_alias'] : $viewName;
@@ -375,12 +375,12 @@ class BLayout extends BClass
             }
 
             $this->_views[$viewAlias] = BView::i()->factory($viewName, $params);
-            BEvents::i()->fire('BLayout::view:add: ' . $viewAlias, array(
+            BEvents::i()->fire('BLayout::view:add:' . $viewAlias, array(
                 'view' => $this->_views[$viewAlias],
             ));
         } else {
             $this->_views[$viewAlias]->setParam($params);
-            BEvents::i()->fire('BLayout::view:update: ' . $viewAlias, array(
+            BEvents::i()->fire('BLayout::view:update:' . $viewAlias, array(
                 'view' => $this->_views[$viewAlias],
             ));
         }
@@ -975,7 +975,7 @@ class BLayout extends BClass
      */
     public function render($routeName = null, $args = array())
     {
-        $this->dispatch('render.before', $routeName, $args);
+        $this->dispatch('render:before', $routeName, $args);
 
         $rootView = $this->getRootView();
         BDebug::debug('LAYOUT.RENDER ' . var_export($rootView, 1));
@@ -985,7 +985,7 @@ class BLayout extends BClass
         $result = $rootView->render($args);
 
         $args['output'] =& $result;
-        $this->dispatch('render.after', $routeName, $args);
+        $this->dispatch('render:after', $routeName, $args);
 
         //BSession::i()->dirty(false); // disallow session change during layout render
 
@@ -1028,7 +1028,7 @@ class BView extends BClass
     /**
      * @var string
      */
-    protected static $_metaDataRegex = '#<!--\{\s*(.*?):\s*(.*?)\s*\}-->#i';
+    protected static $_metaDataRegex = '#<!--\s*\{\s*([^:]+):\s*(.*?)\s*\}\s*-->#';
 
     /**
      * View parameters
@@ -1884,7 +1884,7 @@ class BViewHead extends BView
             $args['file'] = trim($name);
             $name         = trim($args['alias']);
         }
-        if (!isset($args['module_name']) && ($moduleName = BModuleRegistry::currentModuleName())) {
+        if (!isset($args['module_name']) && ($moduleName = BModuleRegistry::i()->currentModuleName())) {
             $args['module_name'] = $moduleName;
         }
         if (!isset($args['if']) && $this->_currentIfContext) {

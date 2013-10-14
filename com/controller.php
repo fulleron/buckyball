@@ -477,6 +477,17 @@ class BRequest extends BClass
             return;
         }
         $result = array();
+
+        $uploadErrors = array(
+            UPLOAD_ERR_OK         => "No errors.",
+            UPLOAD_ERR_INI_SIZE   => "Larger than upload_max_filesize.",
+            UPLOAD_ERR_FORM_SIZE  => "Larger than form MAX_FILE_SIZE.",
+            UPLOAD_ERR_PARTIAL    => "Partial upload.",
+            UPLOAD_ERR_NO_FILE    => "No file.",
+            UPLOAD_ERR_NO_TMP_DIR => "No temporary directory.",
+            UPLOAD_ERR_CANT_WRITE => "Can't write to disk.",
+            UPLOAD_ERR_EXTENSION  => "File upload stopped by extension."
+        );
         if (is_array($source['error'])) {
             foreach ($source['error'] as $key=>$error) {
                 if ($error==UPLOAD_ERR_OK) {
@@ -491,7 +502,8 @@ class BRequest extends BClass
                     move_uploaded_file($tmpName, $targetDir.'/'.$name);
                     $result[$key] = array('name'=>$name, 'tp'=>2, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 } else {
-                    $result[$key] = array('error'=>$error, 'tp'=>3);
+                    $message = !empty($uploadErrors[$error]) ? $uploadErrors[$error] : null;
+                    $result[$key] = array('error'=>$error, 'message' => $message, 'tp'=>3);
                 }
             }
         } else {
@@ -508,7 +520,8 @@ class BRequest extends BClass
                     $result[] = array('name'=>$name, 'type'=>$type, 'target'=>$targetDir.'/'.$name);
                 }
             } else {
-                $result[] = array('error'=>$error, 'tp'=>5);
+                $message = !empty($uploadErrors[$error]) ? $uploadErrors[$error] : null;
+                $result[] = array('error'=>$error, 'message' => $message, 'tp'=>5);
             }
         }
         return $result;
@@ -562,7 +575,8 @@ class BRequest extends BClass
                 }
                 $p = parse_url($ref);
                 $p['path'] = preg_replace('#/+#', '/', $p['path']); // ignore duplicate slashes
-                $webRoot = static::webRoot();
+                $webRoot = $c->get('web/base_src');
+                if (!$webRoot) $webRoot = static::webRoot();
                 if ($p['host']!==static::httpHost(false) || $webRoot && strpos($p['path'], $webRoot)!==0) {
                     return true; // referrer host or doc root path do not match, high prob. csrf
                 }
@@ -924,10 +938,11 @@ class BResponse extends BClass
     }
 
     /**
-    * Set response content
-    *
-    * @param mixed $content
-    */
+     * Set response content
+     *
+     * @param mixed $content
+     * @return BResponse
+     */
     public function set($content)
     {
         $this->_content = $content;
@@ -935,10 +950,11 @@ class BResponse extends BClass
     }
 
     /**
-    * Add content to response
-    *
-    * @param mixed $content
-    */
+     * Add content to response
+     *
+     * @param mixed $content
+     * @return BResponse
+     */
     public function add($content)
     {
         $this->_content = (array)$this->_content+(array)$content;
@@ -1055,11 +1071,14 @@ class BResponse extends BClass
     }
 
     /**
-    * Send file download to client
-    *
-    * @param string $filename
-    * @return exit
-    */
+     * Send file download to client
+     *
+     * @param        $source
+     * @param null   $fileName
+     * @param string $disposition
+     * @internal param string $filename
+     * @return exit
+     */
     public function sendFile($source, $fileName=null, $disposition='attachment')
     {
         BSession::i()->close();
@@ -1086,11 +1105,13 @@ class BResponse extends BClass
     }
 
     /**
-    * Send text content as a file download to client
-    *
-    * @param string $content
-    * @return exit
-    */
+     * Send text content as a file download to client
+     *
+     * @param string $content
+     * @param string $fileName
+     * @param string $disposition
+     * @return exit
+     */
     public function sendContent($content, $fileName='download.txt', $disposition='attachment')
     {
         BSession::i()->close();
@@ -1251,7 +1272,7 @@ class BResponse extends BClass
         return $this;
     }
 
-    public static function startLongResponse()
+    public function startLongResponse($bypassBuffering = true)
     {
         // improve performance by not processing debug log
         if (BDebug::is('DEBUG')) {
@@ -1269,9 +1290,12 @@ class BResponse extends BClass
         // remove session lock
         session_write_close();
         // bypass initial webservice buffering
-        echo str_pad('', 2000, ' ');
+        if ($bypassBuffering) {
+            echo str_pad('', 2000, ' ');
+        }
         // continue in background if the browser request was interrupted
         //ignore_user_abort(true);
+        return $this;
     }
 
     public function shutdown($lastMethod=null)
@@ -2205,26 +2229,7 @@ class BActionController extends BClass
             $this->layout($baseLayout);
         }
         BLayout::i()->applyLayout('view-proxy')->applyLayout($viewPrefix.$page);
-
-        $view->render();
-        $metaData = $view->param('meta_data');
-        if ($metaData) {
-            if (!empty($metaData['layout.yml'])) {
-                BLayout::i()->addLayout('viewproxy-metadata', BYAML::i()->parse(trim($metaData['layout.yml'])))
-                    ->applyLayout('viewproxy-metadata');
-            }
-            if (($head = $this->view('head'))) {
-                foreach ($metaData as $k=>$v) {
-                    $k = strtolower($k);
-                    switch ($k) {
-                    case 'title':
-                        $head->addTitle($v); break;
-                    case 'meta_title': case 'meta_description': case 'meta_keywords':
-                        $head->meta(str_replace('meta_','',$k), $v); break;
-                    }
-                }
-            }
-        }
+        $view->useMetaData();
 
         if (($root = BLayout::i()->view('root'))) {
             $root->addBodyClass('page-'.$page);

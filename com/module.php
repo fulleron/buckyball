@@ -32,14 +32,6 @@ class BModuleRegistry extends BClass
     protected static $_singleton;
 
     /**
-    * Local cache for BApp::i()->get('area');
-    *
-    * @todo make sure handling is case insensitive
-    * @var mixed
-    */
-    protected $_area;
-
-    /**
     * Module information collected from manifests
     *
     * @var array
@@ -132,10 +124,71 @@ class BModuleRegistry extends BClass
         return $this;
     }
 
+    /**
+    * Set or return current module context
+    *
+    * If $name is specified, set current module, otherwise retrieve one
+    *
+    * Used in context of bootstrap, event observer, view
+    *
+    * @todo remove setting module func
+    *
+    * @param string|empty $name
+    * @return BModule|BModuleRegistry
+    */
+    public function currentModule($name=null)
+    {
+        if (is_null($name)) {
+#echo '<hr><pre>'; debug_print_backtrace(); echo static::$_currentModuleName.' * '; print_r($this->module(static::$_currentModuleName)); #echo '</pre>';
+            $name = $this->currentModuleName();
+            return $name ? $this->module($name) : false;
+        }
+        $this->_currentModuleName = $name;
+        return $this;
+    }
+
+    public function setCurrentModule($name)
+    {
+        $this->_currentModuleName = $name;
+        return $this;
+    }
+
+    public function pushModule($name)
+    {
+        array_push($this->_currentModuleStack, $name);
+        return $this;
+    }
+
+    public function popModule()
+    {
+        array_pop($this->_currentModuleStack);
+        return $this;
+    }
+
+    public function currentModuleName()
+    {
+        if (!empty($this->_currentModuleStack)) {
+            return $this->_currentModuleStack[sizeof($this->_currentModuleStack)-1];
+        }
+        return $this->_currentModuleName;
+    }
+/*
+    public function onBeforeDispatch()
+    {
+        $routing = BRouting::i();
+        foreach ($this->_modules as $module) {
+            if ($module->run_status===BModule::LOADED && ($prefix = $module->url_prefix)) {
+                $routing->redirect('GET /'.$prefix, $prefix.'/');
+            }
+        }
+    }
+*/
     protected function _getManifestCacheFilename()
     {
         $area = BApp::i()->get('area');
-        return BConfig::i()->get('fs/cache_dir').'/manifests'.($area ? '_'.$area : '').'.data';
+        $fileName = BConfig::i()->get('fs/cache_dir').'/manifests'.($area ? '_'.$area : '').'.data';
+        BUtil::ensureDir(dirname($fileName));
+        return $fileName;
     }
 
     public function saveManifestCache()
@@ -169,6 +222,16 @@ class BModuleRegistry extends BClass
         }
     }
 
+    public function deleteManifestCache()
+    {
+        $cacheFile = $this->_getManifestCacheFilename();
+        if (file_exists($cacheFile)) {
+            unlink($cacheFile);
+            return true;
+        }
+        return false;
+    }
+
     /**
     * Scan for module manifests in a folder
     *
@@ -180,7 +243,7 @@ class BModuleRegistry extends BClass
     * @param string $source
     * @return BModuleRegistry
     */
-    public function scan($source)
+    public function scan($source, $validateManifests = false)
     {
         // if $source does not end with .json, assume it is a folder
         if (!preg_match('/\.(json|yml|php)$/', $source)) {
@@ -196,6 +259,11 @@ class BModuleRegistry extends BClass
             $info = pathinfo($file);
             switch ($info['extension']) {
                 case 'php':
+                    if ($validateManifests) {
+                        if (BConfig::i()->isInvalidManifestPHP(file_get_contents($file))) {
+                            throw new BException('Invalid PHP Manifest File');
+                        }
+                    }
                     $manifest = include($file);
                     break;
                 case 'yml':
@@ -207,10 +275,10 @@ class BModuleRegistry extends BClass
 
                     break;
                 default:
-                    BDebug::error(BLocale::_("Unknown manifest file format: %s", $file));
+                    throw new BException(BLocale::_("Unknown manifest file format: %s", $file));
             }
             if (empty($manifest['modules']) && empty($manifest['include'])) {
-                BDebug::error(BLocale::_("Invalid or empty manifest file: %s", $file));
+                throw new BException(BLocale::_("Invalid or empty manifest file: %s", $file));
             }
             if (!empty($manifest['modules'])) {
                 foreach ($manifest['modules'] as $modName=>$params) {
@@ -298,10 +366,10 @@ class BModuleRegistry extends BClass
             }
             if ($mod->errors && !$mod->errors_propagated) {
                 // propagate dependency errors into subdependent modules
-                $this->propagateDependErrors($mod);
+                $this->propagateRequireErrors($mod);
             } elseif ($mod->run_status===BModule::PENDING) {
                 // propagate pending status into deep dependent modules
-                $this->propagateDepends($mod);
+                $this->propagateRequires($mod);
             }
         }
         #var_dump($this->_modules);exit;
@@ -314,7 +382,7 @@ class BModuleRegistry extends BClass
     * @param BModule $mod
     * @return BModuleRegistry
     */
-    public function propagateDependErrors($mod)
+    public function propagateRequireErrors($mod)
     {
         //$mod->action = !empty($dep['action']) ? $dep['action'] : 'error';
         $mod->run_status = BModule::ERROR;
@@ -325,7 +393,7 @@ class BModuleRegistry extends BClass
             }
             $child = $this->_modules[$childName];
             if ($child->run_level===BModule::REQUIRED && $child->run_status!==BModule::ERROR) {
-                $this->propagateDependErrors($child);
+                $this->propagateRequireErrors($child);
             }
         }
         return $this;
@@ -337,7 +405,7 @@ class BModuleRegistry extends BClass
     * @param BModule $mod
     * @return BModuleRegistry
     */
-    public function propagateDepends($mod)
+    public function propagateRequires($mod)
     {
         foreach ($mod->parents as $parentName) {
             if (empty($this->_modules[$parentName])) {
@@ -348,13 +416,13 @@ class BModuleRegistry extends BClass
                 continue;
             }
             $parent->run_status = BModule::PENDING;
-            $this->propagateDepends($parent);
+            $this->propagateRequires($parent);
         }
         return $this;
     }
 
     /**
-     * Detect circula module dependencies references
+     * Detect circular module dependencies references
      */
     public function detectCircularReferences($mod, $depPathArr = array())
     {
@@ -389,7 +457,7 @@ class BModuleRegistry extends BClass
     *
     * @return BModuleRegistry
     */
-    public function sortDepends()
+    public function sortRequires()
     {
         $modules = $this->_modules;
 
@@ -477,7 +545,7 @@ class BModuleRegistry extends BClass
     public function processRequires()
     {
         $this->checkRequires();
-        $this->sortDepends();
+        $this->sortRequires();
         return $this;
     }
 
@@ -511,70 +579,6 @@ class BModuleRegistry extends BClass
         BEvents::i()->fire('BModuleRegistry::bootstrap:after');
         return $this;
     }
-
-    /**
-    * Set or return current module context
-    *
-    * If $name is specified, set current module, otherwise retrieve one
-    *
-    * Used in context of bootstrap, event observer, view
-    *
-    * @todo remove setting module func
-    *
-    * @param string|empty $name
-    * @return BModule|BModuleRegistry
-    */
-    public function currentModule($name=null)
-    {
-        if (is_null($name)) {
-#echo '<hr><pre>'; debug_print_backtrace(); echo static::$_currentModuleName.' * '; print_r($this->module(static::$_currentModuleName)); #echo '</pre>';
-            $name = $this->currentModuleName();
-            return $name ? $this->module($name) : false;
-        }
-        $this->_currentModuleName = $name;
-        return $this;
-    }
-
-    public function setCurrentModule($name)
-    {
-        $this->_currentModuleName = $name;
-        return $this;
-    }
-
-    public function pushModule($name)
-    {
-        array_push($this->_currentModuleStack, $name);
-        return $this;
-    }
-
-    public function popModule()
-    {
-        array_pop($this->_currentModuleStack);
-        return $this;
-    }
-
-    public function currentModuleName()
-    {
-        if (!empty($this->_currentModuleStack)) {
-            return $this->_currentModuleStack[sizeof($this->_currentModuleStack)-1];
-        }
-        return $this->_currentModuleName;
-    }
-/*
-    public function onBeforeDispatch()
-    {
-        $routing = BRouting::i();
-        foreach ($this->_modules as $module) {
-            if ($module->run_status===BModule::LOADED && ($prefix = $module->url_prefix)) {
-                $routing->redirect('GET /'.$prefix, $prefix.'/');
-            }
-        }
-    }
-*/
-    public function debug()
-    {
-        return $this->_modules;
-    }
 }
 
 /**
@@ -602,6 +606,8 @@ class BModule extends BClass
     * @var array
     */
     static protected $_manifestCache = array();
+
+    public $manifest = array();
 
     public $name;
     public $run_level;
@@ -639,6 +645,8 @@ class BModule extends BClass
     public $override;
     public $default_config;
     public $autoload;
+    public $crontab;
+    public $custom;
 
     const
         // run_level
@@ -942,7 +950,8 @@ class BModule extends BClass
 
     protected function _processProvides()
     {
-        if (!empty($this->provides['themes'])) {
+        //TODO: automatically enable theme module when it is used
+        if ($this->run_status===BModule::PENDING && !empty($this->provides['themes'])) {
             foreach ($this->provides['themes'] as $name=>$params) {
                 $params['module_name'] = $this->name;
                 BLayout::i()->addTheme($name, $params);
@@ -1020,11 +1029,12 @@ class BModule extends BClass
     }
 
     /**
-    * Register module specific autoload callback
-    *
-    * @param mixed $rootDir
-    * @param mixed $callback
-    */
+     * Register module specific autoload callback
+     *
+     * @param mixed $rootDir
+     * @param mixed $callback
+     * @return $this
+     */
     public function autoload($rootDir='', $callback=null)
     {
         if (!$rootDir) {
@@ -1146,7 +1156,15 @@ class BModule extends BClass
     public function processDefaultConfig()
     {
         if (!empty($this->default_config)) {
-            BConfig::i()->add($this->default_config);
+            $cfgHlp = BConfig::i();
+            $config = $this->default_config;
+            foreach ($config as $path => $value) {
+                if (strpos($path, '/')!==false) {
+                    $cfgHlp->set($path, $value);
+                    unset($config[$path]);
+                }
+            }
+            $cfgHlp->add($config);
         }
         $this->_processProvides();
         return $this;
@@ -1428,7 +1446,9 @@ class BMigrate extends BClass
         end($installs); $install = current($installs);
         $instance = $class::i();
 
-        static::install($install['to'], array($instance, $install['method']));
+        if ($install) {
+            static::install($install['to'], array($instance, $install['method']));
+        }
         foreach ($upgrades as $upgrade) {
             static::upgrade($upgrade['from'], $upgrade['to'], array($instance, $upgrade['method']));
         }
@@ -1456,12 +1476,15 @@ class BMigrate extends BClass
         }
 BDebug::debug(__METHOD__.': '.var_export($mod, 1));
         // creating module before running install, so the module configuration values can be created within script
-        $module = BDbModule::i()->create(array(
-            'module_name' => $mod['module_name'],
-            'schema_version' => $version,
-            'last_upgrade' => BDb::now(),
-            'last_status' => 'INSTALLING',
-        ))->save();
+        $module = BDbModule::i()->load($mod['module_name'], 'module_name');
+        if (!$module) {
+            $module = BDbModule::i()->create(array(
+                'module_name' => $mod['module_name'],
+                'schema_version' => $version,
+                'last_upgrade' => BDb::now(),
+                'last_status' => 'INSTALLING',
+            ))->save();
+        }
         // call install migration script
         try {
             if (is_callable($callback)) {

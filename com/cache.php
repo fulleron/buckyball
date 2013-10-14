@@ -166,6 +166,7 @@ class BCache_Backend_File extends BClass implements BCache_Backend_Interface
         }
         for ($data = ''; $chunk = fread($fp, 4096); $data .= $chunk);
         fclose($fp);
+        $data = unserialize($data);
         return $data;
 
     }

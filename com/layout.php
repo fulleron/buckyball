@@ -677,7 +677,8 @@ class BLayout extends BClass
             $callback = self::$_metaDirectives[$d['type']];
 
             if ($d['type'] === 'remove') {
-                if ($d['name'] === 'all') { //TODO: allow removing specific instructions
+                if ($d['name'] === 'ALL') { //TODO: allow removing specific instructions
+                    BDebug::debug('LAYOUT.REMOVE');
                     $callbacks = array();
                 }
             } else {
@@ -755,6 +756,9 @@ class BLayout extends BClass
         if (!empty($d['views'])) {
             foreach ((array)$d['views'] as $v) {
                 $this->hookView($d['name'], $v, $args);
+            }
+            if (!empty($d['use_meta'])) {
+                $this->view($v)->useMetaData();
             }
         }
     }
@@ -1376,6 +1380,33 @@ class BView extends BClass
     }
 
     /**
+     * Use meta data declared in the view template to set head meta tags
+     */
+    public function useMetaData()
+    {
+        $this->render();
+        $metaData = $this->param('meta_data');
+        if ($metaData) {
+            if (!empty($metaData['layout.yml'])) {
+                $layoutData = BYAML::i()->parse(trim($metaData['layout.yml']));
+                BLayout::i()->addLayout('viewproxy-metadata', $layoutData)->applyLayout('viewproxy-metadata');
+            }
+            if (($head = $this->view('head'))) {
+                foreach ($metaData as $k=>$v) {
+                    $k = strtolower($k);
+                    switch ($k) {
+                    case 'title':
+                        $head->addTitle($v); break;
+                    case 'meta_title': case 'meta_description': case 'meta_keywords':
+                        $head->meta(str_replace('meta_','',$k), $v); break;
+                    }
+                }
+            }
+        }
+        return $this;
+    }
+
+    /**
      * @return bool
      */
     protected function _beforeRender()
@@ -1524,6 +1555,19 @@ class BView extends BClass
         }
 
         return BLocale::_($string, $params, $module);
+    }
+
+    protected $_validators = array();
+
+    public function validator($formName, $data = null)
+    {
+        if (empty($this->_validators[$formName])) {
+            $this->_validators[$formName] = BValidateViewHelper::i(true, array(
+                'form' => $formName,
+                'data' => $data,
+            ));
+        }
+        return $this->_validators[$formName];
     }
 }
 
@@ -2077,6 +2121,9 @@ class BViewHead extends BView
                     $config['paths'][$name] = $this->src($file);
                 }
             }
+            // if (BDebug::is('DEBUG')) {
+            //     $config['urlArgs'] = 'bust='.time();
+            // }
             $jsArr[] = "require.config(".BUtil::toJavaScript($config)."); ";
         }
         if (!empty($this->_requireJs['run'])) {

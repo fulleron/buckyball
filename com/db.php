@@ -463,7 +463,7 @@ EOT
             $tables = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}`", array())->find_many();
             $field = "Tables_in_{$dbName}";
             foreach ($tables as $t) {
-                 static::$_tables[$dbName][$t->$field] = array();
+                 static::$_tables[$dbName][$t->get($field)] = array();
             }
         } elseif (!isset(static::$_tables[$dbName][$tableName])) {
             $table = BORM::i()->raw_query("SHOW TABLES FROM `{$dbName}` LIKE ?", array($tableName))->find_one();
@@ -584,7 +584,7 @@ EOT
             // temporary code duplication with ddlTable, until the other one is removed
             $fieldsArr = array();
             foreach ($fields as $f=>$def) {
-                $fieldsArr[] = $f.' '.$def;
+                $fieldsArr[] = '`'.$f.'` '.$def;
             }
             $fields = null; // reset before update step
             if ($primary) {
@@ -619,7 +619,7 @@ EOT
         } else {
             $fieldsArr = array();
             foreach ($fields as $f=>$def) {
-                $fieldsArr[] = $f.' '.$def;
+                $fieldsArr[] = '`'.$f.'` '.$def;
             }
             if (!empty($options['primary'])) {
                 $fieldsArr[] = "PRIMARY KEY ".$options['primary'];
@@ -652,37 +652,42 @@ EOT
     public static function ddlTableColumns($fullTableName, $fields, $indexes=null, $fks=null)
     {
         $tableFields = static::ddlFieldInfo($fullTableName, null);
+        $tableFields = array_change_key_case($tableFields, CASE_LOWER);
         $alterArr = array();
         if ($fields) {
             foreach ($fields as $f=>$def) {
+                $fLower = strtolower($f);
                 if ($def==='DROP') {
-                    if (!empty($tableFields[$f])) {
+                    if (!empty($tableFields[$fLower])) {
                         $alterArr[] = "DROP `{$f}`";
                     }
-                } elseif (empty($tableFields[$f])) {
-                    $alterArr[] = "ADD `{$f}` {$def}";
-                } else {
-                    if (strpos($def, 'RENAME')===0) {
-                        $a = explode(' ', $def, 3); //TODO: smarter parser, allow spaces in column name??
-                        // Why not use a sprintf($def, $f) to fill in column name from $f?
-                        $colName = $a[1];
-                        $def = $a[2];
-                    } else {
-                        $colName = $f;
+                } elseif (strpos($def, 'RENAME')===0) {
+                    $a = explode(' ', $def, 3); //TODO: smarter parser, allow spaces in column name??
+                    // Why not use a sprintf($def, $f) to fill in column name from $f?
+                    $colName = $a[1];
+                    $def = $a[2];
+                    if (empty($tableFields[$fLower])) {
+                        $f = $colName;
                     }
                     $alterArr[] = "CHANGE `{$f}` `{$colName}` {$def}";
+                } elseif (empty($tableFields[$fLower])) {
+                    $alterArr[] = "ADD `{$f}` {$def}";
+                } else {
+                    $alterArr[] = "CHANGE `{$f}` `{$f}` {$def}";
                 }
             }
         }
         if ($indexes) {
             $tableIndexes = static::ddlIndexInfo($fullTableName);
+            $tableIndexes = array_change_key_case($tableIndexes, CASE_LOWER);
             foreach ($indexes as $idx=>$def) {
+                $idxLower = strtolower($idx);
                 if ($def==='DROP') {
-                    if (!empty($tableIndexes[$idx])) {
+                    if (!empty($tableIndexes[$idxLower])) {
                         $alterArr[] = "DROP KEY `{$idx}`";
                     }
                 } else {
-                    if (!empty($tableIndexes[$idx])) {
+                    if (!empty($tableIndexes[$idxLower])) {
                         $alterArr[] = "DROP KEY `{$idx}`";
                     }
                     if (strpos($def, 'PRIMARY')===0) {
@@ -700,17 +705,19 @@ EOT
         }
         if ($fks) {
             $tableFKs = static::ddlForeignKeyInfo($fullTableName);
+            $tableFKs = array_change_key_case($tableFKs, CASE_LOWER);
             // @see http://dev.mysql.com/doc/refman/5.5/en/innodb-foreign-key-constraints.html
             // You cannot add a foreign key and drop a foreign key in separate clauses of a single ALTER TABLE statement.
             // Separate statements are required.
             $dropArr = array();
             foreach ($fks as $idx=>$def) {
+                $idxLower = strtolower($idx);
                 if ($def==='DROP') {
-                    if (!empty($tableFKs[$idx])) {
+                    if (!empty($tableFKs[$idxLower])) {
                         $dropArr[] = "DROP FOREIGN KEY `{$idx}`";
                     }
                 } else {
-                    if (!empty($tableFKs[$idx])) {
+                    if (!empty($tableFKs[$idxLower])) {
                     // what if it is not foreign key constraint we do not doe anything to check for UNIQUE and PRIMARY constraint
                         $dropArr[] = "DROP FOREIGN KEY `{$idx}`";
                     }
@@ -1495,6 +1502,9 @@ exit;
         if(empty($d['donotlimit'])){
             $this->offset($s['rs'])->limit(!empty($s['rc']) ? $s['rc'] : $s['ps']); // limit rows to page
         }
+#BDebug::dump($s);
+#BDebug::dump($this);
+
         $rows = $this->find_many(); // result data
         $s['rc'] = $rows ? sizeof($rows) : 0; // returned row count
         if (!empty($d['as_array'])) {
@@ -1622,6 +1632,13 @@ class BModel extends Model
     * @var boolean
     */
     protected $_newRecord;
+
+    /**
+     * Rules for model data validation using BValidate
+     *
+     * @var array
+     */
+    protected $_validationRules = array();
 
     /**
     * Retrieve original class name
@@ -2412,6 +2429,31 @@ class BModel extends Model
             return $options[$key];
         }
         return $options;
+    }
+
+    /**
+     * Model validation
+     *
+     * Validate provided data using model rules and parameter rules.
+     * Parameter rules will be merged with model rules and can override them.
+     * Event will be fired prior validation which will enable adding of rules or editing data
+     * Event will be fired if validation fails.
+     *
+     * @see BValidate::validateInput()
+     * @param array $data
+     * @param array $rules
+     * @return bool
+     */
+    public function validate($data, $rules = array())
+    {
+        $rules = array_merge($this->_validationRules, $rules);
+        BEvents::i()->fire($this->_origClass()."::validate:before", array("rules" => &$rules, "data" => &$data));
+        $valid = BValidate::i()->validateInput($data, $rules, 'address-form');
+        if (!$valid) {
+            BEvents::i()->fire($this->_origClass()."::validate:failed", array("rules" => &$rules, "data" => &$data));
+        }
+
+        return $valid;
     }
 
     public function __call($name, $args)

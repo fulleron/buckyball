@@ -964,13 +964,13 @@
 
             static::_log_query($query, $this->_values);
             $statement = static::$_db->prepare($query);
-try {
+#try {
             $statement->execute($this->_values);
-} catch (Exception $e) {
-echo $query;
-print_r($e);
-exit;
-}
+#} catch (Exception $e) {
+#echo $query;
+#print_r($e);
+#exit;
+#}
             $rows = array();
             while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
                 $rows[] = $row;

@@ -50,18 +50,19 @@ class BTwig extends BClass
             static::$_fileTwig->addExtension(new Twig_Extension_Debug());
             static::$_stringTwig->addExtension(new Twig_Extension_Debug());
         }
-        $i18nFilter = new Twig_SimpleFilter('_', 'BLocale::_');
-        static::$_fileTwig->addFilter($i18nFilter);
-        static::$_stringTwig->addFilter($i18nFilter);
 
-        $currencyFilter = new Twig_SimpleFilter('currency', 'BLocale::currency');
-        static::$_fileTwig->addFilter($currencyFilter);
-        static::$_stringTwig->addFilter($currencyFilter);
-
-        $debugFilter = new Twig_SimpleFilter('debug', function($v) {
-            echo "<pre>"; print_r($v); echo "</pre>";
-        });
-        static::$_fileTwig->addFilter($debugFilter);
+        foreach (array(
+            '_' => 'BLocale::_',
+            'currency' => 'BLocale::currency',
+            'min' => 'min',
+            'max' => 'max',
+            'floor' => 'floor',
+            'debug' => function($v) { echo "<pre>"; print_r($v); echo "</pre>"; },
+        ) as $filterName => $filterCallback) {
+            $filter = new Twig_SimpleFilter($filterName, $filterCallback);
+            static::$_fileTwig->addFilter($filter);
+            static::$_stringTwig->addFilter($filter);
+        }
 
         foreach (array('app', 'config', 'layout', 'request', 'session', 'util', 'debug') as $var) {
             $global   = strtoupper($var);
@@ -71,7 +72,11 @@ class BTwig extends BClass
             static::$_stringTwig->addGlobal($global, $instance);
         }
 
-        BEvents::i()->fire(__METHOD__, array('options' => $options));
+        BEvents::i()->fire(__METHOD__, array(
+            'options' => $options,
+            'file_adapter' => static::$_fileTwig,
+            'string_adapter' => static::$_stringTwig,
+        ));
     }
 
     public static function onLayoutAddAllViews($args)

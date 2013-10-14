@@ -842,6 +842,7 @@ class BUtil extends BClass
     * @deprecated by BUtil::bcrypt()
     * @param string $string original text
     * @param string $storedHash fully composed salted hash
+    * @return bool
     */
     public static function validateSaltedHash($string, $storedHash)
     {
@@ -884,7 +885,13 @@ class BUtil extends BClass
         $timeout = 5;
         $userAgent = 'Mozilla/5.0';
         if ($method==='GET' && $data) {
-            $url .= (strpos($url, '?')===false ? '?' : '&').$request;
+            if(is_array($data)){
+                $request = http_build_query($data, '', '&');
+            } else {
+                $request = $data;
+            }
+
+            $url .= (strpos($url, '?')===false ? '?' : '&') . $request;
         }
 
         // curl disabled because file upload doesn't work for some reason. TODO: figure out why
@@ -931,6 +938,10 @@ class BUtil extends BClass
             list($response, $headers) = explode("\r\n\r\n", $rawResponse, 2);
             static::$_lastRemoteHttpInfo = curl_getinfo($ch);
             $respHeaders = explode("\r\n", $headers);
+            if(curl_errno($ch) != 0){
+                static::$_lastRemoteHttpInfo['errno'] = curl_errno($ch);
+                static::$_lastRemoteHttpInfo['error'] = curl_error($ch);
+            }
             curl_close($ch);
 
         } else {
@@ -949,7 +960,7 @@ class BUtil extends BClass
                 }
                 if (!$multipart) {
                     $contentType = 'application/x-www-form-urlencoded';
-                    $opts['http']['content'] = $request;
+                    $opts['http']['content'] = http_build_query($data);
                 } else {
                     $boundary = '--------------------------'.microtime(true);
                     $contentType = 'multipart/form-data; boundary='.$boundary;
@@ -1474,6 +1485,9 @@ class BHTML extends BClass
 
 }
 
+/**
+ * @todo Verify license compatibility and integrate with https://github.com/PHPMailer/PHPMailer
+ */
 class BEmail extends BClass
 {
     static protected $_handlers = array();
@@ -1507,7 +1521,7 @@ class BEmail extends BClass
 
     public function send($data)
     {
-        static $allowedHeadersRegex = '/^(to|from|cc|bcc|reply-to|return-path|content-type|x-.*)$/';
+        static $allowedHeadersRegex = '/^(to|from|cc|bcc|reply-to|return-path|content-type|list-unsubscribe|x-.*)$/';
 
         $data = array_change_key_case($data, CASE_LOWER);
 
@@ -2492,6 +2506,29 @@ class BLocale extends BClass
                             static::addTranslation(array($word,$tr), $module);
                         }
                         break;
+
+                    case 'po':
+                        //TODO: implement https://github.com/clinisbut/PHP-po-parser
+                        $contentLines = file($data);
+                        $translations = array();
+                        $mode = null;
+                        foreach ($contentLines as $line) {
+                            $line = trim($line);
+                            if ($line[0]==='"') {
+                                $cmd = '+'.$mode;
+                                $str = $line;
+                            } else {
+                                list($cmd, $str) = explode(' ', $line, 2);
+                            }
+                            $str = preg_replace('/(^\s*"|"\s*$)/', '', $str);
+                            switch ($cmd) {
+                                case 'msgid': $msgid = $str; $mode = $cmd; $translations[$msgid] = ''; break;
+                                case '+msgid': $msgid .= $str; break;
+                                case 'msgstr': $mode = $cmd; $translations[$msgid] = $str; break;
+                                case '+msgstr': $translations[$msgid] .= $str; break;
+                            }
+                        }
+                        break;
                 }
             } else {
                 BDebug::warning('Could not load translation file: '.$data);
@@ -2578,14 +2615,16 @@ class BLocale extends BClass
         $ext = strtolower(pathinfo($targetFile, PATHINFO_EXTENSION));
         switch ($ext) {
             case 'php':
-                self::saveToPHP($targetFile, $newtranslations);
+                static::saveToPHP($targetFile, $newtranslations);
                 break;
             case 'csv':
-                self::saveToCSV($targetFile, $newtranslations);
+                static::saveToCSV($targetFile, $newtranslations);
                 break;
             case 'json':
-                self::saveToJSON($targetFile, $newtranslations);
+                static::saveToJSON($targetFile, $newtranslations);
                 break;
+            case 'po':
+                static::saveToJSON($targetFile, $newtranslations);
             default:
                 throw new Exception("Undefined format of translation targetFile. Possible formats are: json/csv/php");
         }
@@ -2617,6 +2656,16 @@ class BLocale extends BClass
         foreach ($array as $k => $v) {
             $k = trim($k, '"');
             fputcsv($handle, array($k, $v));
+        }
+        fclose($handle);
+    }
+
+    static protected function saveToPO($targetFile, $array)
+    {
+        $handle = fopen($targetFile, "w");
+        foreach ($array as $k => $v) {
+            $v = str_replace("\n", '\n', $v);
+            fwrite($handle, "msgid \"{$k}\"\nmsgstr \"{$v}\"\n\n");
         }
         fclose($handle);
     }
@@ -2845,19 +2894,30 @@ class BLocale extends BClass
         return self::$_tr;
     }
 
-    static protected $_currency;
+    static protected $_currencySymbolMap = array(
+        'USD' => '$',
+        'EUR' => '',
+        'GBP' => '',
+    );
+    static protected $_currencyCode = 'USD';
+    static protected $_currencySymbol = '$';
 
-    static public function setCurrency($currency)
+    static public function setCurrency($code, $symbol = null)
     {
-        static::$_currency = $currency;
+        static::$_currencyCode = $code;
+        if (is_null($symbol)) {
+            if (!empty(static::$_currencySymbolMap[$code])) {
+                $symbol = static::$_currencySymbolMap[$code];
+            } else {
+                $symbol = $code.' ';
+            }
+        }
+        static::$_currencySymbol = $symbol;
     }
 
-    static public function currency($value, $currency = null)
+    static public function currency($value, $decimals = 2)
     {
-        if (!$currency) {
-            $currency = static::$_currency;
-        }
-        return sprintf('%s%s', $currency, number_format($value, 2));
+        return sprintf('%s%s', static::$_currencySymbol, number_format($value, $decimals));
     }
 }
 
@@ -3194,8 +3254,266 @@ class BYAML extends BCLass
     }
 }
 
+class BValidate extends BClass
+{
+    protected $_reRegex = '#^([/\#~&,%])(.*)(\1)[imsxADSUXJu]*$#';
+    protected $_defaultRules = array(
+        'required' => array(
+            'rule'    => 'BValidate::ruleRequired',
+            'message' => 'Missing field: :field',
+        ),
+        'url'       => array(
+            'rule'    => '#(([\w]+:)?//)?(([\d\w]|%[a-fA-f\d]{2,2})+(:([\d\w]|%[a-fA-f\d]{2,2})+)?@)?([\d\w][-\d\w]{0,253}[\d\w]\.)+[\w]{2,4}(:[\d]+)?(/([-+_~.\d\w]|%[a-fA-f\d]{2,2})*)*(\?(&?([-+_~.\d\w]|%[a-fA-f\d]{2,2})=?)*)?(\#([-+_~.\d\w]|%[a-fA-f\d]{2,2})*)?#',
+            'message' => 'Invalid URL',
+        ),
+        'email'     => array(
+            'rule'    => '/^([\w-\.]+)@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)|(([\w-]+\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\]?)$/',
+            'message' => 'Invalid Email',
+        ),
+        'numeric'   => array(
+            'rule'    => '/^([+-]?)([0-9 ]+)(\.?,?)([0-9]*)$/',
+            'message' => 'Invalid number: :field',
+        ),
+        'integer'   => array(
+            'rule'    => '/^[+-][0-9]+$/',
+            'message' => 'Invalid integer: :field',
+        ),
+        'alphanum'  => array(
+            'rule'    => '/^[a-zA-Z0-9 ]+$/',
+            'message' => 'Invalid alphanumeric: :field',
+        ),
+        'alpha'  => array(
+            'rule'    => '/^[a-zA-Z ]+$/',
+            'message' => 'Invalid alphabet field: :field',
+        ),
+        'password_confirm' => array(
+            'rule'    => 'BValidate::rulePasswordConfirm',
+            'message' => 'Password confirmation does not match',
+            'args'    => array('original' => 'password'),
+        ),
+    );
+
+    protected $_defaultMessage = "Validation failed for: :field";
+    protected $_expandedRules = array();
+
+    protected $_validateErrors = array();
+
+    public function addValidator($name, $rule)
+    {
+        $this->_defaultRules[$name] = $rule;
+        return $this;
+    }
+
+    protected function _expandRules($rules)
+    {
+        $this->_expandedRules = array();
+        foreach ($rules as $rule) {
+            if (!empty($rule[0]) && !empty($rule[1])) {
+                $r = $rule;
+                $rule = array('field' => $r[0], 'rule' => $r[1]);
+                if (isset($r[2])) $rule['message'] = $r[2];
+                if (isset($r[3])) $rule['args'] = $r[3];
+                if (isset($rule['args']) && is_string($rule['args'])) {
+                    $rule['args'] = array($rule['args'] => true);
+                }
+            }
+            if (is_string($rule['rule']) && $rule['rule'][0] === '@') {
+                $ruleName = substr($rule['rule'], 1);
+                if (empty($this->_defaultRules[$ruleName])) {
+                    throw new BException('Invalid rule name: ' . $ruleName);
+                }
+                $defRule = $this->_defaultRules[$ruleName];
+                $rule = BUtil::arrayMerge($defRule, $rule);
+                $rule['rule'] = $defRule['rule'];
+            }
+            if(empty($rule['message'])) $rule['message'] = $this->_defaultMessage;
+            $this->_expandedRules[] = $rule;
+        }
+    }
+
+    protected function _validateRules($data)
+    {
+        $this->_validateErrors = array();
+        foreach ($this->_expandedRules as $r) {
+            $args = !empty($r['args']) ? $r['args'] : array();
+            $r['args']['field'] = $r['field']; // for callback and message vars
+            if (is_string($r['rule']) && preg_match($this->_reRegex, $r['rule'], $m)) {
+                $result = empty($data[$r['field']]) || preg_match($m[0], $data[$r['field']]);
+            } elseif($r['rule'] instanceof Closure){
+                $result = $r['rule']($data, $r['args']);
+            } elseif (is_callable($r['rule'])) {
+                $result = BUtil::call($r['rule'], array($data, $r['args']), true);
+            } else {
+                throw new BException('Invalid rule: '.print_r($r['rule'], 1));
+            }
+
+            if (!$result) {
+                $this->_validateErrors[$r['field']][] = BUtil::injectVars($r['message'], $r['args']);
+                if (!empty($r['args']['break'])) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Validate passed data
+     *
+     * $data is an array of key value pairs.
+     * Keys will be matched against rules.
+     * <code>
+     * // data
+     * array (
+     *  'firstname' => 'John',
+     *  'lastname' => 'Doe',
+     *  'email' => 'test@example.com',
+     *  'url' => 'http://example.com/test?foo=bar#baz',
+     *  'password' => '12345678',
+     *  'password_confirm' => '12345678',
+     * );
+     *
+     * // rules in format: ['field', 'rule', ['message'], [ 'break' | 'arg1' => 'val1' ] ]
+     * $rules = array(
+     *   array('email', '@required'),
+     *   array('email', '@email'),
+     *   array('url', '@url'),
+     *   array('firstname', '@required', 'Missing First Name'),
+     *   array('firstname', '/^[A-Za-z]+$/', 'Invalid First Name', 'break'),
+     *   array('password', '@required', 'Missing Password'),
+     *   array('password_confirm', '@password_confirm'),
+     * );
+     * </code>
+     *
+     * Rule can be either string that resolves to callback, regular expression or closure.
+     * Allowed pattern delimiters for regular expression are: /\#~&,%
+     * Allowed regular expression modifiers are: i m s x A D S U X J u
+     * e and E modifiers are NOT allowed. Any exptression using them will not work.
+     *
+     * Callbacks can be either: Class::method for static method call or Class.method | Class->method for instance call
+     *
+     * @param array $data
+     * @param array $rules
+     * @param null  $formName
+     * @return bool
+     */
+    public function validateInput($data, $rules, $formName = null)
+    {
+        $this->_expandRules($rules);
+
+        $this->_validateRules($data);
+
+        if ($this->_validateErrors && $formName) {
+            BSession::i()->set('validator-data:' . $formName, $data);
+            foreach ($this->_validateErrors as $field => $errors) {
+                foreach ($errors as $error) {
+                    $msg = compact('error', 'field');
+                    BSession::i()->addMessage($msg, 'error', 'validator-errors:' . $formName);
+                }
+            }
+        }
+        return $this->_validateErrors ? false : true;
+    }
+
+    public function validateErrors()
+    {
+        return $this->_validateErrors;
+    }
+
+    static public function ruleRequired($data, $args)
+    {
+        return !empty($data[$args['field']]);
+    }
+
+    static public function rulePasswordConfirm($data, $args)
+    {
+        return empty($data[$args['original']])
+            || !empty($data[$args['field']]) && $data[$args['field']] === $data[$args['original']];
+    }
+}
+
 /**
- * If FISMA/FIPS/NIST compliance required, can wrap the result into SHA-512 as well
+ * Class BValidateViewHelper
+ *
+ *
+ */
+class BValidateViewHelper extends BClass
+{
+    protected $_errors = array();
+    protected $_data = array();
+
+    public function __construct($args)
+    {
+        if(!isset($args['form'])){
+            return;
+        }
+        if (isset($args['data'])) {
+            if (is_object($args['data'])) {
+                $args['data'] = $args['data']->as_array();
+            }
+            $this->_data = $args['data'];
+        }
+
+        $sessionHlp = BSession::i();
+        $errors     = $sessionHlp->messages('validator-errors:' . $args['form']);
+        $formData   = $sessionHlp->get('validator-data:' . $args['form']);
+        $this->_data = BUtil::arrayMerge($this->_data, $formData);
+        $sessionHlp->set('validator-data:' . $args['form'], null);
+
+        foreach ($errors as $error) {
+            $field                 = $error['msg']['field'];
+            $error['value']        = !empty($formData[$field]) ? $formData[$field] : null;
+            $this->_errors[$field] = $error;
+        }
+    }
+
+    public function fieldClass($field)
+    {
+        if (empty($this->_errors[$field]['type'])) {
+            return '';
+        }
+        return $this->_errors[$field]['type'];
+    }
+
+    public function fieldValue($field)
+    {
+        return !empty($this->_data[$field]) ? $this->_data[$field] : null;
+    }
+
+    public function messageClass($field)
+    {
+        if (empty($this->_errors[$field]['type'])) {
+            return '';
+        }
+        return $this->_errors[$field]['type'];
+    }
+
+    public function messageText($field)
+    {
+        if (empty($this->_errors[$field]['msg']['error'])) {
+            return '';
+        }
+        return BLocale::_($this->_errors[$field]['msg']['error']);
+    }
+
+    /**
+     * @param string $field form field name
+     * @param string $fieldId form field ID
+     * @return string
+     */
+    public function errorHtml($field, $fieldId)
+    {
+        $html = '';
+
+        if(!empty($this->_errors[$field]['type'])){
+            $html .= BUtil::tagHtml('label', array('for' => $fieldId, 'class' => $this->messageClass($field)),$this->messageText($field));
+        }
+
+        return $html;
+    }
+}
+
+/**
+ * If FISMA/FIPS/NIST compliance required, use PBKDF2
  *
  * @see http://stackoverflow.com/questions/4795385/how-do-you-use-bcrypt-for-hashing-passwords-in-php
  */
@@ -3216,11 +3534,14 @@ class Bcrypt extends BClass
 
     public function verify($input, $existingHash)
     {
-        return crypt($input, $existingHash) === $existingHash;
+        // md5 for protection against timing side channel attack (needed)
+        return md5(crypt($input, $existingHash)) === md5($existingHash);
     }
 
     private function getSalt()
     {
+        // The security weakness between 5.3.7 affects password with 8-bit characters only
+        // @see: http://php.net/security/crypt_blowfish.php
         $salt = '$' . (version_compare(phpversion(), '5.3.7', '>=') ? '2y' : '2a') . '$12$';
         $salt .= $this->encodeBytes($this->getRandomBytes(16));
         return $salt;
@@ -3295,6 +3616,128 @@ class Bcrypt extends BClass
     }
 }
 
+class BRSA extends BClass
+{
+    protected $_configPath = 'modules/BRSA';
+    protected $_config = array();
+    protected $_publicKey;
+    protected $_privateKey;
+    protected $_cache = array();
+
+    public function __construct()
+    {
+        if (!function_exists('openssl_pkey_new')) {
+            // TODO: integrate Crypt_RSA ?
+            throw new BException('RSA encryption requires openssl module installed');
+        }
+        $defConf = array(
+            "digest_alg" => "sha512",
+            "private_key_bits" => 4096,
+            "private_key_type" => OPENSSL_KEYTYPE_RSA,
+        );
+        $conf = BConfig::i()->get($this->_configPath);
+        $this->_config = array_merge($defConf, $conf);
+    }
+
+    public function generateKey()
+    {
+        $config = BUtil::arrayMask($this->_config, 'digest_alg,x509_extensions,req_extensions,'
+            . 'private_key_bits,private_key_type,encrypt_key,encrypt_key_cipher');
+        $res = openssl_pkey_new($config);
+        openssl_pkey_export($res, $this->_privateKey); // private key
+
+        $pubKey = openssl_pkey_get_details($res); // public key
+        $this->_publicKey = $pubKey["key"];
+
+        BConfig::i()->set($this->_configPath.'/public_key', $this->_publicKey, false, true);
+
+        file_put_contents($this->_getPrivateKeyFileName(), $this->_privateKey);
+
+        return $this;
+    }
+
+    protected  function _getPublicKey()
+    {
+        if (!$this->_publicKey) {
+            $this->_publicKey = BConfig::i()->get($this->_configPath.'/public_key');
+            if (!$this->_publicKey) {
+                throw new BException('No public key defined');
+            }
+        }
+        return $this->_publicKey;
+    }
+
+    protected function _getPrivateKeyFileName()
+    {
+        $configDir = BConfig::i()->get('fs/config_dir');
+        if (!$configDir) {
+            $configDir = '.';
+        }
+        return $configDir . '/private-' . md5($this->_getPublicKey()) . '.key';
+    }
+
+    protected function _getPrivateKey()
+    {
+        if (!$this->_privateKey) {
+            $filepath = $this->_getPrivateKeyFileName();
+            if (!is_readable($filepath)) {
+                throw new BException('No private key file found');
+            }
+            $this->_privateKey = file_get_contents($filepath);
+        }
+        return $this->_privateKey;
+    }
+
+    public function setPublicKey()
+    {
+        $this->_publicKey = $key;
+        return $this;
+    }
+
+    public function setPrivateKey()
+    {
+        $this->_privateKey = $key;
+        return $this;
+    }
+
+    public function encrypt($plain)
+    {
+        openssl_public_encrypt($plain, $encrypted, $this->_getPublicKey());
+        return $encrypted;
+    }
+
+    /**
+     * Decrypt data
+     *
+     * Use buckyball/ssl/offsite-decrypt.php script for much improved security
+     *
+     * @param string $encrypted
+     * @return string
+     */
+    public function decrypt($encrypted)
+    {
+        $hash = sha1($encrypted);
+        if (!empty($this->_cache[$hash])) {
+            return $this->_cache[$hash];
+        }
+        // even though decrypt_url can potentially be overridden by extension, only encrypted data is sent over
+        if (!empty($this->_config['decrypt_url'])) {
+            $data = array('encrypted' => base64_encode($encrypted));
+            $result = BUtil::remoteHttp('GET', $this->_config['decrypt_url'], $data);
+            $decrypted = base64_decode($result);
+            if (!empty($result['decrypted'])) {
+                $decrypted = $result['decrypted'];
+            } else {
+                //TODO: handle exceptions
+            }
+        } else {
+            openssl_private_decrypt($encrypted, $decrypted, $this->_getPrivateKey());
+        }
+        $this->_cache[$hash] = $decrypted;
+        return $decrypted;
+    }
+}
+
 if( !function_exists( 'xmlentities' ) ) {
     /**
      * @see http://www.php.net/manual/en/function.htmlentities.php#106535
@@ -3321,7 +3764,7 @@ if( !function_exists( 'xmlentities' ) ) {
 
 if (!function_exists('password_hash')) {
     /**
-     * If FISMA/FIPS/NIST compliance required, can wrap the result into SHA-512 as well
+     * If FISMA/FIPS/NIST compliance required, use PBKDF2
      *
      * @see http://stackoverflow.com/questions/4795385/how-do-you-use-bcrypt-for-hashing-passwords-in-php
      */
@@ -3399,6 +3842,9 @@ if (!function_exists('hash_pbkdf2')) {
      */
     function hash_pbkdf2($algorithm, $password, $salt, $count, $key_length, $raw_output = false)
     {
+        if (function_exists('openssl_pbkdf2')) {
+            return openssl_pbkdf2($password, $salt, $key_length, $count, $algorithm);
+        }
         $algorithm = strtolower($algorithm);
         if(!in_array($algorithm, hash_algos(), true))
             die('PBKDF2 ERROR: Invalid hash algorithm.');

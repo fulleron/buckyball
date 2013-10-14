@@ -317,6 +317,7 @@
          * Magic getter method, allows $model->property access to data.
          */
         public function __get($property) {
+#$bt = debug_backtrace(); BDebug::log('__get: '.$bt[0]['file'].':'.$bt[0]['line']);
 if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }
 //if (memory_get_usage()>500000000) { echo "<pre>"; debug_print_backtrace(); echo "</pre>"; }
             return $this->orm->get($property);
@@ -326,6 +327,7 @@ if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre
          * Magic setter method, allows $model->property = 'value' access to data.
          */
         public function __set($property, $value) {
+#$bt = debug_backtrace(); BDebug::log('__set: '.$bt[0]['file'].':'.$bt[0]['line']);
             $this->orm->set($property, $value);
         }
 
@@ -333,6 +335,7 @@ if (!is_object($this->orm)) { echo "<pre>"; debug_print_backtrace(); echo "</pre
          * Magic isset method, allows isset($model->property) to work correctly.
          */
         public function __isset($property) {
+#$bt = debug_backtrace(); BDebug::log('__isset: '.$bt[0]['file'].':'.$bt[0]['line']);
             return $this->orm->__isset($property);
         }
 

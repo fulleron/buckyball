@@ -113,11 +113,11 @@ class Blog_Controller_Public extends BActionController
     {
         $layout = BLayout::i();
         $layout->hookView('body', 'index');
-        $layout->view('index')->posts = BlogPost::i()->orm('b')
+        $layout->view('index')->set('posts', BlogPost::i()->orm('b')
             ->select(array('id', 'title', 'preview', 'posted_at'))
             ->select_expr('(select count(*) from '.BlogPostComment::table().' where post_id=b.id and approved)', 'comment_count')
             ->order_by_desc('posted_at')
-            ->find_many();
+            ->find_many());
 
         BResponse::i()->output();
     }

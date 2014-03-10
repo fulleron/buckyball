@@ -41,7 +41,7 @@ This framework was just released and I'm not sure if it deserves even to be call
 So, yada yada.
 
 - cd public_html/dev/
-- git clone git://github.com/unirgy/buckyball.git
+- git clone git://github.com/fulleron/buckyball.git
 - cp index.php.dist index.php
 - cp storage/private/config/local.json.dist storage/private/config/local.json
 - vi storage/private/config/local.json
